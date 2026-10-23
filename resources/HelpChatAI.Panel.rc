@@ -1,0 +1,6 @@
+/* HelpChat panel resources, compiled into source\HelpChatAI.Panel.res by
+   Tools\BuildResources.cmd and linked by HelpChatAI.Panel.pas. All UTF-8. */
+HELPCHAT_PANEL_HTML RCDATA "panel.html"
+HELPCHAT_PANEL_CSS  RCDATA "panel.css"
+HELPCHAT_PANEL_JS   RCDATA "panel.js"
+HELPCHAT_HTMX_JS    RCDATA "htmx.min.js"

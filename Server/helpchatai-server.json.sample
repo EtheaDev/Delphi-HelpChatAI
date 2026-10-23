@@ -1,0 +1,35 @@
+﻿{
+  "//": "HelpChatAI server configuration. Copy next to HelpChatAIServerApp.exe as helpchatai-server.json.",
+  "//keys": "One key per application allowed to use this server; never the model API key.",
+  "Port": 8080,
+  "BindIP": "0.0.0.0",
+  "Keys": [
+    "change-this-key"
+  ],
+  "Sessions": {
+    "Storage": "memory",
+    "Folder": "sessions",
+    "IdleMinutes": 120,
+    "Max": 500
+  },
+  "Provider": "docsearch",
+  "Language": "auto",
+  "DocIndexFile": "help-index.json",
+  "DocBaseUrl": "https://help.example.com/",
+  "//provider": "stub, docsearch, claude, openai or gemini. Only the section of the chosen one is read.",
+  "Claude": {
+    "ApiKey": "",
+    "Model": "claude-haiku-4-5"
+  },
+  "OpenAI": {
+    "//": "Empty BaseUrl means api.openai.com. Point it at Groq, OpenRouter, Mistral, DeepSeek, a local Ollama (http://localhost:11434/v1) or LM Studio to use those instead; set AzureDeployment for Azure OpenAI.",
+    "ApiKey": "",
+    "Model": "gpt-6-luna",
+    "BaseUrl": "",
+    "AzureDeployment": ""
+  },
+  "Gemini": {
+    "ApiKey": "",
+    "Model": "gemini-3.8-flash"
+  }
+}

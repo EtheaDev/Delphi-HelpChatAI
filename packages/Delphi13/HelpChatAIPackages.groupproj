@@ -1,0 +1,196 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{C5D1A7B3-9E42-4F8C-A6D0-2B7E8F3C1A94}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="..\..\Ext\MarkdownProcessor\Packages\D13\MarkdownProcessor.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="HelpChatAI.dproj">
+            <Dependencies>..\..\Ext\MarkdownProcessor\Packages\D13\MarkdownProcessor.dproj</Dependencies>
+        </Projects>
+        <Projects Include="HelpChatAIServer.dproj">
+            <Dependencies>HelpChatAI.dproj</Dependencies>
+        </Projects>
+        <Projects Include="HelpChatAIVcl.dproj">
+            <Dependencies>HelpChatAIServer.dproj</Dependencies>
+        </Projects>
+        <Projects Include="dclHelpChatAIVcl.dproj">
+            <Dependencies>HelpChatAIVcl.dproj</Dependencies>
+        </Projects>
+        <Projects Include="HelpChatAIFmx.dproj">
+            <Dependencies>HelpChatAIServer.dproj</Dependencies>
+        </Projects>
+        <Projects Include="dclHelpChatAIFmx.dproj">
+            <Dependencies>HelpChatAIFmx.dproj</Dependencies>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="MarkdownProcessor">
+        <MSBuild Projects="..\..\Ext\MarkdownProcessor\Packages\D13\MarkdownProcessor.dproj"/>
+    </Target>
+    <Target Name="MarkdownProcessor:Clean">
+        <MSBuild Projects="..\..\Ext\MarkdownProcessor\Packages\D13\MarkdownProcessor.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="MarkdownProcessor:Make">
+        <MSBuild Projects="..\..\Ext\MarkdownProcessor\Packages\D13\MarkdownProcessor.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="HelpChatAI" DependsOnTargets="MarkdownProcessor">
+        <MSBuild Projects="HelpChatAI.dproj"/>
+    </Target>
+    <Target Name="HelpChatAI:Clean" DependsOnTargets="MarkdownProcessor:Clean">
+        <MSBuild Projects="HelpChatAI.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="HelpChatAI:Make" DependsOnTargets="MarkdownProcessor:Make">
+        <MSBuild Projects="HelpChatAI.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="HelpChatAIServer" DependsOnTargets="HelpChatAI">
+        <MSBuild Projects="HelpChatAIServer.dproj"/>
+    </Target>
+    <Target Name="HelpChatAIServer:Clean" DependsOnTargets="HelpChatAI:Clean">
+        <MSBuild Projects="HelpChatAIServer.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="HelpChatAIServer:Make" DependsOnTargets="HelpChatAI:Make">
+        <MSBuild Projects="HelpChatAIServer.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="HelpChatAIVcl" DependsOnTargets="HelpChatAIServer">
+        <MSBuild Projects="HelpChatAIVcl.dproj"/>
+    </Target>
+    <Target Name="HelpChatAIVcl:Clean" DependsOnTargets="HelpChatAIServer:Clean">
+        <MSBuild Projects="HelpChatAIVcl.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="HelpChatAIVcl:Make" DependsOnTargets="HelpChatAIServer:Make">
+        <MSBuild Projects="HelpChatAIVcl.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dclHelpChatAIVcl" DependsOnTargets="HelpChatAIVcl">
+        <MSBuild Projects="dclHelpChatAIVcl.dproj"/>
+    </Target>
+    <Target Name="dclHelpChatAIVcl:Clean" DependsOnTargets="HelpChatAIVcl:Clean">
+        <MSBuild Projects="dclHelpChatAIVcl.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dclHelpChatAIVcl:Make" DependsOnTargets="HelpChatAIVcl:Make">
+        <MSBuild Projects="dclHelpChatAIVcl.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="HelpChatAIFmx" DependsOnTargets="HelpChatAIServer">
+        <MSBuild Projects="HelpChatAIFmx.dproj"/>
+    </Target>
+    <Target Name="HelpChatAIFmx:Clean" DependsOnTargets="HelpChatAIServer:Clean">
+        <MSBuild Projects="HelpChatAIFmx.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="HelpChatAIFmx:Make" DependsOnTargets="HelpChatAIServer:Make">
+        <MSBuild Projects="HelpChatAIFmx.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dclHelpChatAIFmx" DependsOnTargets="HelpChatAIFmx">
+        <MSBuild Projects="dclHelpChatAIFmx.dproj"/>
+    </Target>
+    <Target Name="dclHelpChatAIFmx:Clean" DependsOnTargets="HelpChatAIFmx:Clean">
+        <MSBuild Projects="dclHelpChatAIFmx.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dclHelpChatAIFmx:Make" DependsOnTargets="HelpChatAIFmx:Make">
+        <MSBuild Projects="dclHelpChatAIFmx.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="MarkdownProcessor;HelpChatAI;HelpChatAIServer;HelpChatAIVcl;dclHelpChatAIVcl;HelpChatAIFmx;dclHelpChatAIFmx"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="MarkdownProcessor:Clean;HelpChatAI:Clean;HelpChatAIServer:Clean;HelpChatAIVcl:Clean;dclHelpChatAIVcl:Clean;HelpChatAIFmx:Clean;dclHelpChatAIFmx:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="MarkdownProcessor:Make;HelpChatAI:Make;HelpChatAIServer:Make;HelpChatAIVcl:Make;dclHelpChatAIVcl:Make;HelpChatAIFmx:Make;dclHelpChatAIFmx:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+    <ItemGroup Condition="'$(BuildGroup)'=='Win64_All'">
+        <BuildGroupProject Include="..\..\Ext\MarkdownProcessor\Packages\D13\MarkdownProcessor.dproj">
+            <ProjectGuid>{194F323C-3D74-4280-B72D-20208D9F0599}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win64</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="HelpChatAI.dproj">
+            <ProjectGuid>{8B2E4F61-3A7C-4D95-B1E8-6F0C9A2D7E31}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win64</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="HelpChatAIServer.dproj">
+            <ProjectGuid>{D4F0A2B7-6C19-4E83-A5D2-8B3E7F1C9A46}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win64</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="HelpChatAIVcl.dproj">
+            <ProjectGuid>{7A3C9E15-2D68-4B0F-9E71-C5A8D2F4B633}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win64</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="dclHelpChatAIVcl.dproj">
+            <ProjectGuid>{B9E2D7C4-1F58-4A36-8D0B-3E6C9A7F2D15}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win64</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="HelpChatAIFmx.dproj">
+            <ProjectGuid>{4E9B7D21-6C35-4F8A-B1D7-8A2E5C3F9B46}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win64</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="dclHelpChatAIFmx.dproj">
+            <ProjectGuid>{D2A6F1E8-7B43-4C9D-A5E2-1F8B6D4C7A39}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win64</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+    </ItemGroup>
+    <ItemGroup Condition="'$(BuildGroup)'=='Win32_All'">
+        <BuildGroupProject Include="..\..\Ext\MarkdownProcessor\Packages\D13\MarkdownProcessor.dproj">
+            <ProjectGuid>{194F323C-3D74-4280-B72D-20208D9F0599}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win32</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="HelpChatAI.dproj">
+            <ProjectGuid>{8B2E4F61-3A7C-4D95-B1E8-6F0C9A2D7E31}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win32</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="HelpChatAIServer.dproj">
+            <ProjectGuid>{D4F0A2B7-6C19-4E83-A5D2-8B3E7F1C9A46}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win32</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="HelpChatAIVcl.dproj">
+            <ProjectGuid>{7A3C9E15-2D68-4B0F-9E71-C5A8D2F4B633}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win32</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="dclHelpChatAIVcl.dproj">
+            <ProjectGuid>{B9E2D7C4-1F58-4A36-8D0B-3E6C9A7F2D15}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win32</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="HelpChatAIFmx.dproj">
+            <ProjectGuid>{4E9B7D21-6C35-4F8A-B1D7-8A2E5C3F9B46}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win32</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+        <BuildGroupProject Include="dclHelpChatAIFmx.dproj">
+            <ProjectGuid>{D2A6F1E8-7B43-4C9D-A5E2-1F8B6D4C7A39}</ProjectGuid>
+            <Configurations>Release</Configurations>
+            <Platforms>Win32</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+    </ItemGroup>
+</Project>

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' {{API_BASE}} {{UI_BASE}}; img-src 'self' data:; form-action 'self' {{API_BASE}}; base-uri 'none';">
+<title>{{TITLE}}</title>
+<style>{{CSS}}</style>
+<style id="hc-theme">{{THEME_CSS}}</style>
+<script>{{HTMX}}</script>
+<script>window.HC = {{CONFIG}};</script>
+</head>
+<body>
+<div id="hc-app" class="hc-chat-app">
+  <header class="hc-chat-header">
+    <span class="hc-chat-title">{{TITLE}}</span>
+    <span class="hc-chat-actions">
+      <button type="button" class="hc-chat-hbtn" data-action="clear" title="{{L_CLEAR}}" aria-label="{{L_CLEAR}}"
+              hx-post="{{API_BASE}}/api/clear" hx-target="#hc-body" hx-swap="innerHTML">&#x21BA;</button>
+      <button type="button" class="hc-chat-hbtn" data-action="close" title="{{L_CLOSE}}" aria-label="{{L_CLOSE}}">&#x2715;</button>
+    </span>
+  </header>
+  <main id="hc-body" class="hc-chat-body" hx-get="{{API_BASE}}/api/history" hx-trigger="load" hx-swap="innerHTML"></main>
+  <section id="hc-doc" class="hc-chat-doc" hidden>
+    <div class="hc-chat-doc-bar">
+      <button type="button" id="hc-doc-back" class="hc-chat-hbtn" title="{{L_BACK}}" aria-label="{{L_BACK}}">&#x2190;</button>
+      <span id="hc-doc-title" class="hc-chat-doc-title"></span>
+    </div>
+    <div id="hc-doc-body" class="hc-chat-doc-body" tabindex="-1"></div>
+  </section>
+  <footer class="hc-chat-footer">
+    <form id="hc-form" hx-post="{{API_BASE}}/api/send" hx-target="#hc-body" hx-swap="beforeend" autocomplete="off">
+      <!-- Shown only where the host can listen: window.hcVoiceEnable(true, label) -->
+      <button id="hc-mic" type="button" class="hc-chat-mic" aria-pressed="false" hidden>&#x1F3A4;</button>
+      <textarea id="hc-input" class="hc-chat-input" name="message" rows="1" placeholder="{{L_PLACEHOLDER}}" aria-label="{{L_PLACEHOLDER}}"></textarea>
+      <button id="hc-send" type="submit" class="hc-chat-send" title="{{L_SEND}}" aria-label="{{L_SEND}}">&#x27A4;</button>
+      <button id="hc-stop" type="button" class="hc-chat-send hc-chat-stop" title="{{L_STOP}}" aria-label="{{L_STOP}}" hidden>&#x25A0;</button>
+    </form>
+  </footer>
+</div>
+<script>{{JS}}</script>
+</body>
+</html>

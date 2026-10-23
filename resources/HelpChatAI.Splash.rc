@@ -1,0 +1,12 @@
+/* HelpChat splash and About icons, compiled into source\HelpChatAI.Splash.res by
+   Tools\BuildResources.cmd and linked by Vcl.HelpChatAI.Register.pas only: this
+   resource belongs to the design-time package, nothing at runtime uses it.
+
+   The IDE wants a bitmap handle. From Delphi 11 the splash screen and the
+   About box take a 48x48 image with an alpha channel, built from the PNG;
+   10.4 loads a plain BITMAP resource, hence the two flattened bitmaps.
+   The images are generated from Images\delphi-helpchat.svg. */
+
+HELPCHATSPLASH24BMP  BITMAP "..\\Images\\delphi-helpchat_24.bmp"
+HELPCHATSPLASH32BMP  BITMAP "..\\Images\\delphi-helpchat_32.bmp"
+HELPCHATSPLASH48PNG  RCDATA "..\\Images\\delphi-helpchat_48.png"

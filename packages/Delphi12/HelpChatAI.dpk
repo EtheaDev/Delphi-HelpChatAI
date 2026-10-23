@@ -1,0 +1,86 @@
+﻿{******************************************************************************}
+{                                                                              }
+{       HelpChatAI: an in-app AI Help Chat component for Delphi (VCL and FMX)    }
+{                                                                              }
+{       Copyright (c) 2026 (Ethea S.r.l.)                                      }
+{       Author: Carlo Barazzetta                                               }
+{       Contributors:                                                          }
+{                                                                              }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{                                                                              }
+{******************************************************************************}
+{                                                                              }
+{  Licensed under the Apache License, Version 2.0 (the "License");             }
+{  you may not use this file except in compliance with the License.            }
+{  You may obtain a copy of the License at                                     }
+{                                                                              }
+{      http://www.apache.org/licenses/LICENSE-2.0                              }
+{                                                                              }
+{  Unless required by applicable law or agreed to in writing, software         }
+{  distributed under the License is distributed on an "AS IS" BASIS,           }
+{  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
+{  See the License for the specific language governing permissions and        }
+{  limitations under the License.                                              }
+{                                                                              }
+{******************************************************************************}
+package HelpChatAI;
+
+{$R *.res}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS OFF}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION ON}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO OFF}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES OFF}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE RELEASE}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'Ethea HelpChatAI Engine (framework independent)'}
+{$LIBSUFFIX AUTO}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+requires
+  rtl,
+  MarkdownProcessor;
+
+contains
+  HelpChatAI.Types in '..\..\source\HelpChatAI.Types.pas',
+  HelpChatAI.Messages in '..\..\source\HelpChatAI.Messages.pas',
+  HelpChatAI.Settings in '..\..\source\HelpChatAI.Settings.pas',
+  HelpChatAI.Actions in '..\..\source\HelpChatAI.Actions.pas',
+  HelpChatAI.Provider in '..\..\source\HelpChatAI.Provider.pas',
+  HelpChatAI.Provider.Sse in '..\..\source\HelpChatAI.Provider.Sse.pas',
+  HelpChatAI.Store in '..\..\source\HelpChatAI.Store.pas',
+  HelpChatAI.DocIndex in '..\..\source\HelpChatAI.DocIndex.pas',
+  HelpChatAI.DocPages in '..\..\source\HelpChatAI.DocPages.pas',
+  HelpChatAI.Html in '..\..\source\HelpChatAI.Html.pas',
+  HelpChatAI.Runner in '..\..\source\HelpChatAI.Runner.pas',
+  HelpChatAI.Provider.DocSearch in '..\..\source\HelpChatAI.Provider.DocSearch.pas',
+  HelpChatAI.Provider.Claude in '..\..\source\HelpChatAI.Provider.Claude.pas',
+  HelpChatAI.Provider.OpenAI in '..\..\source\HelpChatAI.Provider.OpenAI.pas',
+  HelpChatAI.Provider.Gemini in '..\..\source\HelpChatAI.Provider.Gemini.pas',
+  HelpChatAI.Diagnostics in '..\..\source\HelpChatAI.Diagnostics.pas',
+  HelpChatAI.Engine in '..\..\source\HelpChatAI.Engine.pas',
+  HelpChatAI.IndexBuilder in '..\..\source\HelpChatAI.IndexBuilder.pas',
+  HelpChatAI.Transport in '..\..\source\HelpChatAI.Transport.pas',
+  HelpChatAI.Panel in '..\..\source\HelpChatAI.Panel.pas',
+  HelpChatAI.Theme in '..\..\source\HelpChatAI.Theme.pas',
+  HelpChatAI.HelpViewer in '..\..\source\HelpChatAI.HelpViewer.pas';
+
+end.

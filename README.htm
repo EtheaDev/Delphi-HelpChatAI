@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>README</title>
+<style type="text/css">
+:root{color-scheme:light;}
+body{font-family:"Arial",sans-serif;font-size:12pt;color:#000000;background-color:#FFFFFF;}
+a{color:#0000FF;}
+.markdown-alert>:last-child{margin-bottom:0;}
+.markdown-alert-title{margin-top:0;}
+@media print{body{color:#000;background-color:#fff;}}
+</style>
+<script>
+document.addEventListener("click",function(e){var a=e.target.closest("a");if(a){var h=a.getAttribute("href");if(h&&h.charAt(0)==="#"){e.preventDefault();var t=document.getElementById(decodeURIComponent(h.substring(1)));if(t)t.scrollIntoView();}}});
+window.addEventListener("scroll",function(){if(window.chrome&&chrome.webview)chrome.webview.postMessage("scrollY:"+Math.round(window.scrollY)+":"+Math.max(0,Math.round(document.documentElement.scrollHeight-window.innerHeight)));});
+</script>
+</head>
+<body>
+<style type="text/css">
+img{
+  max-width: 100%;
+  height: auto;
+}
+video{
+  max-width: 100%;
+  height: auto;
+}
+code{
+  font-family: "Consolas", monospace;
+}
+pre{
+  border: 1px solid #ddd;
+  border-left: 3px solid #f36d33;
+  overflow: auto;
+  padding: 1em 1.5em;
+  display: block;
+}
+Blockquote{
+  border-left: 3px solid #d0d0d0;
+  padding-left: 0.5em;
+  margin-left:1em;
+}
+Blockquote p{
+  margin: 0;
+}
+table{
+  border:1px solid;
+  border-collapse:collapse;
+}
+th{
+  padding:5px;
+  border:1px solid;
+}
+td{
+  padding:5px;
+  border:1px solid;
+}
+mark{
+  background-color: #fff3a0;
+  color: #000;
+}
+kbd{
+  font-family: "Consolas", monospace;
+  border: 1px solid #bbb;
+  padding: 0 4px;
+}
+div.math{
+  text-align: center;
+}
+pre.mermaid{
+  border: none;
+  padding: 0;
+}
+.markdown-alert{
+  padding: 0.5em 1em;
+  margin-bottom: 1em;
+  border-left: 4px solid #d0d7de;
+}
+.markdown-alert-title{
+  font-weight: bold;
+}
+.markdown-alert-note{
+  border-left: 4px solid #0969da;
+}
+.markdown-alert-note .markdown-alert-title{
+  color: #0969da;
+}
+.markdown-alert-tip{
+  border-left: 4px solid #1a7f37;
+}
+.markdown-alert-tip .markdown-alert-title{
+  color: #1a7f37;
+}
+.markdown-alert-important{
+  border-left: 4px solid #8250df;
+}
+.markdown-alert-important .markdown-alert-title{
+  color: #8250df;
+}
+.markdown-alert-warning{
+  border-left: 4px solid #9a6700;
+}
+.markdown-alert-warning .markdown-alert-title{
+  color: #9a6700;
+}
+.markdown-alert-caution{
+  border-left: 4px solid #cf222e;
+}
+.markdown-alert-caution .markdown-alert-title{
+  color: #cf222e;
+}
+</style>
+<h1 id="helpchatai-for-delphi">HelpChatAI for Delphi</h1>
+<p><a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-green.svg" alt="License: Apache" /></a>
+<a href="https://github.com/EtheaDev/Delphi-HelpChatAI/releases"><img src="https://img.shields.io/github/v/release/EtheaDev/Delphi-HelpChatAI?label=release&amp;color=blue" alt="Latest release" /></a>
+<a href="https://www.embarcadero.com/products/delphi"><img src="https://img.shields.io/badge/Delphi-10.4%2B-e62329.svg" alt="Delphi 10.4+" /></a>
+<a href="https://docwiki.embarcadero.com/RADStudio/en/Main_Page"><img src="https://img.shields.io/badge/Platform-VCL%20%7C%20FMX-8a2be2.svg" alt="Platform: VCL and FMX" /></a>
+<a href="https://developer.microsoft.com/microsoft-edge/webview2/"><img src="https://img.shields.io/badge/WebView2-Edge-0078d4.svg" alt="Microsoft Edge WebView2" /></a>
+<a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078d6.svg" alt="Windows 10 and 11" /></a></p>
+<p><img src="./Images/SupportingDelphi.jpg" alt="Delphi Support" /></p>
+<p>Related links: <a href="https://www.embarcadero.com/">https://www.embarcadero.com/</a> - <a href="https://learndelphi.org/">https://learndelphi.org/</a></p>
+<hr />
+<h2 id="an-in-app-ai-help-assistant-for-your-vcl-and-firemonkey-applications">An in-app AI help assistant for your VCL and FireMonkey applications</h2>
+<p>Your users do not read the manual: they ask. HelpChatAI puts a chat bubble in the corner of
+your application, answers <em>“how do I export this grid?”</em> from <strong>your own documentation</strong>, and
+knows which screen the user is on while answering. <strong>F1 opens it</strong>, through the standard Delphi
+help system, so the <code>HelpKeyword</code> you already wrote keeps working.</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><img src="./Images/delphi-helpchat_64.png" alt="TVclHelpChatAI" /></td>
+<td><strong>TVclHelpChatAI</strong> is the VCL component: drop it on the main form, set <code>Active</code>, and you have the bubble, F1 contextual help and the chat panel (a WebView2 <code>TEdgeBrowser</code>), either in its own tool window or embedded in a container of yours. Colours follow the active VCL style</td>
+</tr>
+<tr>
+<td><img src="./Images/AIAssistant_Female_64.png" alt="TFmxHelpChatAI" /></td>
+<td><strong>TFmxHelpChatAI</strong> is the FireMonkey twin (Delphi 12+): same settings, same engine, the chat in a <code>TWebBrowser</code>. F1 through the host form's <code>OnKeyDown</code>, light/dark theme instead of VCL styles. Available only for Delphi 12 and 13</td>
+</tr>
+</tbody>
+</table>
+<h3 id="how-it-works">How it works</h3>
+<ol>
+<li>You build a <strong>documentation index</strong> (<code>help-index.json</code>) from the Markdown pages of your
+manual, with the <code>HelpIndexBuilder</code> tool.</li>
+<li>The user asks. The component adds the <strong>screen context</strong> — the active form, its caption, the
+<code>HelpKeyword</code>/<code>HelpContext</code> of the focused control, the active tab.</li>
+<li>A <strong>provider</strong> answers. <code>docsearch</code> finds the right page offline and quotes it, with no API
+key at all; <code>claude</code>, <code>openai</code> and <code>gemini</code> read the pages the retriever found and answer
+<em>from those</em>, citing the source and saying when they do not know.</li>
+<li>The reply <strong>streams</strong> into the panel token by token, rendered as safe HTML. Nothing ever
+runs on the UI thread, and the user can stop it.</li>
+<li>If you let it, the assistant can also <strong>act</strong>: you register the actions your application
+allows, and it calls them on the main thread, asking the user first when they change data.</li>
+</ol>
+<p>The engine knows nothing about the UI: it runs inside your application or on a <strong>HelpChatAI
+server</strong>, chosen in a configuration file, so the model API key never has to reach the user's
+machine.</p>
+<h3 id="providers">Providers</h3>
+<table>
+<thead>
+<tr>
+<th><code>Provider</code></th>
+<th>Needs</th>
+<th>Streams</th>
+<th>Actions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docsearch</code></td>
+<td>the documentation index, no key</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>claude</code></td>
+<td><code>ANTHROPIC_API_KEY</code></td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>openai</code></td>
+<td><code>OPENAI_API_KEY</code>, nothing for a local model</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>gemini</code></td>
+<td><code>GEMINI_API_KEY</code></td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p><code>openai</code> is wider than its name: Chat Completions is the API that Azure OpenAI, Groq,
+OpenRouter, Mistral, DeepSeek, Ollama and LM Studio also speak, so <code>BaseUrl</code> and <code>Model</code> are
+enough to point the same provider at any of them — including a model running on the user's own
+machine, where nothing leaves the PC.</p>
+<h2 id="setup-for-automatic-installation-of-components">Setup for automatic installation of components</h2>
+<p>An “Installer” ready to use is located in the Release area:
+<a href="https://github.com/EtheaDev/Delphi-HelpChatAI/releases/latest/download/HelpChatAI_Setup.exe">Download the Installer</a>.</p>
+<p>The Installer automatically detects your Delphi versions, installs sources, builds and installs
+packages and adds source paths.</p>
+<p><img src="./Images/Setup.png" alt="Setup" /></p>
+<p>To do it by hand instead:</p>
+<ul>
+<li>open the group project of your version under <code>packages/</code> — <code>Delphi13</code>,
+<code>Delphi12</code>, <code>Delphi11</code> or <code>Delphi10.4</code></li>
+<li>build it and install <code>dclHelpChatAIVcl</code> (and
+<code>dclHelpChatAIFmx</code>, then add <code>source</code> and <code>Ext/MarkdownProcessor/source</code> to the library path.</li>
+</ul>
+<p><code>Tools/Build_Packages.cmd [Delphi13|Delphi12|Delphi11|Delphi10.4|all]</code> builds them from a
+command line.</p>
+<p>Ship <code>WebView2Loader.dll</code> (<code>Redist/WebView2/x86|x64</code>) next to your executable; the WebView2
+runtime itself is already part of Windows 11 and of every machine with Edge.</p>
+<h2 id="documentation">Documentation</h2>
+<p>Follow the <a href="https://ethea.it/docs/helpchatai/">Project Site</a> to learn how to add an AI help
+assistant to your Delphi application, and how to make its answers good.</p>
+<table>
+<thead>
+<tr>
+<th>Page</th>
+<th>What you find</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Quick-Start">Quick Start</a></td>
+<td>From an empty form to a working chat</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/VCL-Component">The VCL component</a></td>
+<td>Bubble, F1, embedding, dictation, the design-time preview</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/FMX-Component">The FMX component</a></td>
+<td>What FireMonkey does differently</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Providers">Providers</a></td>
+<td>The five of them, their settings, writing your own</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Documentation-Index">The documentation index</a></td>
+<td>Building <code>help-index.json</code>, and the pages shown inside the panel</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Actions">Actions</a></td>
+<td>An assistant that does things, safely</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Server">Running the engine on a server</a></td>
+<td>When the API key must not be on the user's machine</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Configuration">Configuration</a></td>
+<td><code>helpchatai.json</code>, and checking a configuration</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Security-and-Privacy">Security and privacy</a></td>
+<td>What travels, where, and what never does</td>
+</tr>
+</tbody>
+</table>
+<h2 id="supported-delphi-versions">Supported Delphi versions</h2>
+<table>
+<thead>
+<tr>
+<th>Framework</th>
+<th>Versions</th>
+<th>Verified</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Engine (RTL only)</td>
+<td>Delphi 10.4 Sydney → 13 Florence</td>
+<td>packages built with each compiler</td>
+</tr>
+<tr>
+<td>VCL (<code>TEdgeBrowser</code>)</td>
+<td>Delphi 10.4 → 13</td>
+<td>built on all four, run on 13</td>
+</tr>
+<tr>
+<td>FMX (<code>TWebBrowser</code>)</td>
+<td>Delphi 12 → 13</td>
+<td>built on both, run on Windows</td>
+</tr>
+</tbody>
+</table>
+<p>FireMonkey compiles for macOS, iOS and Android, but only Windows has been tried so far.</p>
+<h2 id="packages">Packages</h2>
+<p>One folder per Delphi version, the same <code>.dpk</code> for all of them.</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Requires</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HelpChatAI</code> (runtime)</td>
+<td>rtl, MarkdownProcessor</td>
+<td>the engine, the index builder, the panel page</td>
+</tr>
+<tr>
+<td><code>HelpChatAIServer</code> (runtime)</td>
+<td>HelpChatAI, Indy</td>
+<td>the transports: local server, remote server, remote client, host channel</td>
+</tr>
+<tr>
+<td><code>HelpChatAIVcl</code> (runtime)</td>
+<td>HelpChatAIServer, vcl, vcledge</td>
+<td><code>TVclHelpChatAI</code>, the chat control, VCL style theming</td>
+</tr>
+<tr>
+<td><code>dclHelpChatAIVcl</code> (design-time)</td>
+<td>HelpChatAIVcl, designide</td>
+<td>palette, splash and About box, component editor with the live preview, property editors</td>
+</tr>
+<tr>
+<td><code>HelpChatAIFmx</code> (runtime)</td>
+<td>HelpChatAIServer, fmx</td>
+<td><code>TFmxHelpChatAI</code> and its chat control</td>
+</tr>
+<tr>
+<td><code>dclHelpChatAIFmx</code> (design-time)</td>
+<td>HelpChatAIFmx, designide</td>
+<td>palette, component editor with the configuration check</td>
+</tr>
+</tbody>
+</table>
+<h2 id="demos-and-tests">Demos and tests</h2>
+<p><code>Demos/Projects</code> has three applications that open with any supported Delphi: a console one that
+drives the engine from the command line, and the VCL and FMX ones, two-screen applications
+whose tabs carry the <code>HelpKeyword</code> of two pages of a real Italian manual — press F1 on each.</p>
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>238 tests</strong> that runs without
+network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
+request building of each model provider, the configuration check, both transports over real
+HTTP, and the actions from a real worker thread.</p>
+<pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
+<h2 id="release-notes">Release Notes</h2>
+<p>23 Oct 2026: ver. 1.0.0</p>
+<ul>
+<li>First release: in-app AI help chat for VCL (Delphi 10.4+) and FMX (Delphi 12+) applications</li>
+<li>Engine (RTL only) with the providers <code>docsearch</code> (local documentation index, no key needed), <code>claude</code> (Anthropic), <code>openai</code> (Chat Completions, and with it Azure, Groq, OpenRouter, Mistral, Ollama…) and <code>gemini</code> (Google): all three models stream and can call the actions of the application, grounded on the documentation and on the screen context</li>
+<li><code>TVclHelpChatAI</code> (<code>TEdgeBrowser</code>) and <code>TFmxHelpChatAI</code> (<code>TWebBrowser</code>): chat bubble, F1 contextual help, chat panel embeddable in any container, colours from the VCL style</li>
+<li>An assistant that acts: the application registers the actions it may call, with confirmation for the ones that change data</li>
+<li>Question dictation, design-time live preview and configuration check</li>
+<li>HelpChatAI server: engine, index and API key on a server, remote transport chosen in the configuration file</li>
+<li>HelpIndexBuilder: builds the documentation index (<code>help-index.json</code>) from a folder of Markdown files</li>
+<li>Packages for Delphi 10.4, 11, 12 and 13, console/VCL/FMX demos, DUnitX tests and installer</li>
+</ul>
+<h2 id="license">License</h2>
+<p>Apache License 2.0 — Copyright (c) 2026 Ethea S.r.l.</p>
+<p>The Ethea MarkdownProcessor, which the engine package requires, keeps its own license
+(Apache 2.0 / BSD, see <a href="https://github.com/EtheaDev/MarkdownProcessor">Delphi-MarkdownProcessor</a>).</p>
+</body>
+</html>

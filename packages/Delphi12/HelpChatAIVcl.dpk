@@ -1,0 +1,64 @@
+﻿{******************************************************************************}
+{                                                                              }
+{       HelpChatAI: an in-app AI Help Chat component for Delphi (VCL and FMX)    }
+{       Runtime package: VCL component (TEdgeBrowser / WebView2).              }
+{                                                                              }
+{       Copyright (c) 2026 (Ethea S.r.l.)                                      }
+{       Author: Carlo Barazzetta                                               }
+{                                                                              }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{                                                                              }
+{       Licensed under the Apache License, Version 2.0                         }
+{                                                                              }
+{******************************************************************************}
+package HelpChatAIVcl;
+
+{$R *.res}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS OFF}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION ON}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO OFF}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES OFF}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE RELEASE}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'Ethea HelpChatAI VCL Component'}
+{$LIBSUFFIX AUTO}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+requires
+  rtl,
+  vcl,
+  vclwinx,
+  vcledge,
+  IndySystem,
+  IndyCore,
+  IndyProtocols,
+  HelpChatAI,
+  HelpChatAIServer;
+
+contains
+  Vcl.HelpChatAI.Bubble in '..\..\source\Vcl.HelpChatAI.Bubble.pas',
+  Vcl.HelpChatAI.Voice in '..\..\source\Vcl.HelpChatAI.Voice.pas',
+  Vcl.HelpChatAI.Panel in '..\..\source\Vcl.HelpChatAI.Panel.pas',
+  Vcl.HelpChatAI in '..\..\source\Vcl.HelpChatAI.pas',
+  Vcl.HelpChatAI.Theme in '..\..\source\Vcl.HelpChatAI.Theme.pas';
+
+end.

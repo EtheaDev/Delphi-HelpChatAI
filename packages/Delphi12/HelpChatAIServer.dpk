@@ -1,0 +1,59 @@
+﻿{******************************************************************************}
+{                                                                              }
+{       HelpChatAI: an in-app AI Help Chat component for Delphi (VCL and FMX)    }
+{       Runtime package: local HTTP transport (Indy).                          }
+{                                                                              }
+{       Copyright (c) 2026 (Ethea S.r.l.)                                      }
+{       Author: Carlo Barazzetta                                               }
+{                                                                              }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{                                                                              }
+{       Licensed under the Apache License, Version 2.0                         }
+{                                                                              }
+{******************************************************************************}
+package HelpChatAIServer;
+
+{$R *.res}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS OFF}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION ON}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO OFF}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES OFF}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE RELEASE}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'Ethea HelpChatAI Local HTTP Transport (Indy)'}
+{$LIBSUFFIX AUTO}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+requires
+  rtl,
+  IndySystem,
+  IndyCore,
+  IndyProtocols,
+  HelpChatAI;
+
+contains
+  HelpChatAI.Server in '..\..\source\HelpChatAI.Server.pas',
+  HelpChatAI.Server.Remote in '..\..\source\HelpChatAI.Server.Remote.pas',
+  HelpChatAI.Server.HostChannel in '..\..\source\HelpChatAI.Server.HostChannel.pas',
+  HelpChatAI.Transport.Remote in '..\..\source\HelpChatAI.Transport.Remote.pas';
+
+end.

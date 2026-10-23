@@ -1,0 +1,47 @@
+/* HelpChat assistant icons, compiled into source\HelpChatAI.Assistant.res by
+   Tools\BuildResources.cmd and linked by Vcl.HelpChatAI.Bubble.pas.
+
+   One RCDATA entry per icon and size: TImageCollection.Add(name, HInstance,
+   '<NAME>', ['_16', '_18', ...]) loads them all as the sources of one image,
+   so a TVirtualImageList can pick the size the current DPI asks for.
+   The PNGs are generated from Images\<name>.svg (see Tools\BuildIcons.cmd). */
+
+AIASSISTANT_MALE_16    RCDATA "..\\Images\\AIAssistant_Male_16.png"
+AIASSISTANT_MALE_18    RCDATA "..\\Images\\AIAssistant_Male_18.png"
+AIASSISTANT_MALE_24    RCDATA "..\\Images\\AIAssistant_Male_24.png"
+AIASSISTANT_MALE_32    RCDATA "..\\Images\\AIAssistant_Male_32.png"
+AIASSISTANT_MALE_48    RCDATA "..\\Images\\AIAssistant_Male_48.png"
+AIASSISTANT_MALE_64    RCDATA "..\\Images\\AIAssistant_Male_64.png"
+AIASSISTANT_MALE_96    RCDATA "..\\Images\\AIAssistant_Male_96.png"
+AIASSISTANT_MALE_128   RCDATA "..\\Images\\AIAssistant_Male_128.png"
+AIASSISTANT_MALE_192   RCDATA "..\\Images\\AIAssistant_Male_192.png"
+
+AIASSISTANT_FEMALE_16  RCDATA "..\\Images\\AIAssistant_Female_16.png"
+AIASSISTANT_FEMALE_18  RCDATA "..\\Images\\AIAssistant_Female_18.png"
+AIASSISTANT_FEMALE_24  RCDATA "..\\Images\\AIAssistant_Female_24.png"
+AIASSISTANT_FEMALE_32  RCDATA "..\\Images\\AIAssistant_Female_32.png"
+AIASSISTANT_FEMALE_48  RCDATA "..\\Images\\AIAssistant_Female_48.png"
+AIASSISTANT_FEMALE_64  RCDATA "..\\Images\\AIAssistant_Female_64.png"
+AIASSISTANT_FEMALE_96  RCDATA "..\\Images\\AIAssistant_Female_96.png"
+AIASSISTANT_FEMALE_128 RCDATA "..\\Images\\AIAssistant_Female_128.png"
+AIASSISTANT_FEMALE_192 RCDATA "..\\Images\\AIAssistant_Female_192.png"
+
+ASSISTANT_MALE_16      RCDATA "..\\Images\\Assistant_Male_16.png"
+ASSISTANT_MALE_18      RCDATA "..\\Images\\Assistant_Male_18.png"
+ASSISTANT_MALE_24      RCDATA "..\\Images\\Assistant_Male_24.png"
+ASSISTANT_MALE_32      RCDATA "..\\Images\\Assistant_Male_32.png"
+ASSISTANT_MALE_48      RCDATA "..\\Images\\Assistant_Male_48.png"
+ASSISTANT_MALE_64      RCDATA "..\\Images\\Assistant_Male_64.png"
+ASSISTANT_MALE_96      RCDATA "..\\Images\\Assistant_Male_96.png"
+ASSISTANT_MALE_128     RCDATA "..\\Images\\Assistant_Male_128.png"
+ASSISTANT_MALE_192     RCDATA "..\\Images\\Assistant_Male_192.png"
+
+ASSISTANT_FEMALE_16    RCDATA "..\\Images\\Assistant_Female_16.png"
+ASSISTANT_FEMALE_18    RCDATA "..\\Images\\Assistant_Female_18.png"
+ASSISTANT_FEMALE_24    RCDATA "..\\Images\\Assistant_Female_24.png"
+ASSISTANT_FEMALE_32    RCDATA "..\\Images\\Assistant_Female_32.png"
+ASSISTANT_FEMALE_48    RCDATA "..\\Images\\Assistant_Female_48.png"
+ASSISTANT_FEMALE_64    RCDATA "..\\Images\\Assistant_Female_64.png"
+ASSISTANT_FEMALE_96    RCDATA "..\\Images\\Assistant_Female_96.png"
+ASSISTANT_FEMALE_128   RCDATA "..\\Images\\Assistant_Female_128.png"
+ASSISTANT_FEMALE_192   RCDATA "..\\Images\\Assistant_Female_192.png"

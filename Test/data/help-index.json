@@ -1,0 +1,37 @@
+[
+  {
+    "id": "getting-started",
+    "title": "Getting started",
+    "url": "getting-started.html",
+    "summary": "How to log in, navigate the main menu and open your first screen.",
+    "text": "Getting started. After logging in you land on the dashboard. The main menu on the left lists every module: customers, orders, invoices and reports. Click a module to open its list screen."
+  },
+  {
+    "id": "exporting-the-grid",
+    "title": "Exporting the grid",
+    "url": "grid/export.html",
+    "summary": "Export the rows of any list to Excel, CSV or PDF from the toolbar.",
+    "text": "Exporting the grid. Every list screen has an Export button in the toolbar. Choose Excel, CSV or PDF. The export respects the current filter and the visible columns of the grid. Large exports run in background and a notification tells you when the file is ready."
+  },
+  {
+    "id": "orders",
+    "title": "Orders",
+    "url": "modules/orders.html",
+    "summary": "Create, edit and confirm customer orders; manage order lines and shipping.",
+    "text": "Orders. The Orders module lists every customer order. Use New to create an order, pick the customer, then add order lines with product, quantity and price. Confirm the order to reserve the stock. Shipping is managed from the Shipments tab of the order form."
+  },
+  {
+    "id": "customers",
+    "title": "Customers",
+    "url": "modules/customers.html",
+    "summary": "The customer master data: contacts, addresses and payment terms.",
+    "text": "Customers. The Customers module holds the master data of every customer: name, VAT number, addresses, contacts and payment terms. Open a customer to see its orders and invoices in the related tabs."
+  },
+  {
+    "id": "filtering",
+    "title": "Filtering a list",
+    "url": "grid/filter.html",
+    "summary": "Use the filter bar to narrow any list by column value or free text.",
+    "text": "Filtering a list. Type in the filter bar above the grid to narrow the rows. Click a column header to sort. Filters combine with AND. Saved filters can be recalled from the Filters menu of the toolbar."
+  }
+]
