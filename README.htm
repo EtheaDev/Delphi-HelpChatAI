@@ -339,17 +339,19 @@ assistant to your Delphi application, and how to make its answers good.</p>
 </tr>
 </tbody>
 </table>
-<h2 id="demos-and-tests">Demos and tests</h2>
-<p><code>Demos/Projects</code> has three applications that open with any supported Delphi: a console one that
-drives the engine from the command line, and the VCL and FMX ones, two-screen applications
-whose tabs carry the <code>HelpKeyword</code> of two pages of a real Italian manual — press F1 on each.</p>
-<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>238 tests</strong> that runs without
+<h2 id="demo-and-tests">Demo and tests</h2>
+<p><code>CRM Demo</code> is the Windows 10 CRM demo of Embarcadero with HelpChatAI in it: a real little
+application — leads, accounts, proposals — with a manual of sixteen pages in <code>CRM Demo\Help</code>
+and the assistant answering from it. Press <strong>F1</strong> on any screen, or ask it to open a screen,
+create a lead or prepare a proposal. It opens with any supported Delphi, and
+<code>CRM Demo\BuildAllDemos.ps1</code> builds it with all of them.</p>
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>241 tests</strong> that runs without
 network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, and the actions from a real worker thread.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
-<p>23 Oct 2026: ver. 1.0.0</p>
+<p>25 Oct 2026: ver. 1.0.0</p>
 <ul>
 <li>First release: in-app AI help chat for VCL (Delphi 10.4+) and FMX (Delphi 12+) applications</li>
 <li>Engine (RTL only) with the providers <code>docsearch</code> (local documentation index, no key needed), <code>claude</code> (Anthropic), <code>openai</code> (Chat Completions, and with it Azure, Groq, OpenRouter, Mistral, Ollama…) and <code>gemini</code> (Google): all three models stream and can call the actions of the application, grounded on the documentation and on the screen context</li>
@@ -358,7 +360,8 @@ HTTP, and the actions from a real worker thread.</p>
 <li>Question dictation, design-time live preview and configuration check</li>
 <li>HelpChatAI server: engine, index and API key on a server, remote transport chosen in the configuration file</li>
 <li>HelpIndexBuilder: builds the documentation index (<code>help-index.json</code>) from a folder of Markdown files</li>
-<li>Packages for Delphi 10.4, 11, 12 and 13, console/VCL/FMX demos, DUnitX tests and installer</li>
+<li>Packages for Delphi 10.4, 11, 12 and 13, DUnitX tests and installer</li>
+<li>A sample application with the component in it: the Windows 10 CRM demo of Embarcadero, with a manual of its own, F1 on every screen and three actions the assistant can run</li>
 </ul>
 <h2 id="license">License</h2>
 <p>Apache License 2.0 — Copyright (c) 2026 Ethea S.r.l.</p>

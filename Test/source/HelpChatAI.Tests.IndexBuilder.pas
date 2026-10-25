@@ -18,8 +18,10 @@ type
     [Test] procedure PlainText_RemovesMarkup_KeepsWords;
     [Test] procedure Summary_FirstMeaningfulParagraph_Cut;
     [Test] procedure Toc_Hierarchy_And_Breadcrumbs;
+    [Test] procedure Toc_TableRows;
     [Test] procedure Build_RealHelp_Pages;
     [Test] procedure Build_RealHelp_TitlesKeywordsUrls;
+    [Test] procedure Build_Encodings_AreDecoded;
     [Test] procedure Build_RealHelp_TextIsClean;
     [Test] procedure Json_IsLoadableByDocIndex;
   end;
@@ -37,10 +39,22 @@ uses
 
 function HelpFolder: string;
 begin
-  // Test\Help lives next to Test\data.
-  Result := TPath.Combine(TPath.GetDirectoryName(TPath.GetDirectoryName(TestDataFile('help-index.json'))), 'Help');
+  // Il manuale vero su cui gira il builder e' quello della demo CRM, sedici
+  // pagine in inglese: "CRM Demo\Help", accanto a Test.
+  Result := TPath.Combine(TPath.GetDirectoryName(TPath.GetDirectoryName(
+    TPath.GetDirectoryName(TestDataFile('help-index.json')))), 'CRM Demo\Help');
   if not TDirectory.Exists(Result) then
-    raise Exception.Create('Test help folder not found: ' + Result);
+    raise Exception.Create('Manual folder not found: ' + Result);
+end;
+
+function EncodingsFolder: string;
+begin
+  // Quattro file minuscoli: ANSI con accenti, UTF-8 con BOM, UTF-8 senza, e
+  // uno senza intestazione. Il manuale della demo e' tutto UTF-8, e queste
+  // sono le strade che resterebbero senza prova.
+  Result := TPath.GetDirectoryName(TestDataFile('encodings\\Index.md'));
+  if not TDirectory.Exists(Result) then
+    raise Exception.Create('Encodings fixture not found: ' + Result);
 end;
 
 function BuildRealHelp: TArray<THelpChatIndexPage>;
@@ -180,6 +194,31 @@ begin
   Assert.AreEqual('This is the first paragraph' + #$2026, LSummary, 'cut at a word boundary');
 end;
 
+procedure TIndexBuilderTests.Toc_TableRows;
+var
+  LToc: TDictionary<string, THelpChatTocEntry>;
+  LEntry: THelpChatTocEntry;
+begin
+  // A table of contents written as a table: the link is in the first cell.
+  LToc := THelpChatIndexBuilder.ParseToc(
+    '# Index'#10#10 +
+    '| Page | What you find |'#10 +
+    '| - | - |'#10 +
+    '| [Home](Home.md) | What the application is |'#10 +
+    '| [Lead detail](Lead-Detail.md) | One lead, its documents |'#10 +
+    '| [Online](https://ethea.it/) | not a page of the manual |');
+  try
+    Assert.AreEqual(2, Integer(LToc.Count), 'header, separator and external link are skipped');
+    Assert.IsTrue(LToc.TryGetValue('home.md', LEntry));
+    Assert.AreEqual('Home', LEntry.Title);
+    Assert.AreEqual(0, Integer(Length(LEntry.Breadcrumb)), 'a table row is top level');
+    Assert.IsTrue(LToc.TryGetValue('lead-detail.md', LEntry));
+    Assert.AreEqual('Lead detail', LEntry.Title);
+  finally
+    LToc.Free;
+  end;
+end;
+
 procedure TIndexBuilderTests.Toc_Hierarchy_And_Breadcrumbs;
 var
   LToc: TDictionary<string, THelpChatTocEntry>;
@@ -219,7 +258,7 @@ var
   LPage: THelpChatIndexPage;
 begin
   LPages := BuildRealHelp;
-  Assert.AreEqual(38, Integer(Length(LPages)), 'every .md except Index.md');
+  Assert.AreEqual(15, Integer(Length(LPages)), 'every .md except Index.md');
   for LPage in LPages do
   begin
     Assert.IsNotEmpty(LPage.Id, LPage.SourceFile);
@@ -238,28 +277,59 @@ var
 begin
   LPages := BuildRealHelp;
 
-  // "## Esecuzione Report" in an ANSI file, under REPORT MANAGER - REPORT PLAYER.
-  LPage := FindPage(LPages, '4070000');
-  Assert.AreEqual('Esecuzione Report', LPage.Title);
-  Assert.AreEqual('4070000.html', LPage.Url);
-  Assert.Contains(LPage.Text, 'Il modo migliore per eseguire un report è farlo attraverso', 'ANSI accents decoded');
-  Assert.IsTrue(Length(LPage.Keywords) >= 1, 'breadcrumb keywords');
-  Assert.Contains<string>(LPage.Keywords, 'REPORT MANAGER – REPORT PLAYER');
+  // Il titolo viene dall'intestazione della pagina, non dal nome del file.
+  LPage := FindPage(LPages, 'Leads');
+  Assert.AreEqual('Leads', LPage.Title);
+  Assert.AreEqual('Leads.html', LPage.Url);
+  Assert.Contains(LPage.Text, 'four columns, one per status');
+  // Il sommario lo chiama come la pagina: niente parola chiave doppia.
+  Assert.DoesNotContain<string>(LPage.Keywords, 'Leads');
 
-  // "# Homepage e navigazione" with a BOM; TOC says "HOMEPAGE E NAVIGAZIONE" (same words, not repeated).
-  LPage := FindPage(LPages, '100');
-  Assert.AreEqual('Homepage e navigazione', LPage.Title);
-  Assert.DoesNotContain<string>(LPage.Keywords, 'HOMEPAGE E NAVIGAZIONE');
+  LPage := FindPage(LPages, 'Data-Model');
+  Assert.AreEqual('Data model', LPage.Title);
+  Assert.AreEqual('Data-Model.html', LPage.Url);
 
-  // No heading at all: the title comes from the table of contents.
-  LPage := FindPage(LPages, 'Parametri');
-  Assert.AreEqual('PARAMETRI', LPage.Title);
+  // Qui il sommario dice "Home" e l'intestazione dice altro: il nome del
+  // sommario diventa una parola chiave della pagina.
+  LPage := FindPage(LPages, 'Home');
+  Assert.AreEqual('Windows 10 CRM Demo', LPage.Title);
+  Assert.Contains<string>(LPage.Keywords, 'Home');
+end;
 
-  // Nested page: both ancestors as keywords.
-  LPage := FindPage(LPages, '4040000');
-  Assert.AreEqual('Scheduler dei Report', LPage.Title);
-  Assert.Contains<string>(LPage.Keywords, 'MANUALE: LENDINGREPORT MANAGER (APP. DESKTOP)');
-  Assert.Contains<string>(LPage.Keywords, 'REPORT MANAGER – REPORT PLAYER');
+procedure TIndexBuilderTests.Build_Encodings_AreDecoded;
+var
+  LBuilder: THelpChatIndexBuilder;
+  LOptions: THelpChatIndexBuilderOptions;
+  LPages: TArray<THelpChatIndexPage>;
+  LPage: THelpChatIndexPage;
+begin
+  LBuilder := THelpChatIndexBuilder.Create;
+  try
+    LOptions := THelpChatIndexBuilderOptions.Default;
+    LOptions.SourceFolder := EncodingsFolder;
+    LPages := LBuilder.Build(LOptions);
+  finally
+    LBuilder.Free;
+  end;
+  Assert.AreEqual(3, Integer(Length(LPages)), 'Index.md is the table of contents, not a page');
+
+  // ANSI: gli accenti arrivano interi, non come punto interrogativo rovesciato.
+  LPage := FindPage(LPages, 'ansi');
+  Assert.AreEqual('Esecuzione del report', LPage.Title);
+  Assert.Contains(LPage.Text, 'Il modo migliore per eseguire un report è farlo attraverso');
+  Assert.Contains(LPage.Text, 'la città di destinazione può essere scelta più tardi');
+
+  // UTF-8 con BOM: il BOM non finisce nel titolo.
+  LPage := FindPage(LPages, 'bom');
+  Assert.AreEqual('Impostazioni già salvate', LPage.Title);
+  Assert.Contains(LPage.Text, 'perché');
+
+  // Senza intestazione: il titolo lo da' il sommario.
+  LPage := FindPage(LPages, 'senza-titolo');
+  Assert.AreEqual('Pagina senza titolo', LPage.Title);
+
+  for LPage in LPages do
+    Assert.DoesNotContain(LPage.Text, #$FFFD, LPage.SourceFile + ': replacement char means a wrong encoding');
 end;
 
 procedure TIndexBuilderTests.Build_RealHelp_TextIsClean;
@@ -291,17 +361,18 @@ begin
   LIndex := THelpChatDocIndex.Create;
   LRetriever := LIndex;
   try
-    LIndex.BaseUrl := 'https://help.example.com/lendingreport/';
+    LIndex.BaseUrl := 'https://help.example.com/crm/';
     LIndex.LoadFromJSON(THelpChatIndexBuilder.ToJSON(LPages, False));
     Assert.AreEqual(Integer(Length(LPages)), LIndex.Count);
-    LFound := LRetriever.Search('come configuro il server SMTP per inviare le email?', '', 1);
+    LFound := LRetriever.Search('how do I export the mailing list?', '', 1);
     Assert.AreEqual(1, Integer(Length(LFound)));
-    Assert.AreEqual('Configurazione e gestione delle e-mail', LFound[0].Title);
-    Assert.AreEqual('https://help.example.com/lendingreport/320000.html', LFound[0].Url);
-    // Breadcrumb keywords make "report player" find the pages of that module.
-    LFound := LRetriever.Search('report player', '', 3);
+    Assert.AreEqual('Marketing', LFound[0].Title);
+    Assert.AreEqual('https://help.example.com/crm/Marketing.html', LFound[0].Url);
+    // La parola chiave presa dal sommario fa trovare la pagina anche quando
+    // il titolo non la contiene: "Home" sta nell'indice, non nel titolo.
+    LFound := LRetriever.Search('home', '', 3);
     Assert.IsTrue(Length(LFound) >= 1);
-    Assert.Contains(LFound[0].Url + ' ' + LFound[0].Title, 'Report');
+    Assert.AreEqual('Windows 10 CRM Demo', LFound[0].Title);
   finally
     LRetriever := nil;
   end;

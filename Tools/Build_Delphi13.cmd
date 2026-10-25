@@ -45,18 +45,11 @@ echo === Tests (%HC_PLATFORM% %HC_CONFIG%) ===
 msbuild "%ROOT%\Test\Delphi13\HelpChatAITests.dproj" /t:Build /p:Config=%HC_CONFIG% /p:Platform=%HC_PLATFORM% /v:m /nologo
 if errorlevel 1 exit /b 1
 
-echo === Console demo (%HC_PLATFORM% %HC_CONFIG%) ===
-msbuild "%ROOT%\Demos\Projects\HelpChatAIConsoleDemo.dproj" /t:Build /p:Config=%HC_CONFIG% /p:Platform=%HC_PLATFORM% /v:m /nologo
-if errorlevel 1 exit /b 1
-
-echo === VCL demo (%HC_PLATFORM% %HC_CONFIG%) ===
-msbuild "%ROOT%\Demos\Projects\HelpChatAIVclDemo.dproj" /t:Build /p:Config=%HC_CONFIG% /p:Platform=%HC_PLATFORM% /v:m /nologo
-if errorlevel 1 exit /b 1
-echo === FMX demo (%HC_PLATFORM% %HC_CONFIG%) ===
-msbuild "%ROOT%\Demos\Projects\HelpChatAIFmxDemo.dproj" /t:Build /p:Config=%HC_CONFIG% /p:Platform=%HC_PLATFORM% /v:m /nologo
+echo === CRM demo (%HC_PLATFORM% %HC_CONFIG%) ===
+msbuild "%ROOT%\CRM Demo\project\Windows10CRMDemo.dproj" /t:Build /p:Config=%HC_CONFIG% /p:Platform=%HC_PLATFORM% /v:m /nologo
 if errorlevel 1 exit /b 1
 if "%HC_PLATFORM%"=="Win64" (set HC_ARCH=x64) else (set HC_ARCH=x86)
-copy /Y "%ROOT%\Redist\WebView2\%HC_ARCH%\WebView2Loader.dll" "%ROOT%\Demos\Bin\%HC_PLATFORM%\" >nul
+copy /Y "%ROOT%\Redist\WebView2\%HC_ARCH%\WebView2Loader.dll" "%ROOT%\CRM Demo\bin\%HC_PLATFORM%\" >nul
 
 echo === HelpChatAI server (%HC_PLATFORM% Release) ===
 msbuild "%ROOT%\Server\Delphi13\HelpChatAIServerApp.dproj" /t:Build /p:Config=Release /p:Platform=%HC_PLATFORM% /v:m /nologo

@@ -43,19 +43,27 @@ Setup/                   Setup.iss, BuildSetup.bat and HelpChatSetup.ico, the ic
 README.htm               README.md as HTML, installed and linked as ReadMe in the Start menu:
                          regenerate it whenever README.md changes
 Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
-Demos/source, Demos/Projects                  console, VCL and FMX demos. The projects are
-                         not under a Delphi version: they open with any of the supported ones,
-                         and their DCUs go to Demos/Dcu/<Platform>/<Config> - so after opening
-                         the same project with a different Delphi, Build and not Compile
+"CRM Demo"/              the only sample application: the Windows 10 CRM demo of Embarcadero,
+                         with HelpChatAI in it and a manual of its own in Help/*.md (plus
+                         Help/Images and the help-index.json the application reads). Its
+                         project is project/, its sources source/, bin|dcu are svn-ignored
+                         build output, and the DCUs have no Delphi version in their path - so
+                         after opening it with a different Delphi, Build and not Compile
+"CRM Demo"/Build*.ps1    BuildDemo.ps1 (one version), BuildAllDemos.ps1 (the matrix, with a
+                         summary table) and the four per-version wrappers, same shape as
+                         StyledComponents/Demos
 Server/source, Server/Delphi13                HelpChatAIServerApp: the console HelpChatAI server
                          (Server/Bin, Server/Dcu and helpchatai-server.json are svn-ignored;
                          helpchatai-server.json.sample is the versioned starting point)
 Lib/Delphi13/            DCU output of the packages (build artefact)
-Demos/Bin/Win32|Win64/   demo executables (+ WebView2Loader.dll); Demos/Dcu/Delphi13/<Platform> the DCUs
+"CRM Demo"/bin/Win32|Win64   the demo executable (+ WebView2Loader.dll)
 Test/Bin/<Platform>/     test executable. Binaries never depend on the Delphi version or the
                          configuration: 32/64-bit DLLs shipped next to them stay separate
 Tools/HelpIndexBuilder/  CLI over HelpChatAI.IndexBuilder (Markdown folder -> help-index.json)
-Test/Help/               real Italian manual (LendingReport) used by tests and demos; Images/ ignored
+Test/data/               the fixtures: a synthetic help-index.json, and encodings/ with four
+                         tiny pages (ANSI with accents, UTF-8 with and without BOM, one with
+                         no heading) - the index builder tests run on the real manual of the
+                         CRM demo, and those four cover what an all-UTF-8 manual cannot
 resources/               HTML/CSS/JS of the panel (M3)
 ```
 
@@ -97,7 +105,12 @@ the edit on every version, not on the one that happens to be open.
   on), the `Lib/<version>` DCU folder and a couple of entries that appeared later differ
   (`<ProjectName>` and Win64x from 12, `<WelcomePageFile>` from 11). Adding a unit to a package
   means editing all four `.dpk`/`.dproj` pairs. `Tools/Build_Packages.cmd all` builds every
-  version that is installed on the machine — do that before releasing. **The oldest compiler
+  version that is installed on the machine, and `"CRM Demo"/BuildAllDemos.ps1` does the same
+  for the sample application on both platforms — do both before releasing. That matrix is
+  what catches what a Delphi 13 build cannot: a `.vsf` listed in `Custom_Styles` that exists
+  only in the newest Delphi is an RC2135 at resource time (only 7 of the stock styles exist
+  in every version from 10.4 on), and the CRM demo needs `FireDAC.Phys.SQLiteWrapper.Stat`
+  before Delphi 12 and `.FDEStat` from 12 on. **The oldest compiler
   decides what the sources may use**: `TFile.GetSize` (Delphi 11) broke the 10.4 build and is
   now a `FindFirst`/`TSearchRec` helper. A new RTL call deserves a 10.4 build, not only a 13
   one. The image lists of the bubble live in `vclwinx`, which every VCL package requires: in
@@ -295,6 +308,10 @@ the edit on every version, not on the one that happens to be open.
   copy; property changes apply to the next message.
 - **Model output is untrusted.** Render only through `HelpChatMarkdownToSafeHtml` (safe mode +
   `HelpChatSanitizeUrls`, then `HelpChatAutoLinkUrls` for bare URLs the model writes as text).
+  The dialect is **mdGFM**, not CommonMark: models answer with tables, strikethrough and task
+  lists all the time, and CommonMark prints a table as a line full of pipes — it was visible
+  in the panel before the switch. GFM also forbids the dangerous raw HTML, one guarantee more
+  on top of safe mode, and `panel.css` already styles `.hc-chat-bubble table`.
   User/system/error text goes through `HelpChatTextToHtml`, never through Markdown. The two
   layers do not trust each other: in safe mode the Markdown engine now blanks a dangerous link
   target instead of leaving it, and `HelpChatSanitizeUrls` turns an empty `href`/`src` into `#`
@@ -429,6 +446,27 @@ the edit on every version, not on the one that happens to be open.
   actions live in the client: the definitions and the calls do not travel yet. The broker queue
   is shaped for it (`TakePending`/`Complete` over HTTP, the host channel already exists), but
   until that is built, registering actions with a remote engine does nothing.
+- **The sample application is the integration, and it is where the mistakes show up.**
+  `CRM Demo` is the only demo: the Windows 10 CRM of Embarcadero with `TVclHelpChatAI` on the
+  main form, `claude`, its own manual in `Help/*.md` and three actions. Four things it taught,
+  each of which cost a run:
+  **a provider has to be linked** — `Settings.Provider := 'claude'` with no
+  `HelpChatAI.Provider.Claude` in the uses answers "the provider is not available in this
+  application", which is the registration rule seen from the user's side;
+  **the keyword of the form wins over the one of the tab** when the focus is outside the
+  `TPageControl` (the side menu is), so the form declares none and `OnGetContext` forces the
+  active page — otherwise every F1 describes the window;
+  **an action handler runs on the main thread and must return at once**: it opens the draft
+  with `Show`, never `ShowModal`, or the worker waiting for it times out, and the filling
+  lives in `TDraftProposalForm.PrepareDraft`, with the form that owns those controls;
+  **`Help/help-index.json` is versioned because the application reads it** — change a page of
+  the manual and rebuild it with
+  `HelpIndexBuilder --source="CRM Demo\Help" --out="CRM Demo\Help\help-index.json"
+  --toc=Index.md --url-ext=`, or the assistant keeps answering from the old text.
+  The key is in nothing of the demo: it comes from `%APPDATA%\HelpChatAI\helpchatai.json`,
+  the shared file. And `Help/Assistant.md` documents the assistant itself: when its behaviour
+  changes, that page and the FAQ change with it — it already said "nothing is sent anywhere"
+  once, which stopped being true the moment the provider became `claude`.
 - **Defaults live once** in `HelpChatAI.Settings` constants (`HELPCHAT_DEF_*`). Settings also
   load/save as JSON (`helpchatai.json`: app file next to the exe, then per-user file in
   `%APPDATA%\<Exe>`); a new property must be added to `Assign`, `LoadFromJSON`, `SaveToJSON`

@@ -365,8 +365,10 @@ begin
   try
     for LLine in AMarkdown.Replace(#13, '').Split([#10]) do
     begin
-      // "[title](file.md)" optionally preceded by indentation and a list marker.
-      LMatch := TRegEx.Match(LLine, '^([ \t]*)(?:[-*+]\s+)?\[([^\]]+)\]\(([^)#]+\.md)(?:#[^)]*)?\)');
+      // "[title](file.md)" optionally preceded by indentation, a list marker
+      // or the bar of a table cell: a table of contents written as a Markdown
+      // table is a table of contents too, and its rows are all top level.
+      LMatch := TRegEx.Match(LLine, '^([ \t]*)(?:\|\s*)?(?:[-*+]\s+)?\[([^\]]+)\]\(([^)#]+\.md)(?:#[^)]*)?\)');
       if not LMatch.Success then
         Continue;
       LIndent := LMatch.Groups[1].Value.Replace(#9, '    ');

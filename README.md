@@ -119,13 +119,15 @@ One folder per Delphi version, the same `.dpk` for all of them.
 | `HelpChatAIFmx` (runtime) | HelpChatAIServer, fmx | `TFmxHelpChatAI` and its chat control |
 | `dclHelpChatAIFmx` (design-time) | HelpChatAIFmx, designide | palette, component editor with the configuration check |
 
-## Demos and tests
+## Demo and tests
 
-`Demos/Projects` has three applications that open with any supported Delphi: a console one that
-drives the engine from the command line, and the VCL and FMX ones, two-screen applications
-whose tabs carry the `HelpKeyword` of two pages of a real Italian manual — press F1 on each.
+`CRM Demo` is the Windows 10 CRM demo of Embarcadero with HelpChatAI in it: a real little
+application — leads, accounts, proposals — with a manual of sixteen pages in `CRM Demo\Help`
+and the assistant answering from it. Press **F1** on any screen, or ask it to open a screen,
+create a lead or prepare a proposal. It opens with any supported Delphi, and
+`CRM Demo\BuildAllDemos.ps1` builds it with all of them.
 
-`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **238 tests** that runs without
+`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **241 tests** that runs without
 network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, and the actions from a real worker thread.
@@ -136,7 +138,7 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 
 ## Release Notes ##
 
-23 Oct 2026: ver. 1.0.0
+25 Oct 2026: ver. 1.0.0
 - First release: in-app AI help chat for VCL (Delphi 10.4+) and FMX (Delphi 12+) applications
 - Engine (RTL only) with the providers `docsearch` (local documentation index, no key needed), `claude` (Anthropic), `openai` (Chat Completions, and with it Azure, Groq, OpenRouter, Mistral, Ollama...) and `gemini` (Google): all three models stream and can call the actions of the application, grounded on the documentation and on the screen context
 - `TVclHelpChatAI` (`TEdgeBrowser`) and `TFmxHelpChatAI` (`TWebBrowser`): chat bubble, F1 contextual help, chat panel embeddable in any container, colours from the VCL style
@@ -144,7 +146,8 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 - Question dictation, design-time live preview and configuration check
 - HelpChatAI server: engine, index and API key on a server, remote transport chosen in the configuration file
 - HelpIndexBuilder: builds the documentation index (`help-index.json`) from a folder of Markdown files
-- Packages for Delphi 10.4, 11, 12 and 13, console/VCL/FMX demos, DUnitX tests and installer
+- Packages for Delphi 10.4, 11, 12 and 13, DUnitX tests and installer
+- A sample application with the component in it: the Windows 10 CRM demo of Embarcadero, with a manual of its own, F1 on every screen and three actions the assistant can run
 
 ## License
 

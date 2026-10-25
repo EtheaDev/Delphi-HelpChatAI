@@ -13,6 +13,7 @@ type
   public
     [Test] procedure TextToHtml_EscapesAndBreaksLines;
     [Test] procedure Markdown_RendersBasicStructure;
+    [Test] procedure Markdown_RendersGfmTables;
     [Test] procedure Markdown_NeutralizesActiveHtml;
     [Test] procedure Markdown_BlocksDangerousLinkTargets;
     [Test] procedure IsSafeUrl_Rules;
@@ -48,6 +49,26 @@ begin
   Assert.Contains(LHtml, 'href="https://docs.example.com/x.html"');
   Assert.Contains(LHtml, '<li>');
   Assert.Contains(LHtml, '<p>');
+end;
+
+procedure THtmlTests.Markdown_RendersGfmTables;
+var
+  LHtml: string;
+begin
+  // I modelli rispondono spesso con una tabella: deve diventare una tabella.
+  LHtml := HelpChatMarkdownToSafeHtml(
+    '| Column | Meaning |'#10 +
+    '| --- | --- |'#10 +
+    '| New | Nobody has called yet |'#10 +
+    '| Active | Being worked on |');
+  Assert.Contains(LHtml, '<table', 'the pipes are a table, not text');
+  Assert.Contains(LHtml, '<th', 'the first row is the header');
+  Assert.Contains(LHtml, 'Nobody has called yet');
+  Assert.DoesNotContain(LHtml, '| New |', 'no raw pipes left');
+  // le altre estensioni GFM che un modello usa
+  LHtml := HelpChatMarkdownToSafeHtml('~~gone~~ and a list:'#10'- [x] done'#10'- [ ] todo');
+  Assert.Contains(LHtml, '<del', 'strikethrough');
+  Assert.DoesNotContain(LHtml, '[x]', 'task list markers are rendered');
 end;
 
 procedure THtmlTests.Markdown_NeutralizesActiveHtml;
@@ -109,8 +130,8 @@ var
   LHtml: string;
 begin
   // The way a model writes it: no Markdown syntax, punctuation glued to the URL.
-  LHtml := HelpChatMarkdownToSafeHtml('Per maggiori dettagli: https://help.ethea.it/lendingreport/4040000.html.');
-  Assert.Contains(LHtml, '<a href="https://help.ethea.it/lendingreport/4040000.html">https://help.ethea.it/lendingreport/4040000.html</a>.');
+  LHtml := HelpChatMarkdownToSafeHtml('Per maggiori dettagli: https://help.example.com/crm/Leads.html.');
+  Assert.Contains(LHtml, '<a href="https://help.example.com/crm/Leads.html">https://help.example.com/crm/Leads.html</a>.');
 
   // Query strings keep their (encoded) ampersand; a comma ends the link.
   LHtml := HelpChatMarkdownToSafeHtml('see http://x.example.com/a?b=1&c=2, then');

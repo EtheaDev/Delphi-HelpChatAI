@@ -147,14 +147,14 @@ procedure TDocIndexTests.Search_HintOutweighsAGenericQuestion;
 var
   LPages: TArray<THelpChatDocPage>;
 begin
-  // The F1 question names the application ("LendingReport Manager") and the
+  // The F1 question names the application ("Windows 10 CRM Demo") and the
   // main form keyword; the hint is the tab the user is on.
-  FIndex.AddPage('Homepage e navigazione', 'home.html', '', 'All''avvio compare la HomePage del LendingReport Manager.');
+  FIndex.AddPage('Getting started', 'start.html', '', 'The Windows 10 CRM Demo opens on the dashboard.');
   FIndex.AddPage('MANUALE: LENDINGREPORT MANAGER', 'manual.html', '', 'Il manager: homepage, report, scheduler.');
-  FIndex.AddPage('Scheduler dei Report', 'sched.html', '', 'Definizione della schedulazione dei report.');
-  LPages := FRetriever.Search('Come si usa la schermata "LendingReport Manager"?', 'Scheduler dei Report', 1);
+  FIndex.AddPage('Leads', 'leads.html', '', 'The board where the work happens, four columns.');
+  LPages := FRetriever.Search('How do I use the "Windows 10 CRM Demo" screen?', 'Leads', 1);
   Assert.AreEqual(1, Integer(Length(LPages)));
-  Assert.AreEqual('Scheduler dei Report', LPages[0].Title, 'the screen hint decides');
+  Assert.AreEqual('Leads', LPages[0].Title, 'the screen hint decides');
 end;
 
 procedure TDocIndexTests.Excerpt_WindowsAroundHits_WithinBudget;
@@ -203,14 +203,14 @@ begin
   Assert.AreEqual(0, THelpChatDocIndex.CountOccurrences('grid', 'grids'));
   Assert.AreEqual(0, THelpChatDocIndex.CountOccurrences('grid', ''));
   Assert.AreEqual(3, THelpChatDocIndex.CountOccurrences('aaa', 'a'));
-  // Stems match at word starts only: "LendingReport" is not a hit for "repor".
-  Assert.AreEqual(2, THelpChatDocIndex.CountPrefixOccurrences('report dei reports: lendingreport', 'repor'));
+  // Stems match at word starts only: "salesreport" is not a hit for "repor".
+  Assert.AreEqual(2, THelpChatDocIndex.CountPrefixOccurrences('report dei reports: salesreport', 'repor'));
   Assert.AreEqual(1, THelpChatDocIndex.CountPrefixOccurrences('il "report"', 'repor'), 'punctuation is a boundary');
-  Assert.AreEqual(0, THelpChatDocIndex.CountPrefixOccurrences('lendingreport', 'repor'));
+  Assert.AreEqual(0, THelpChatDocIndex.CountPrefixOccurrences('salesreport', 'repor'));
   Assert.AreEqual(0, THelpChatDocIndex.CountPrefixOccurrences('x', ''));
-  Assert.AreEqual(15, THelpChatDocIndex.FindPrefix('lendingreport report', 'repor'), 'the inner "report" is skipped');
-  Assert.AreEqual(0, THelpChatDocIndex.FindPrefix('lendingreport report', 'repor', 16));
-  Assert.AreEqual(1, THelpChatDocIndex.FindPrefix('report lendingreport', 'repor'));
+  Assert.AreEqual(13, THelpChatDocIndex.FindPrefix('salesreport report', 'repor'), 'the inner "report" is skipped');
+  Assert.AreEqual(0, THelpChatDocIndex.FindPrefix('salesreport report', 'repor', 14));
+  Assert.AreEqual(1, THelpChatDocIndex.FindPrefix('report salesreport', 'repor'));
 end;
 
 procedure TDocIndexTests.Load_Fixture;

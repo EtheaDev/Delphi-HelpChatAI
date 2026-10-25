@@ -126,7 +126,7 @@ type
     class function IsStopWord(const AWord: string): Boolean; static;
     class function CountOccurrences(const AHaystack, ANeedle: string): Integer; static;
     /// <summary>Occurrences of ANeedle at the start of a word only ("repor" hits
-    /// "report" and "reports", not "LendingReport"): the right match for stems
+    /// "report" and "reports", not "salesreport"): the right match for stems
     /// obtained by truncation. Used by the scoring.</summary>
     class function CountPrefixOccurrences(const AHaystack, ANeedle: string): Integer; static;
     /// <summary>1-based position of the first word starting with ANeedle at or

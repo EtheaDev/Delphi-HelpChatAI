@@ -267,7 +267,11 @@ begin
   if Trim(AMarkdown) = '' then
     Exit('');
   try
-    LProcessor := TMarkdownProcessor.CreateDialect(mdCommonMark);
+    // GFM, non CommonMark: i modelli rispondono con tabelle, barrato e
+    // liste di spunta, e CommonMark le stamperebbe come testo coi pipe.
+    // GFM in piu' vieta l'HTML grezzo pericoloso, che e' una garanzia in piu'
+    // sopra al safe mode.
+    LProcessor := TMarkdownProcessor.CreateDialect(mdGFM);
     try
       LProcessor.AllowUnsafe := False;
       Result := HelpChatAutoLinkUrls(HelpChatSanitizeUrls(LProcessor.Process(AMarkdown)));
