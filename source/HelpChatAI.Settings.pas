@@ -361,8 +361,9 @@ type
     /// <summary>The conversation file: <c>ConversationFile</c> when set, else
     /// <c>helpchatai-conversation.json</c> in the per-user application data folder.</summary>
     function ResolveConversationFile: string;
-    /// <summary>The documentation index file: <c>DocIndexFile</c> when set, else
-    /// <c>help-index.json</c> next to the executable (may not exist).</summary>
+    /// <summary>The documentation index file: <c>DocIndexFile</c>, relative to
+    /// the executable when not absolute; <c>help-index.json</c> next to the
+    /// executable when not set (either may not exist).</summary>
     function ResolveDocIndexFile: string;
     /// <summary>The folder of the Markdown pages shown in the panel:
     /// <c>DocFolder</c>, relative to the executable when not absolute; empty
@@ -993,7 +994,13 @@ function THelpChatSettings.ResolveDocIndexFile: string;
 begin
   Result := Trim(FDocIndexFile);
   if Result = '' then
-    Result := TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), HELPCHAT_DEF_DOCINDEX_FILENAME);
+    Result := TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), HELPCHAT_DEF_DOCINDEX_FILENAME)
+  else if TPath.IsRelativePath(Result) then
+    // Against the executable, like DocFolder and like the documentation says.
+    // Against the current directory it would depend on who started the
+    // application: a shortcut, the IDE and Explorer set three different ones,
+    // and the index would be found or not by accident.
+    Result := ExpandFileName(TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), Result));
 end;
 
 function THelpChatSettings.ResolveDocFolder: string;

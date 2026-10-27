@@ -68,6 +68,11 @@ const
   /// <summary>POST /api/theme: the colours of the host application, so a page
   /// (re)load is already themed.</summary>
   HELPCHAT_API_THEME = '/api/theme';
+  /// <summary>POST /api/assistant: the name and the icon the panel writes in its
+  /// header. They belong to the client for the same reason the theme does - an
+  /// image list is a VCL object, and only the client knows which one the
+  /// application gave the bubble.</summary>
+  HELPCHAT_API_ASSISTANT = '/api/assistant';
   /// <summary>GET /api/doc?page=...: a page of the documentation folder as an
   /// HTML fragment (&lt;article class="hc-chat-doc-page" data-page data-title&gt;),
   /// 404 when it is not one.</summary>
@@ -123,6 +128,13 @@ type
     /// <summary>Prefix of the documentation links (<c>Settings.DocBaseUrl</c>):
     /// a link starting with it is a page too.</summary>
     DocBaseUrl: string;
+    /// <summary>Name written in the header of the panel; empty = the localized
+    /// <c>hcmUiTitle</c> ("Assistant" / "Assistente").</summary>
+    AssistantName: string;
+    /// <summary>Icon drawn left of the name, as a <c>data:image/...</c> URI -
+    /// the only kind the page may load, since its CSP allows images from
+    /// <c>'self'</c> and <c>data:</c> alone. Empty = no icon.</summary>
+    AssistantIcon: string;
     class function Default: THelpChatPanelOptions; static;
   end;
 
@@ -133,9 +145,21 @@ type
     class function LoadResourceText(const AName: string): string; static;
     /// <summary>True when the panel resources are linked into this module.</summary>
     class function HasResources: Boolean; static;
+    /// <summary>The name the header shows: <c>AName</c> trimmed, or the
+    /// localized <c>hcmUiTitle</c> when it is empty. One place decides it, so
+    /// the page, the labels and the components cannot disagree.</summary>
+    class function AssistantNameOf(const AName: string;
+      const ALanguage: THelpChatLanguage): string; static;
+    /// <summary>The <c>img</c> tag of the header icon, empty when there is no
+    /// icon. Only a <c>data:image/</c> URI is accepted: it is what the CSP of
+    /// the page allows, and it keeps a wrong value from becoming markup.</summary>
+    class function AssistantIconTag(const AIconDataUri: string): string; static;
     /// <summary>The UI labels of the page as a JSON object (title, help, clear,
-    /// close, placeholder, send, stop, retry, sendError, back, docNotFound).</summary>
-    class function LabelsJson(const ALanguage: THelpChatLanguage): string; static;
+    /// close, placeholder, send, stop, retry, sendError, back, docNotFound).
+    /// <c>title</c> is the assistant name, resolved as <c>AssistantNameOf</c>
+    /// does.</summary>
+    class function LabelsJson(const ALanguage: THelpChatLanguage;
+      const AAssistantName: string = ''): string; static;
     /// <summary>The configuration object the page reads as window.HC.</summary>
     class function ConfigJson(const AOptions: THelpChatPanelOptions): string; static;
     /// <summary>The complete panel page.</summary>
@@ -189,13 +213,34 @@ begin
   Result := LEncoding.GetString(LBytes, LOffset, Length(LBytes) - LOffset);
 end;
 
-class function THelpChatPanel.LabelsJson(const ALanguage: THelpChatLanguage): string;
+class function THelpChatPanel.AssistantNameOf(const AName: string;
+  const ALanguage: THelpChatLanguage): string;
+begin
+  Result := AName.Trim;
+  if Result = '' then
+    Result := HelpChatMsg(hcmUiTitle, ALanguage);
+end;
+
+class function THelpChatPanel.AssistantIconTag(const AIconDataUri: string): string;
+var
+  LUri: string;
+begin
+  Result := '';
+  LUri := AIconDataUri.Trim;
+  if (LUri = '') or not LUri.ToLower.StartsWith('data:image/') then
+    Exit;
+  Result := '<img class="hc-chat-icon" src="' + TNetEncoding.HTML.Encode(LUri) +
+    '" alt="" aria-hidden="true">';
+end;
+
+class function THelpChatPanel.LabelsJson(const ALanguage: THelpChatLanguage;
+  const AAssistantName: string = ''): string;
 var
   LRoot: TJSONObject;
 begin
   LRoot := TJSONObject.Create;
   try
-    LRoot.AddPair('title', HelpChatMsg(hcmUiTitle, ALanguage));
+    LRoot.AddPair('title', AssistantNameOf(AAssistantName, ALanguage));
     LRoot.AddPair('help', HelpChatMsg(hcmUiHelp, ALanguage));
     LRoot.AddPair('clear', HelpChatMsg(hcmUiClear, ALanguage));
     LRoot.AddPair('close', HelpChatMsg(hcmUiClose, ALanguage));
@@ -229,7 +274,8 @@ begin
     LRoot.AddPair('lang', HelpChatLanguageCode(AOptions.Language));
     LRoot.AddPair('docs', TJSONBool.Create(AOptions.DocsAvailable));
     LRoot.AddPair('docBase', AOptions.DocBaseUrl);
-    LLabels := TJSONObject.ParseJSONValue(LabelsJson(AOptions.Language));
+    LLabels := TJSONObject.ParseJSONValue(
+      LabelsJson(AOptions.Language, AOptions.AssistantName));
     LRoot.AddPair('labels', LLabels);
     Result := LRoot.ToJSON;
   finally
@@ -247,7 +293,10 @@ class function THelpChatPanel.RenderPage(const AOptions: THelpChatPanelOptions):
 begin
   Result := LoadResourceText(HELPCHAT_RES_HTML);
   Result := Result.Replace('{{LANG}}', HelpChatLanguageCode(AOptions.Language));
-  Result := Result.Replace('{{TITLE}}', Attr(hcmUiTitle));
+  // The same name in the document title and in the header of the panel.
+  Result := Result.Replace('{{TITLE}}', TNetEncoding.HTML.Encode(
+    AssistantNameOf(AOptions.AssistantName, AOptions.Language)));
+  Result := Result.Replace('{{ICON}}', AssistantIconTag(AOptions.AssistantIcon));
   Result := Result.Replace('{{L_CLEAR}}', Attr(hcmUiClear));
   Result := Result.Replace('{{L_CLOSE}}', Attr(hcmUiClose));
   Result := Result.Replace('{{L_PLACEHOLDER}}', Attr(hcmUiPlaceholder));

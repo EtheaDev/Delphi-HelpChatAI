@@ -149,6 +149,8 @@ type
     FRegisterHelpViewer: Boolean;
     FShowBubble: Boolean;
     FConfigFileName: TFileName;
+    FCaption: string;
+    FAssistantName: string;
     FFollowVclStyle: Boolean;
     FRememberPanelPosition: Boolean;
     FHostForm: TCustomForm;
@@ -181,6 +183,8 @@ type
     procedure SetImages(const Value: TCustomImageList);
     procedure SetImageIndex(const Value: TImageIndex);
     procedure SetImageName(const Value: TImageName);
+    procedure SetCaption(const Value: string);
+    procedure SetAssistantName(const Value: string);
     procedure ApplyBubbleIcon;
     function EnsureVoice: Boolean;
     procedure ApplyVoiceButton;
@@ -264,6 +268,20 @@ type
     /// <summary>Recomputes the theme, hands it to the transport (next page load)
     /// and pushes it into the open page. Called on Open and on style change.</summary>
     procedure ApplyTheme;
+    /// <summary>Title of the component's own window: <c>Caption</c>, or the
+    /// localized "Help" when it is empty.</summary>
+    function ResolvedCaption: string;
+    /// <summary>Name the panel writes in its header: <c>AssistantName</c>, or
+    /// the localized "Assistant" when it is empty.</summary>
+    function ResolvedAssistantName: string;
+    /// <summary>The icon of the bubble as the page can load it - a
+    /// <c>data:image/png</c> URI - empty when there is none.</summary>
+    function AssistantIconDataUri: string;
+    /// <summary>Retitles the own window, hands name and icon to the transport
+    /// (so the next page load already carries them) and updates an open page.
+    /// Called when any of Caption, AssistantName, Images, ImageIndex or
+    /// ImageName changes, and when the component activates.</summary>
+    procedure ApplyAssistant;
 
     property Engine: THelpChatEngine read FEngine;
     property Transport: IHelpChatTransport read FTransport;
@@ -296,10 +314,19 @@ type
     /// <summary>F1 opens the chat also where no control declares any help (the
     /// VCL would do nothing): a question about the current screen is asked.</summary>
     property HandleF1: Boolean read FHandleF1 write FHandleF1 default True;
+    /// <summary>Title of the window the chat opens in when it is not embedded
+    /// in a container of yours. Empty (the default) = the localized "Help".</summary>
+    property Caption: string read FCaption write SetCaption;
+    /// <summary>What the assistant is called, written in the header of the
+    /// chat panel next to its icon - and the title of the page itself. Empty
+    /// (the default) = the localized "Assistant". It is a name, not a window
+    /// title: that is <c>Caption</c>.</summary>
+    property AssistantName: string read FAssistantName write SetAssistantName;
     /// <summary>Round "?" button in the bottom-right corner of the host form.</summary>
     property ShowBubble: Boolean read FShowBubble write SetShowBubble default True;
     /// <summary>Image list holding the bubble icon; nil uses the icons
-    /// compiled into the component (HELPCHAT_ICON_* names).</summary>
+    /// compiled into the component (HELPCHAT_ICON_* names). The same icon is
+    /// drawn in the header of the chat panel, left of AssistantName.</summary>
     property Images: TCustomImageList read FImages write SetImages;
     /// <summary>Bubble icon by index, used when ImageName finds nothing.</summary>
     property ImageIndex: TImageIndex read FImageIndex write SetImageIndex default -1;
@@ -372,6 +399,7 @@ uses
   Vcl.Dialogs,
   Vcl.ComCtrls,
   Vcl.HelpChatAI.Theme,
+  HelpChatAI.Panel,            // the page contract: it decides the default name
   HelpChatAI.Server,
   HelpChatAI.Transport.Remote;
 
@@ -551,6 +579,9 @@ begin
       raise;
     end;
     FActive := True;
+    // Before the panel is ever shown: the first page load already carries the
+    // name and the icon, so the header never flashes the default ones.
+    ApplyAssistant;
     HookApplication;
     if FShowBubble then
       EnsureBubble;
@@ -721,11 +752,81 @@ end;
 
 procedure TVclHelpChatAI.ApplyBubbleIcon;
 begin
-  if FBubble = nil then
+  if Assigned(FBubble) then
+  begin
+    FBubble.Images := FImages;
+    FBubble.ImageIndex := FImageIndex;
+    FBubble.ImageName := FImageName;
+  end;
+  // The header of the panel shows the same icon, so it changes with it - also
+  // when there is no bubble at all (ShowBubble off).
+  ApplyAssistant;
+end;
+
+function TVclHelpChatAI.ResolvedCaption: string;
+begin
+  Result := FCaption.Trim;
+  if Result = '' then
+    Result := HelpChatMsg(hcmUiHelp, FSettings.Language);
+end;
+
+function TVclHelpChatAI.ResolvedAssistantName: string;
+begin
+  // The same rule the page applies, so the two cannot disagree.
+  Result := THelpChatPanel.AssistantNameOf(FAssistantName, FSettings.Language);
+end;
+
+function TVclHelpChatAI.AssistantIconDataUri: string;
+begin
+  Result := HelpChatIconDataUri(FImages, FImageIndex, FImageName);
+end;
+
+procedure TVclHelpChatAI.ApplyAssistant;
+var
+  LName, LIcon: string;
+
+  function JsStr(const AValue: string): string;
+  var
+    LJson: TJSONString;
+  begin
+    LJson := TJSONString.Create(AValue);
+    try
+      Result := LJson.ToJSON;
+    finally
+      LJson.Free;
+    end;
+  end;
+
+begin
+  if csDesigning in ComponentState then
     Exit;
-  FBubble.Images := FImages;
-  FBubble.ImageIndex := FImageIndex;
-  FBubble.ImageName := FImageName;
+  if Assigned(FOwnForm) then
+    FOwnForm.Caption := ResolvedCaption;
+  if not Assigned(FTransport) then
+    Exit;
+  LName := ResolvedAssistantName;
+  LIcon := AssistantIconDataUri;
+  FTransport.SetAssistant(LName, LIcon);   // the next page load is rendered with them
+  if Assigned(FView) and FView.PageReady then
+    FView.RunScript('window.hcSetAssistant && window.hcSetAssistant(' +
+      JsStr(LName) + ', ' + JsStr(LIcon) + ');');
+end;
+
+procedure TVclHelpChatAI.SetCaption(const Value: string);
+begin
+  if FCaption = Value then
+    Exit;
+  FCaption := Value;
+  if Assigned(FOwnForm) then
+    FOwnForm.Caption := ResolvedCaption;
+end;
+
+procedure TVclHelpChatAI.SetAssistantName(const Value: string);
+begin
+  if FAssistantName = Value then
+    Exit;
+  FAssistantName := Value;
+  ApplyAssistant;
 end;
 
 procedure TVclHelpChatAI.SetImages(const Value: TCustomImageList);
@@ -809,7 +910,7 @@ begin
     Exit;
   FOwnForm := TVclHelpChatAIForm.CreateNew(Self);
   FOwnForm.FreeNotification(Self);
-  FOwnForm.Caption := HelpChatMsg(hcmUiTitle, FSettings.Language);
+  FOwnForm.Caption := ResolvedCaption;
   FOwnForm.OnClosedByUser := OwnFormClosedByUser;
 end;
 

@@ -53,10 +53,26 @@ body {
 /* Header */
 .hc-chat-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 12px; background: var(--hc-surface);
+  padding: 6px 12px; background: var(--hc-surface);
   border-bottom: 1px solid var(--hc-border); flex: 0 0 auto;
 }
-.hc-chat-title { font-weight: 600; }
+/* The name of the assistant, with the icon of the bubble when the host sent
+   one (a data: URI: the CSP allows no other source for an image). The name is
+   the part that gives way when the panel is narrow. */
+.hc-chat-brand {
+  display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden;
+}
+/* As tall as the header lets it be: the assistant is the first thing the
+   panel says. Square, never a circle: the icons are drawn to the corners of
+   their box - the chat bubble of AIAssistant_* sits in the top left one - and
+   a round clip cuts it off. */
+.hc-chat-icon {
+  width: 40px; height: 40px; flex: 0 0 auto;
+  object-fit: contain;
+}
+.hc-chat-title {
+  font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .hc-chat-actions { display: flex; gap: 4px; }
 .hc-chat-hbtn {
   border: 0; background: transparent; color: var(--hc-muted);

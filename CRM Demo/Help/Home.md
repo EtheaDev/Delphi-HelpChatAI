@@ -1,4 +1,4 @@
-# Windows 10 CRM Demo
+# CRM Demo
 
 A small customer-relationship manager: it keeps the **leads** you are working on, the
 **accounts** they belong to, the **proposals** you send them, and the documents attached to

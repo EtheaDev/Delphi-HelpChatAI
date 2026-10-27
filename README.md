@@ -124,10 +124,19 @@ One folder per Delphi version, the same `.dpk` for all of them.
 `CRM Demo` is the Windows 10 CRM demo of Embarcadero with HelpChatAI in it: a real little
 application — leads, accounts, proposals — with a manual of sixteen pages in `CRM Demo\Help`
 and the assistant answering from it. Press **F1** on any screen, or ask it to open a screen,
-create a lead or prepare a proposal. It opens with any supported Delphi, and
-`CRM Demo\BuildAllDemos.ps1` builds it with all of them.
+create a lead or prepare a proposal.
 
-`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **241 tests** that runs without
+It comes **in both frameworks**, sharing one data module, one database and one manual:
+
+| | Project | Delphi | What it is |
+|---|---|---|---|
+| VCL | `CRM Demo\VCL\project\VCL_CRMDemo.dproj` | 10.4 → 13 | The whole application: seven pages, the lead and proposal windows, and all three actions |
+| FMX | `CRM Demo\FMX\project\FMX_CRMDemo.dproj` | 12 → 13 | The main form alone — the same seven pages over the same data — so the FireMonkey half of the library runs in a real application. One action, `open_screen`, because the windows the other two open are not ported |
+
+`CRM Demo\BuildAllDemos.ps1` builds both with every Delphi it finds, Win32 and Win64: twelve
+builds, and the FireMonkey ones are reported `N/A` below Delphi 12 rather than failed.
+
+`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **246 tests** that runs without
 network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, and the actions from a real worker thread.
@@ -137,6 +146,15 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+27 Oct 2026: ver. 1.1.0
+- `Caption` and `AssistantName` on both components: the title of the window the chat opens in, and the name written in the header of the panel. Empty - the default - means the word of the current language, so an English application reads "Help" and "Assistant" and an Italian one "Aiuto" and "Assistente" without anybody writing them
+- The header of the panel shows the icon of the bubble next to the name. Name and icon reach the page the way the colours do, through the transport and `POST /api/assistant`: an image list is an object of the framework, so only the client can know it
+- The icons of the assistant moved to the engine (`HelpChatAI.Assistant`), where both frameworks can reach them. For the built-in ones the icon the page loads is the PNG itself, with its transparency, and no drawing in between
+- FireMonkey caught up with the VCL: the bubble is round and wears the icon, and `Images`, `ImageIndex` and `ImageName` are published there too, with the four names in the Object Inspector
+- Fixed, both found by running the new FireMonkey demo: the FMX bubble was placed outside the window the first time the form was resized (FireMonkey computes the anchor rules once, against the parent the control has at that moment, and it had none yet), and a relative `DocIndexFile` was resolved against the current directory instead of the executable, so the documentation index was found or not depending on who started the application
+- **Two sample applications**, `CRM Demo\VCL` and `CRM Demo\FMX`, sharing one data module and one manual. The FireMonkey one is the main form alone - the seven pages, the same bind sources, `TFmxHelpChatAI` with a `HelpKeyword` per tab - and needs Delphi 12 or later, because `TFmxHelpChatAI` starts there
+- 246 tests, and a build matrix of 12: VCL on Delphi 10.4 to 13, FMX on 12 and 13, Win32 and Win64
 
 25 Oct 2026: ver. 1.0.0
 - First release: in-app AI help chat for VCL (Delphi 10.4+) and FMX (Delphi 12+) applications

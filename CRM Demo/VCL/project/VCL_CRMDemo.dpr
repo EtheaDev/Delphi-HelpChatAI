@@ -1,8 +1,11 @@
-﻿program Windows10CRMDemo;
+﻿program VCL_CRMDemo;
 
 uses
   Vcl.Forms,
-  uDataMod in '..\source\uDataMod.pas' {DM: TDataModule},
+  // The FireDAC wait cursor is per framework, so it belongs to the project and
+  // not to the data module, which the FMX demo shares.
+  FireDAC.VCLUI.Wait,
+  uDataMod in '..\..\common\uDataMod.pas' {DM: TDataModule},
   uMainForm in '..\source\uMainForm.pas' {MainForm},
   uLeads in '..\source\uLeads.pas' {LeadsForm},
   uDraftProposal in '..\source\uDraftProposal.pas' {DraftProposalForm},

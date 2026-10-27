@@ -88,6 +88,8 @@ type
     FUiToken: string;
     FContext: THelpChatContext;
     FThemeCss: string;
+    FAssistantName: string;
+    FAssistantIcon: string;
     FCreatedAt: TDateTime;
     FLastAccess: TDateTime;
     function GetLastAccess: TDateTime;
@@ -101,6 +103,11 @@ type
     /// <summary>The colours of this client, as the CSS rule the page loads with.</summary>
     procedure SetThemeCss(const ACss: string);
     function GetThemeCss: string;
+    /// <summary>What this client calls its assistant, and the icon it draws
+    /// next to the name (a data: URI). Empty name = the localized default.</summary>
+    procedure SetAssistant(const AName, AIcon: string);
+    function GetAssistantName: string;
+    function GetAssistantIcon: string;
     /// <summary>Where this client listens for the commands of its page, and with
     /// which secret; empty = the page talks to the server it came from.</summary>
     procedure SetUiEndpoint(const ABase, AToken: string);
@@ -192,6 +199,8 @@ type
     FLock: TCriticalSection;
     FTheme: THelpChatTheme;
     FContext: THelpChatContext;
+    FAssistantName: string;
+    FAssistantIcon: string;
     FOnUiCommand: THelpChatUiCommandEvent;
   strict protected
     function SessionByToken(const AToken: string): THelpChatServerSession; override;
@@ -209,6 +218,9 @@ type
     function GetContext: THelpChatContext;
     procedure SetTheme(const ATheme: THelpChatTheme);
     function GetTheme: THelpChatTheme;
+    procedure SetAssistant(const AName, AIconDataUri: string);
+    function GetAssistantName: string;
+    function GetAssistantIcon: string;
     function GetEngine: THelpChatEngine;
     procedure SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
 
@@ -343,6 +355,37 @@ begin
   FLock.Enter;
   try
     Result := FThemeCss;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatServerSession.SetAssistant(const AName, AIcon: string);
+begin
+  FLock.Enter;
+  try
+    FAssistantName := AName;
+    FAssistantIcon := AIcon;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatServerSession.GetAssistantName: string;
+begin
+  FLock.Enter;
+  try
+    Result := FAssistantName;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatServerSession.GetAssistantIcon: string;
+begin
+  FLock.Enter;
+  try
+    Result := FAssistantIcon;
   finally
     FLock.Leave;
   end;
@@ -503,6 +546,8 @@ begin
   Result.HostCommands := True;
   Result.DocsAvailable := Assigned(FEngine.DocPages);
   Result.DocBaseUrl := FEngine.Settings.DocBaseUrl;
+  Result.AssistantName := ASession.GetAssistantName;
+  Result.AssistantIcon := ASession.GetAssistantIcon;
 end;
 
 function THelpChatHttpServerBase.HandleRoute(const ADocument: string;
@@ -665,6 +710,14 @@ begin
     WriteHtml(AResponseInfo, '');
   end
 
+  else if (ADocument = HELPCHAT_API_ASSISTANT) and LIsPost then
+  begin
+    // Same reasoning as the theme: the name of the assistant and its icon are
+    // what the client decided, and the page is reloaded with them.
+    ASession.SetAssistant(FormField(LBody, 'name'), FormField(LBody, 'icon'));
+    WriteHtml(AResponseInfo, '');
+  end
+
   else if ADocument.StartsWith(HELPCHAT_API_UI) and LIsPost then
   begin
     LId := ADocument.Substring(HELPCHAT_API_UI.Length).Trim(['/']).ToLower;
@@ -704,6 +757,7 @@ begin
   FSession := THelpChatServerSession.Create('local', NewSecret, '', Engine.ConversationKey);
   FSession.SetContext(GetContext);
   FSession.SetThemeCss(GetTheme.ToCss);
+  FSession.SetAssistant(GetAssistantName, GetAssistantIcon);
   // The page talks to the host through this same server.
   FSession.SetUiEndpoint('', '');
 end;
@@ -777,6 +831,40 @@ begin
   FLock.Enter;
   try
     Result := FTheme;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatLocalServer.SetAssistant(const AName, AIconDataUri: string);
+begin
+  // Kept here too: the component sets them before Start created the session.
+  FLock.Enter;
+  try
+    FAssistantName := AName;
+    FAssistantIcon := AIconDataUri;
+  finally
+    FLock.Leave;
+  end;
+  if Assigned(FSession) then
+    FSession.SetAssistant(AName, AIconDataUri);
+end;
+
+function THelpChatLocalServer.GetAssistantName: string;
+begin
+  FLock.Enter;
+  try
+    Result := FAssistantName;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatLocalServer.GetAssistantIcon: string;
+begin
+  FLock.Enter;
+  try
+    Result := FAssistantIcon;
   finally
     FLock.Leave;
   end;

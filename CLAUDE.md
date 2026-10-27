@@ -43,15 +43,27 @@ Setup/                   Setup.iss, BuildSetup.bat and HelpChatSetup.ico, the ic
 README.htm               README.md as HTML, installed and linked as ReadMe in the Start menu:
                          regenerate it whenever README.md changes
 Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
-"CRM Demo"/              the only sample application: the Windows 10 CRM demo of Embarcadero,
-                         with HelpChatAI in it and a manual of its own in Help/*.md (plus
-                         Help/Images and the help-index.json the application reads). Its
-                         project is project/, its sources source/, bin|dcu are svn-ignored
-                         build output, and the DCUs have no Delphi version in their path - so
-                         after opening it with a different Delphi, Build and not Compile
-"CRM Demo"/Build*.ps1    BuildDemo.ps1 (one version), BuildAllDemos.ps1 (the matrix, with a
-                         summary table) and the four per-version wrappers, same shape as
-                         StyledComponents/Demos
+"CRM Demo"/              the sample application, in two frameworks: the Windows 10 CRM demo
+                         of Embarcadero with HelpChatAI in it, and one manual for both in
+                         Help/*.md (plus Help/Images and the help-index.json the applications
+                         read)
+"CRM Demo"/common/       uDataMod: the FireDAC data module, the database and every query,
+                         shared by the two demos. Framework-neutral on purpose - the
+                         FireDAC wait cursor (FireDAC.VCLUI.Wait / .FMXUI.Wait) is the one
+                         thing that is not, so it lives in each .dpr instead
+"CRM Demo"/VCL/          VCL_CRMDemo: project/ and source/ (uMainForm, uLeads, uProposal,
+                         uDraftProposal). Delphi 10.4 to 13
+"CRM Demo"/FMX/          FMX_CRMDemo: project/ and source/ (uMainFormFmx alone). Delphi 12
+                         and 13 only, because TFmxHelpChatAI starts there
+"CRM Demo"/bin/<Platform>    both executables, next to the one WebView2Loader.dll they share
+"CRM Demo"/dcu/<Framework>/<Platform>   svn-ignored build output, one tree per framework so
+                         the two projects cannot pick up each other's units. No Delphi
+                         version in the path - so after opening a demo with a different
+                         Delphi, Build and not Compile
+"CRM Demo"/Build*.ps1    BuildDemo.ps1 (one framework, one version), BuildAllDemos.ps1 (the
+                         matrix of 12, with a summary table) and the four per-version
+                         wrappers, same shape as StyledComponents/Demos. -Framework VCL|FMX
+                         everywhere; FMX on 10.4 and 11 is reported N/A, not SKIP
 Server/source, Server/Delphi13                HelpChatAIServerApp: the console HelpChatAI server
                          (Server/Bin, Server/Dcu and helpchatai-server.json are svn-ignored;
                          helpchatai-server.json.sample is the versioned starting point)
@@ -166,6 +178,24 @@ the edit on every version, not on the one that happens to be open.
 - **The theme travels as CSS, not as a record.** The colours are produced by the framework on the
   client; a remote client posts `themeCss` and the session keeps the string the page loads with.
   `THelpChatTheme.ToJson` stays what `window.hcApplyTheme` eats at runtime.
+- **What the panel is called travels the same way, and for the same reason.** `Caption` (the
+  title of the own window) and `AssistantName` (the header of the page) are published on both
+  components and **empty by default**: empty means `hcmUiHelp` and `hcmUiTitle`, so an Italian
+  application reads "Aiuto" and "Assistente" without anyone writing them. The rule lives once,
+  in `THelpChatPanel.AssistantNameOf`, which the page and both components call. The name and
+  the icon reach the session through `IHelpChatTransport.SetAssistant` and `POST /api/assistant`
+  — never through `THelpChatSettings`: an image list is a VCL object, so only the client can
+  know it, exactly like the colours. The icon is a `data:image/png` URI and nothing else is
+  accepted (`AssistantIconTag` checks the prefix): the CSP of the page allows `'self'` and
+  `data:` for an image, so an http URL would be dropped without a word.
+- **The alpha of an image list cannot be read back.** GDI writes no alpha channel, so a bitmap
+  drawn from a `TCustomImageList` comes back opaque and the header icon would carry a grey
+  square. `HelpChatIconPng` draws the same image twice, over white and over black: where it is
+  transparent the two differ by 255, where it is solid they are equal, and the drawing over
+  black already *is* the colour multiplied by the alpha, which is what a bitmap declared
+  `afDefined` holds. Measured: with themes off `TImageCollection.GetBitmap` flattens onto
+  `clBtnFace` before any of this, so a console program without a manifest sees opaque icons -
+  that is the VCL, not the trick, and a real application has a manifest.
 - **Where the engine lives is a setting.** `Settings.Remote.BaseUrl` (in `helpchatai.json`) makes
   the components build a `THelpChatRemoteTransport` instead of the local server, and leaves the
   local engine unstarted — so nothing in the components may assume `Engine.DocIndex` exists.
@@ -447,9 +477,21 @@ the edit on every version, not on the one that happens to be open.
   is shaped for it (`TakePending`/`Complete` over HTTP, the host channel already exists), but
   until that is built, registering actions with a remote engine does nothing.
 - **The sample application is the integration, and it is where the mistakes show up.**
-  `CRM Demo` is the only demo: the Windows 10 CRM of Embarcadero with `TVclHelpChatAI` on the
-  main form, `claude`, its own manual in `Help/*.md` and three actions. Four things it taught,
-  each of which cost a run:
+  `CRM Demo` is the Windows 10 CRM of Embarcadero with the component on the main form,
+  `claude`, one manual in `Help/*.md` for both demos, and the actions. The **VCL** one
+  (`VCL/`) is the complete application and the only one with `create_lead` and
+  `draft_proposal`: those two open the lead and draft windows, which are not ported.
+  The **FMX** one (`FMX/`, Delphi 12+) is the main form alone - the seven pages, the same
+  bind sources of the same data module, `TFmxHelpChatAI` with a `HelpKeyword` per `TTabItem`
+  and `open_screen`. It exists because nobody had ever run the FireMonkey half of the library
+  in a real application. What FireMonkey does differently there: no `TRelativePanel` (it is
+  `Align` plus margins, and the five resize handlers of the VCL demo simply do not exist),
+  no `TTitleBarPanel` (the two combo boxes go in a `TToolBar`), `TMultiView` in place of
+  `TSplitView`, `TCalendar` in place of `TCalendarView`, one multi-resolution `TImageList`
+  read by `TGlyph` in place of `TImageCollection` + `TVirtualImageList` + `TVirtualImage`,
+  and a `.style` file loaded at run time in place of the VCL styles linked by
+  `Custom_Styles`.
+  Four things the integration taught, each of which cost a run:
   **a provider has to be linked** — `Settings.Provider := 'claude'` with no
   `HelpChatAI.Provider.Claude` in the uses answers "the provider is not available in this
   application", which is the registration rule seen from the user's side;

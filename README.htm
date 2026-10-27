@@ -343,14 +343,51 @@ assistant to your Delphi application, and how to make its answers good.</p>
 <p><code>CRM Demo</code> is the Windows 10 CRM demo of Embarcadero with HelpChatAI in it: a real little
 application — leads, accounts, proposals — with a manual of sixteen pages in <code>CRM Demo\Help</code>
 and the assistant answering from it. Press <strong>F1</strong> on any screen, or ask it to open a screen,
-create a lead or prepare a proposal. It opens with any supported Delphi, and
-<code>CRM Demo\BuildAllDemos.ps1</code> builds it with all of them.</p>
-<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>241 tests</strong> that runs without
+create a lead or prepare a proposal.</p>
+<p>It comes <strong>in both frameworks</strong>, sharing one data module, one database and one manual:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Project</th>
+<th>Delphi</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VCL</td>
+<td><code>CRM Demo\VCL\project\VCL_CRMDemo.dproj</code></td>
+<td>10.4 → 13</td>
+<td>The whole application: seven pages, the lead and proposal windows, and all three actions</td>
+</tr>
+<tr>
+<td>FMX</td>
+<td><code>CRM Demo\FMX\project\FMX_CRMDemo.dproj</code></td>
+<td>12 → 13</td>
+<td>The main form alone — the same seven pages over the same data — so the FireMonkey half of the library runs in a real application. One action, <code>open_screen</code>, because the windows the other two open are not ported</td>
+</tr>
+</tbody>
+</table>
+<p><code>CRM Demo\BuildAllDemos.ps1</code> builds both with every Delphi it finds, Win32 and Win64: twelve
+builds, and the FireMonkey ones are reported <code>N/A</code> below Delphi 12 rather than failed.</p>
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>246 tests</strong> that runs without
 network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, and the actions from a real worker thread.</p>
-<pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
+<pre><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
+</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>27 Oct 2026: ver. 1.1.0</p>
+<ul>
+<li><code>Caption</code> and <code>AssistantName</code> on both components: the title of the window the chat opens in, and the name written in the header of the panel. Empty - the default - means the word of the current language, so an English application reads “Help” and “Assistant” and an Italian one “Aiuto” and “Assistente” without anybody writing them</li>
+<li>The header of the panel shows the icon of the bubble next to the name. Name and icon reach the page the way the colours do, through the transport and <code>POST /api/assistant</code>: an image list is an object of the framework, so only the client can know it</li>
+<li>The icons of the assistant moved to the engine (<code>HelpChatAI.Assistant</code>), where both frameworks can reach them. For the built-in ones the icon the page loads is the PNG itself, with its transparency, and no drawing in between</li>
+<li>FireMonkey caught up with the VCL: the bubble is round and wears the icon, and <code>Images</code>, <code>ImageIndex</code> and <code>ImageName</code> are published there too, with the four names in the Object Inspector</li>
+<li>Fixed, both found by running the new FireMonkey demo: the FMX bubble was placed outside the window the first time the form was resized (FireMonkey computes the anchor rules once, against the parent the control has at that moment, and it had none yet), and a relative <code>DocIndexFile</code> was resolved against the current directory instead of the executable, so the documentation index was found or not depending on who started the application</li>
+<li><strong>Two sample applications</strong>, <code>CRM Demo\VCL</code> and <code>CRM Demo\FMX</code>, sharing one data module and one manual. The FireMonkey one is the main form alone - the seven pages, the same bind sources, <code>TFmxHelpChatAI</code> with a <code>HelpKeyword</code> per tab - and needs Delphi 12 or later, because <code>TFmxHelpChatAI</code> starts there</li>
+<li>246 tests, and a build matrix of 12: VCL on Delphi 10.4 to 13, FMX on 12 and 13, Win32 and Win64</li>
+</ul>
 <p>25 Oct 2026: ver. 1.0.0</p>
 <ul>
 <li>First release: in-app AI help chat for VCL (Delphi 10.4+) and FMX (Delphi 12+) applications</li>

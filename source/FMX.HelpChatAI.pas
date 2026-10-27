@@ -50,8 +50,14 @@ uses
   FMX.Types,
   FMX.Controls,
   FMX.Forms,
+  FMX.Graphics,
+  FMX.ImgList,
+  FMX.MultiResBitmap,
+  FMX.Objects,
+  FMX.Surfaces,
   FMX.StdCtrls,
   FMX.HelpChatAI.Panel,
+  HelpChatAI.Assistant,
   HelpChatAI.HelpViewer,
   HelpChatAI.Actions,
   HelpChatAI.Types,
@@ -66,6 +72,8 @@ const
   HELPCHAT_FMX_DEF_PANEL_HEIGHT = 600;
   HELPCHAT_FMX_DEF_BUBBLE_SIZE = 44;
   HELPCHAT_FMX_MARGIN = 16;
+  /// <summary>Space between the icon and the edge of the disc.</summary>
+  HELPCHAT_FMX_BUBBLE_PADDING = 8;
   /// <summary>The same question within this interval (key auto-repeat, a
   /// request routed twice) is shown but not sent again.</summary>
   HELPCHAT_FMX_ASK_DEBOUNCE_MS = 1500;
@@ -116,7 +124,12 @@ type
     FOwnForm: TFmxHelpChatAIForm;
     FContainer: TFmxObject;
     FActiveContainer: TFmxObject;
-    FBubble: TButton;
+    FBubble: TCircle;
+    FBubbleGlyph: TLabel;
+    FBubbleImage: TImage;
+    FImages: TCustomImageList;
+    FImageIndex: TImageIndex;
+    FImageName: string;
     FHelpViewer: THelpChatHelpViewer;
     FHelpViewerIntf: IInterface;
     FHookedForm: TCommonCustomForm;
@@ -128,6 +141,8 @@ type
     FRegisterHelpViewer: Boolean;
     FShowBubble: Boolean;
     FConfigFileName: TFileName;
+    FCaption: string;
+    FAssistantName: string;
     FRememberPanelPosition: Boolean;
     FThemeMode: TFmxHelpChatThemeMode;
     FHostForm: TCommonCustomForm;
@@ -157,10 +172,17 @@ type
     procedure SetContainer(const Value: TFmxObject);
     procedure SetActive(const Value: Boolean);
     procedure SetShowBubble(const Value: Boolean);
+    procedure SetImages(const Value: TCustomImageList);
+    procedure SetImageIndex(const Value: TImageIndex);
+    procedure SetImageName(const Value: string);
+    procedure ApplyBubbleIcon;
+    procedure SetCaption(const Value: string);
+    procedure SetAssistantName(const Value: string);
     procedure SetHostForm(const Value: TCommonCustomForm);
     procedure SetThemeMode(const Value: TFmxHelpChatThemeMode);
     function ResolveHostForm: TCommonCustomForm;
     procedure EnsureBubble;
+    procedure ApplyBubbleColors;
     procedure DestroyBubble;
     procedure BubbleClick(Sender: TObject);
     procedure EnsureView(const AContainer: TFmxObject);
@@ -223,6 +245,26 @@ type
     /// <summary>Recomputes the theme, hands it to the transport (next page load)
     /// and pushes it into the open page.</summary>
     procedure ApplyTheme;
+    /// <summary>Title of the component's own window: <c>Caption</c>, or the
+    /// localized "Help" when it is empty.</summary>
+    function ResolvedCaption: string;
+    /// <summary>Name the panel writes in its header: <c>AssistantName</c>, or
+    /// the localized "Assistant" when it is empty.</summary>
+    function ResolvedAssistantName: string;
+    /// <summary>Name of the icon actually used: <c>ImageName</c>, or - with no
+    /// image list of the application - the built-in one <c>ImageIndex</c>
+    /// points at, or the default assistant.</summary>
+    function ResolvedImageName: string;
+    /// <summary>The icon of the bubble as a PNG; empty when there is none.</summary>
+    function AssistantIconPng: TBytes;
+    /// <summary>That same icon as the <c>data:image/png</c> URI the chat page
+    /// can load.</summary>
+    function AssistantIconDataUri: string;
+    /// <summary>Retitles the own window, hands name and icon to the transport
+    /// (so the next page load already carries them) and updates an open page.
+    /// Called when any of Caption, AssistantName, Images, ImageIndex or
+    /// ImageName changes, and when the component activates.</summary>
+    procedure ApplyAssistant;
     /// <summary>For forms other than the host: call from their OnKeyDown to
     /// give them F1 too. Returns True when the key was consumed.</summary>
     function HandleKeyDown(var AKey: Word; const AShift: TShiftState): Boolean;
@@ -257,8 +299,28 @@ type
     /// <summary>F1 on the host form opens the chat with the current screen as
     /// context (its OnKeyDown is chained, the previous handler still runs).</summary>
     property HandleF1: Boolean read FHandleF1 write FHandleF1 default True;
-    /// <summary>Round "?" button in the bottom-right corner of the host form.</summary>
+    /// <summary>Title of the window the chat opens in when it is not embedded
+    /// in a container of yours. Empty (the default) = the localized "Help".</summary>
+    property Caption: string read FCaption write SetCaption;
+    /// <summary>What the assistant is called, written in the header of the
+    /// chat panel - and the title of the page itself. Empty (the default) =
+    /// the localized "Assistant". It is a name, not a window title: that is
+    /// <c>Caption</c>.</summary>
+    property AssistantName: string read FAssistantName write SetAssistantName;
+    /// <summary>Round button with the assistant icon, in the bottom-right
+    /// corner of the host form.</summary>
     property ShowBubble: Boolean read FShowBubble write SetShowBubble default True;
+    /// <summary>Image list holding the bubble icon; nil uses the icons
+    /// compiled into the component (HELPCHAT_ICON_* names). The same icon is
+    /// drawn in the header of the chat panel, left of AssistantName.</summary>
+    property Images: TCustomImageList read FImages write SetImages;
+    /// <summary>Bubble icon by position. With no image list of the
+    /// application it picks among the built-in ones, in the order of
+    /// <c>HelpChatAssistantIconNames</c>.</summary>
+    property ImageIndex: TImageIndex read FImageIndex write SetImageIndex default -1;
+    /// <summary>Bubble icon by name: with the built-in icons, one of
+    /// AIAssistant_Male, AIAssistant_Female, Assistant_Male, Assistant_Female.</summary>
+    property ImageName: string read FImageName write SetImageName;
     /// <summary>The configuration file to read when the component activates.
     /// Named here, that file is the configuration and nothing else is looked
     /// at; a relative path is resolved against the executable. Left empty, the
@@ -308,6 +370,7 @@ uses
   System.JSON,
   System.Math,
   FMX.TabControl,
+  HelpChatAI.Panel,            // the page contract: it decides the default name
   HelpChatAI.Server,
   HelpChatAI.Transport.Remote;
 
@@ -371,6 +434,7 @@ begin
   FHandleF1 := True;
   FRegisterHelpViewer := True;
   FShowBubble := True;
+  FImageIndex := -1;
   FRememberPanelPosition := True;
   FPanelWidth := HELPCHAT_FMX_DEF_PANEL_WIDTH;
   FPanelHeight := HELPCHAT_FMX_DEF_PANEL_HEIGHT;
@@ -410,8 +474,17 @@ begin
       FHostForm := nil;
     if AComponent = FHookedForm then
       FHookedForm := nil;
+    if AComponent = FImages then
+    begin
+      FImages := nil;
+      ApplyBubbleIcon;
+    end;
     if AComponent = FBubble then
+    begin
       FBubble := nil;
+      FBubbleGlyph := nil;          // they were children of the circle
+      FBubbleImage := nil;
+    end;
     if AComponent = FOwnForm then
       FOwnForm := nil;
     if AComponent = FView then
@@ -512,6 +585,9 @@ begin
       raise;
     end;
     FActive := True;
+    // Before the panel is ever shown, so the first page load already carries
+    // the name and the header never flashes the default one.
+    ApplyAssistant;
     if FRegisterHelpViewer and not Assigned(FHelpViewer) then
     begin
       FHelpViewer := THelpChatHelpViewer.Create(Self);
@@ -646,22 +722,216 @@ begin
   LHost := ResolveHostForm;
   if LHost = nil then
     Exit;
-  FBubble := TButton.Create(Self);
+  // Round, like the VCL one. In FireMonkey that is a TCircle and not a button
+  // with a style: no stock FireMonkey style has a round button, and a square
+  // one next to a round VCL one is the first thing anybody notices.
+  FBubble := TCircle.Create(Self);
   FBubble.FreeNotification(Self);
   FBubble.Stored := False;
-  FBubble.Text := '?';
-  FBubble.StyledSettings := FBubble.StyledSettings - [TStyledSetting.Size, TStyledSetting.Style];
-  FBubble.TextSettings.Font.Size := 18;
-  FBubble.TextSettings.Font.Style := [TFontStyle.fsBold];
+  FBubble.HitTest := True;
+  FBubble.Cursor := crHandPoint;
   FBubble.Hint := HelpChatMsg(hcmUiHelp, FSettings.Language) + ' (F1)';
   FBubble.ShowHint := True;
+  FBubble.OnClick := BubbleClick;
+
+  // The glyph is a child of the circle and lets the click through to it, so
+  // the whole disc is the button.
+  FBubbleGlyph := TLabel.Create(FBubble);
+  FBubbleGlyph.Stored := False;
+  FBubbleGlyph.Parent := FBubble;
+  FBubbleGlyph.Align := TAlignLayout.Contents;
+  FBubbleGlyph.HitTest := False;
+  FBubbleGlyph.Text := '?';
+  FBubbleGlyph.StyledSettings := FBubbleGlyph.StyledSettings -
+    [TStyledSetting.Size, TStyledSetting.Style, TStyledSetting.FontColor];
+  FBubbleGlyph.TextSettings.Font.Size := 18;
+  FBubbleGlyph.TextSettings.Font.Style := [TFontStyle.fsBold];
+  FBubbleGlyph.TextSettings.HorzAlign := TTextAlign.Center;
+  FBubbleGlyph.TextSettings.VertAlign := TTextAlign.Center;
+
+  // The icon goes over the glyph and hides it when there is one: the "?" is
+  // what is left when no icon can be resolved, exactly as in the VCL.
+  FBubbleImage := TImage.Create(FBubble);
+  FBubbleImage.Stored := False;
+  FBubbleImage.Parent := FBubble;
+  FBubbleImage.Align := TAlignLayout.Contents;
+  FBubbleImage.Margins.Rect := RectF(HELPCHAT_FMX_BUBBLE_PADDING,
+    HELPCHAT_FMX_BUBBLE_PADDING, HELPCHAT_FMX_BUBBLE_PADDING,
+    HELPCHAT_FMX_BUBBLE_PADDING);
+  FBubbleImage.HitTest := False;
+  FBubbleImage.WrapMode := TImageWrapMode.Fit;
+  // Parent first, then the bounds, then the anchors - in that order, and it is
+  // not a matter of taste. FMX computes the anchor rules once, against the
+  // parent the control has at that moment: set on an orphan control they are
+  // computed against a parent of size zero, and the first time the form is
+  // resized the button is pushed far outside the window. It was invisible in
+  // the FMX demo until this line moved up.
+  FBubble.Parent := LHost;
   FBubble.SetBounds(LHost.ClientWidth - HELPCHAT_FMX_DEF_BUBBLE_SIZE - HELPCHAT_FMX_MARGIN,
     LHost.ClientHeight - HELPCHAT_FMX_DEF_BUBBLE_SIZE - HELPCHAT_FMX_MARGIN,
     HELPCHAT_FMX_DEF_BUBBLE_SIZE, HELPCHAT_FMX_DEF_BUBBLE_SIZE);
   FBubble.Anchors := [TAnchorKind.akRight, TAnchorKind.akBottom];
-  FBubble.OnClick := BubbleClick;
-  FBubble.Parent := LHost;
+  ApplyBubbleColors;
+  ApplyBubbleIcon;
   FBubble.BringToFront;
+end;
+
+function TFmxHelpChatAI.ResolvedImageName: string;
+begin
+  Result := FImageName;
+  if (Result <> '') or Assigned(FImages) then
+    Exit;
+  // No image list of the application: the built-in faces, by position when
+  // ImageIndex names one, the default assistant otherwise.
+  if (FImageIndex >= 0) and (FImageIndex < Length(HelpChatAssistantIconNames)) then
+    Result := HelpChatAssistantIconNames[FImageIndex]
+  else
+    Result := HELPCHAT_ICON_DEFAULT;
+end;
+
+function TFmxHelpChatAI.AssistantIconPng: TBytes;
+var
+  LName: string;
+  LBitmap: TBitmap;
+  LItem: TCustomBitmapItem;
+  LSize: TSize;
+  LSurface: TBitmapSurface;
+  LStream: TMemoryStream;
+begin
+  Result := nil;
+  LName := ResolvedImageName;
+  if not Assigned(FImages) then
+    // The resource already is a PNG with its transparency: nothing to draw.
+    Exit(HelpChatAssistantIconPng(LName, HELPCHAT_ICON_PANEL_SIZE));
+
+  // A name in a FireMonkey image list belongs to the Source collection, while
+  // ImageIndex addresses the Destination one: two different lookups, and the
+  // name wins when it finds something.
+  LBitmap := nil;
+  LItem := nil;
+  LSize := TSize.Create(HELPCHAT_ICON_PANEL_SIZE, HELPCHAT_ICON_PANEL_SIZE);
+  if (LName <> '') and FImages.BitmapItemByName(LName, LItem, LSize) and
+     Assigned(LItem) then
+    LBitmap := LItem.Bitmap
+  else if (FImageIndex >= 0) and (FImageIndex < FImages.Count) then
+    LBitmap := FImages.Bitmap(TSizeF.Create(HELPCHAT_ICON_PANEL_SIZE,
+      HELPCHAT_ICON_PANEL_SIZE), FImageIndex);
+  // Whatever came back belongs to the image list and must not be freed.
+  if (LBitmap = nil) or LBitmap.IsEmpty then
+    Exit;
+  LSurface := TBitmapSurface.Create;
+  try
+    LSurface.Assign(LBitmap);
+    LStream := TMemoryStream.Create;
+    try
+      if not TBitmapCodecManager.SaveToStream(LStream, LSurface, '.png') then
+        Exit;
+      SetLength(Result, LStream.Size);
+      if LStream.Size > 0 then
+      begin
+        LStream.Position := 0;
+        LStream.ReadBuffer(Result[0], LStream.Size);
+      end;
+    finally
+      LStream.Free;
+    end;
+  finally
+    LSurface.Free;
+  end;
+end;
+
+function TFmxHelpChatAI.AssistantIconDataUri: string;
+begin
+  Result := HelpChatPngDataUri(AssistantIconPng);
+end;
+
+procedure TFmxHelpChatAI.ApplyBubbleIcon;
+var
+  LPng: TBytes;
+  LStream: TBytesStream;
+begin
+  if Assigned(FBubbleImage) then
+  begin
+    LPng := AssistantIconPng;
+    FBubbleImage.Bitmap.SetSize(0, 0);
+    if Length(LPng) > 0 then
+    begin
+      LStream := TBytesStream.Create(LPng);
+      try
+        try
+          FBubbleImage.Bitmap.LoadFromStream(LStream);
+        except
+          // A picture that will not load leaves the "?" showing.
+          FBubbleImage.Bitmap.SetSize(0, 0);
+        end;
+      finally
+        LStream.Free;
+      end;
+    end;
+    FBubbleImage.Visible := not FBubbleImage.Bitmap.IsEmpty;
+    if Assigned(FBubbleGlyph) then
+      FBubbleGlyph.Visible := not FBubbleImage.Visible;
+  end;
+  // The header of the chat panel shows the same icon.
+  ApplyAssistant;
+end;
+
+procedure TFmxHelpChatAI.SetImages(const Value: TCustomImageList);
+begin
+  if FImages = Value then
+    Exit;
+  if Assigned(FImages) then
+    FImages.RemoveFreeNotification(Self);
+  FImages := Value;
+  if Assigned(FImages) then
+    FImages.FreeNotification(Self);
+  ApplyBubbleIcon;
+end;
+
+procedure TFmxHelpChatAI.SetImageIndex(const Value: TImageIndex);
+begin
+  if FImageIndex = Value then
+    Exit;
+  FImageIndex := Value;
+  ApplyBubbleIcon;
+end;
+
+procedure TFmxHelpChatAI.SetImageName(const Value: string);
+begin
+  if FImageName = Value then
+    Exit;
+  FImageName := Value;
+  ApplyBubbleIcon;
+end;
+
+procedure TFmxHelpChatAI.ApplyBubbleColors;
+
+  function ToAlpha(const AColor, ADefault: string): TAlphaColor;
+  var
+    LR, LG, LB: Integer;
+  begin
+    if not HelpChatHexToRgb(AColor, LR, LG, LB) then
+      HelpChatHexToRgb(ADefault, LR, LG, LB);
+    Result := TAlphaColor($FF000000 or (LR shl 16) or (LG shl 8) or LB);
+  end;
+
+var
+  LTheme: THelpChatTheme;
+begin
+  if not Assigned(FBubble) then
+    Exit;
+  // The same accent the chat uses for the send button and the user bubbles, so
+  // the two look like one thing. ThemeMode tmAuto leaves the theme empty (the
+  // page keeps its own defaults): the light accent is the honest guess there.
+  LTheme := BuildTheme;
+  FBubble.Fill.Kind := TBrushKind.Solid;
+  FBubble.Fill.Color := ToAlpha(LTheme.Accent, THelpChatTheme.Light.Accent);
+  FBubble.Stroke.Kind := TBrushKind.Solid;
+  FBubble.Stroke.Color := ToAlpha(
+    HelpChatBlend(LTheme.Accent, '#000000', 0.25), '#1d4ed8');
+  if Assigned(FBubbleGlyph) then
+    FBubbleGlyph.TextSettings.FontColor :=
+      ToAlpha(LTheme.AccentText, THelpChatTheme.Light.AccentText);
 end;
 
 procedure TFmxHelpChatAI.DestroyBubble;
@@ -669,6 +939,7 @@ begin
   if Assigned(FBubble) then
   begin
     FBubble.RemoveFreeNotification(Self);
+    FBubbleGlyph := nil;            // owned by the circle, freed with it
     FreeAndNil(FBubble);
   end;
 end;
@@ -734,7 +1005,7 @@ begin
     Exit;
   FOwnForm := TFmxHelpChatAIForm.CreateNew(Self);
   FOwnForm.FreeNotification(Self);
-  FOwnForm.Caption := HelpChatMsg(hcmUiTitle, FSettings.Language);
+  FOwnForm.Caption := ResolvedCaption;
   FOwnForm.OnClosedByUser := OwnFormClosedByUser;
 end;
 
@@ -931,6 +1202,67 @@ begin
     FOnGetTheme(Self, Result);
 end;
 
+function TFmxHelpChatAI.ResolvedCaption: string;
+begin
+  Result := FCaption.Trim;
+  if Result = '' then
+    Result := HelpChatMsg(hcmUiHelp, FSettings.Language);
+end;
+
+function TFmxHelpChatAI.ResolvedAssistantName: string;
+begin
+  // The same rule the page applies, so the two cannot disagree.
+  Result := THelpChatPanel.AssistantNameOf(FAssistantName, FSettings.Language);
+end;
+
+procedure TFmxHelpChatAI.ApplyAssistant;
+var
+  LName, LIcon: string;
+
+  function JsStr(const AValue: string): string;
+  var
+    LJson: TJSONString;
+  begin
+    LJson := TJSONString.Create(AValue);
+    try
+      Result := LJson.ToJSON;
+    finally
+      LJson.Free;
+    end;
+  end;
+
+begin
+  if csDesigning in ComponentState then
+    Exit;
+  if Assigned(FOwnForm) then
+    FOwnForm.Caption := ResolvedCaption;
+  if not Assigned(FTransport) then
+    Exit;
+  LName := ResolvedAssistantName;
+  LIcon := AssistantIconDataUri;
+  FTransport.SetAssistant(LName, LIcon);   // the next page load is rendered with them
+  if Assigned(FView) and FView.PageReady then
+    FView.RunScript('window.hcSetAssistant && window.hcSetAssistant(' +
+      JsStr(LName) + ', ' + JsStr(LIcon) + ');');
+end;
+
+procedure TFmxHelpChatAI.SetCaption(const Value: string);
+begin
+  if FCaption = Value then
+    Exit;
+  FCaption := Value;
+  if Assigned(FOwnForm) then
+    FOwnForm.Caption := ResolvedCaption;
+end;
+
+procedure TFmxHelpChatAI.SetAssistantName(const Value: string);
+begin
+  if FAssistantName = Value then
+    Exit;
+  FAssistantName := Value;
+  ApplyAssistant;
+end;
+
 procedure TFmxHelpChatAI.ApplyTheme;
 var
   LTheme: THelpChatTheme;
@@ -939,6 +1271,7 @@ begin
     Exit;
   LTheme := BuildTheme;
   FTransport.SetTheme(LTheme);      // the next page load gets it in the :root rule
+  ApplyBubbleColors;                // the disc wears the same accent
   if Assigned(FView) and FView.PageReady then
     FView.RunScript('window.hcApplyTheme && window.hcApplyTheme(' + LTheme.ToJson + ');');
 end;

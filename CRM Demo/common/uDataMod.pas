@@ -9,7 +9,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Stan.StorageJSON, FireDAC.Stan.StorageXML,
   FireDAC.Stan.ExprFuncs, FireDAC.Phys.SQLiteDef, FireDAC.UI.Intf,
   FireDAC.Stan.Def, FireDAC.Stan.Pool, FireDAC.Stan.Async, FireDAC.Phys,
-  FireDAC.Phys.SQLite, FireDAC.VCLUI.Wait, FireDAC.DApt, System.Variants,
+  FireDAC.Phys.SQLite, FireDAC.DApt, System.Variants,
   FireDAC.Phys.SQLiteVDataSet, FireDAC.Comp.BatchMove.Text, System.IOUtils,
   FireDAC.Comp.BatchMove, FireDAC.Comp.BatchMove.DataSet, System.StrUtils,
   // FireDAC.Phys.SQLiteWrapper.FDEStat esiste da Delphi 12 (CompilerVersion 36);

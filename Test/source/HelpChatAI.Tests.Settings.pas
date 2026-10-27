@@ -25,6 +25,7 @@ type
     [Test] procedure Json_Malformed_RaisesConfigError;
     [Test] procedure File_Missing_ReturnsFalse_SaveAndLoad;
     [Test] procedure DefaultConfigFiles_Locations;
+    [Test] procedure DocPaths_RelativeToTheExecutable;
   end;
 
 implementation
@@ -35,6 +36,38 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Tests.Helpers;
+
+procedure TSettingsTests.DocPaths_RelativeToTheExecutable;
+var
+  LSettings: THelpChatSettings;
+  LExeDir: string;
+begin
+  LExeDir := TPath.GetDirectoryName(ParamStr(0));
+  LSettings := THelpChatSettings.Create;
+  try
+    // Nothing set: the default name, next to the executable.
+    Assert.AreEqual(TPath.Combine(LExeDir, HELPCHAT_DEF_DOCINDEX_FILENAME),
+      LSettings.ResolveDocIndexFile);
+
+    // A relative path is relative to the executable, never to the current
+    // directory: a shortcut, the IDE and Explorer set three different ones,
+    // and the index would be found by accident. Same rule as DocFolder, and
+    // what the documentation has always promised.
+    LSettings.DocIndexFile := '..\Help\help-index.json';
+    LSettings.DocFolder := '..\Help';
+    Assert.AreEqual(
+      ExpandFileName(TPath.Combine(LExeDir, '..\Help\help-index.json')),
+      LSettings.ResolveDocIndexFile);
+    Assert.AreEqual(ExpandFileName(TPath.Combine(LExeDir, '..\Help')),
+      LSettings.ResolveDocFolder);
+
+    // An absolute one is left alone.
+    LSettings.DocIndexFile := 'C:\somewhere\index.json';
+    Assert.AreEqual('C:\somewhere\index.json', LSettings.ResolveDocIndexFile);
+  finally
+    LSettings.Free;
+  end;
+end;
 
 procedure TSettingsTests.Defaults;
 var

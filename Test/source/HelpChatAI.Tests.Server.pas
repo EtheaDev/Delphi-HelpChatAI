@@ -45,6 +45,7 @@ type
     [Test] procedure FormField_Decoding;
     [Test] procedure Stop_Start_Again;
     [Test] procedure Page_CarriesTheHostTheme;
+    [Test] procedure Page_CarriesTheAssistant_SetAndPosted;
   end;
 
 implementation
@@ -331,6 +332,30 @@ begin
   LPage := FClient.Get(FTransport.GetPanelUrl).ContentAsString;
   Assert.Contains(LPage, '<style id="hc-theme">:root{--hc-bg:#17191d;');
   Assert.Contains(LPage, 'color-scheme:dark;');
+end;
+
+procedure TServerTests.Page_CarriesTheAssistant_SetAndPosted;
+var
+  LPage: string;
+begin
+  LPage := FClient.Get(FTransport.GetPanelUrl).ContentAsString;
+  Assert.Contains(LPage, '<title>Assistant</title>', 'nothing set: the localized default');
+  Assert.DoesNotContain(LPage, '<img class="hc-chat-icon"',
+    'no icon: no img at all - the class itself stays in the stylesheet');
+
+  // The native side of the client, which is where an image list lives.
+  FTransport.SetAssistant('Aida', 'data:image/png;base64,AAA');
+  Assert.AreEqual('Aida', FTransport.GetAssistantName);
+  LPage := FClient.Get(FTransport.GetPanelUrl).ContentAsString;
+  Assert.Contains(LPage, '<title>Aida</title>');
+  Assert.Contains(LPage, 'src="data:image/png;base64,AAA"');
+
+  // And over HTTP, which is how a remote client says the same thing.
+  Assert.AreEqual(200, Post(HELPCHAT_API_ASSISTANT, 'name=Eva&icon=').StatusCode);
+  LPage := FClient.Get(FTransport.GetPanelUrl).ContentAsString;
+  Assert.Contains(LPage, '<title>Eva</title>');
+  Assert.DoesNotContain(LPage, '<img class="hc-chat-icon"',
+    'no icon: no img at all - the class itself stays in the stylesheet');
 end;
 
 procedure TServerTests.Stop_Start_Again;

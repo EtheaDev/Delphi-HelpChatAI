@@ -63,6 +63,16 @@ type
     procedure GetValues(Proc: TGetStrProc); override;
   end;
 
+  /// <summary>Which face the assistant wears: the icons compiled into the
+  /// component. A drop-down and not a free string, because nothing else would
+  /// tell anybody what the four names are. It stays editable: with an image
+  /// list of the application the name is that list's, not ours.</summary>
+  TFmxHelpChatImageNameProperty = class(TStringProperty)
+  public
+    function GetAttributes: TPropertyAttributes; override;
+    procedure GetValues(Proc: TGetStrProc); override;
+  end;
+
   /// <summary>Verbs of the component: check it, read about it.</summary>
   TFmxHelpChatComponentEditor = class(TComponentEditor)
   strict private
@@ -89,6 +99,7 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Settings,
   HelpChatAI.Diagnostics,
+  HelpChatAI.Assistant,
   HelpChatAI.Provider,
   // A provider exists only where its unit is linked, and the IDE is no
   // exception: without these four the registry inside bds.exe holds the stub
@@ -259,12 +270,28 @@ begin
     Proc(LName);
 end;
 
+function TFmxHelpChatImageNameProperty.GetAttributes: TPropertyAttributes;
+begin
+  // No paValueList: the list is a suggestion, not the only thing allowed.
+  Result := [paMultiSelect, paRevertable];
+end;
+
+procedure TFmxHelpChatImageNameProperty.GetValues(Proc: TGetStrProc);
+var
+  LName: string;
+begin
+  for LName in HelpChatAssistantIconNames do
+    Proc(LName);
+end;
+
 procedure Register;
 begin
   RegisterComponents(HELPCHAT_PALETTE_PAGE, [TFmxHelpChatAI]);
   RegisterComponentEditor(TFmxHelpChatAI, TFmxHelpChatComponentEditor);
   RegisterPropertyEditor(TypeInfo(string),
     THelpChatSettings, 'Provider', TFmxHelpChatProviderProperty);
+  RegisterPropertyEditor(TypeInfo(string),
+    TFmxHelpChatAI, 'ImageName', TFmxHelpChatImageNameProperty);
 end;
 
 end.

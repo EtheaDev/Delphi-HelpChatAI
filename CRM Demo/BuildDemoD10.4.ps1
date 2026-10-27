@@ -21,6 +21,10 @@
     .\BuildDemoD10.4.ps1 -Platform Win32 -Config Debug
 #>
 param(
+    # VCL only: the FireMonkey component of the library starts at Delphi 12.
+    [ValidateSet("VCL")]
+    [string]$Framework = "VCL",
+
     [string]$BDSRoot = "C:\BDS\Studio",
 
     [ValidateSet("Win32", "Win64", "Both")]
@@ -34,5 +38,5 @@ param(
 )
 
 $BuildAll = Join-Path $PSScriptRoot "BuildAllDemos.ps1"
-& $BuildAll -DelphiVersion "D10.4" -BDSRoot $BDSRoot -Platform $Platform -Config $Config -Target $Target
+& $BuildAll -Framework $Framework -DelphiVersion "D10.4" -BDSRoot $BDSRoot -Platform $Platform -Config $Config -Target $Target
 exit $LASTEXITCODE

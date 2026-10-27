@@ -493,6 +493,8 @@ begin
     // Where this client listens for what its page asks of it.
     LSession.SetUiEndpoint(FormField(LBody, 'uiBase'), FormField(LBody, 'uiToken'));
     LSession.SetThemeCss(FormField(LBody, 'themeCss'));
+    LSession.SetAssistant(FormField(LBody, 'assistantName'),
+      FormField(LBody, 'assistantIcon'));
     FSessions.Add(LToken, LSession);
   finally
     FLock.Leave;

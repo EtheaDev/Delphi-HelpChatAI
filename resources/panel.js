@@ -3,8 +3,9 @@
    the reply polling uses fetch so a transient error never surfaces as a page
    error. window.HC is injected by the server: {token, apiBase, pollMs, maxPolls,
    lang, labels, docs, docBase}. Native hosts call window.hcAsk(text, send),
-   window.hcFocus(), window.hcOpenDoc(page), window.hcSystem(text) and, where
-   they can listen, window.hcVoiceEnable/hcVoiceState/hcVoiceText.
+   window.hcFocus(), window.hcOpenDoc(page), window.hcSystem(text),
+   window.hcSetAssistant(name, iconDataUri) and, where they can listen,
+   window.hcVoiceEnable/hcVoiceState/hcVoiceText.
    Links never navigate the panel: a documentation page (relative link, or one
    starting with docBase, when the server has docs) opens in the documentation
    view; any other relative link does nothing; http(s)/mailto links are left to
@@ -356,6 +357,35 @@
   window.hcOpenDoc = function (page) { if (page) openDoc(String(page), '', 'new'); };
   // {"--hc-bg":"#...", ..., "color-scheme":"dark"}: the host pushes its colours
   // when its style changes; an empty object restores the stylesheet defaults.
+  /* The name and the icon of the header, changed without reloading the page:
+     the page it loads with already carries them, this is for a host that
+     changes them while the panel is open. An icon is taken only as a data:
+     URI, which is all the CSP of the page would fetch anyway. */
+  window.hcSetAssistant = function (name, icon) {
+    var brand = document.querySelector('.hc-chat-brand');
+    var title = document.querySelector('.hc-chat-title');
+    if (title && name) {
+      title.textContent = String(name);
+      document.title = String(name);
+    }
+    if (!brand) return;
+    var img = brand.querySelector('.hc-chat-icon');
+    var uri = icon ? String(icon) : '';
+    if (uri.slice(0, 11).toLowerCase() !== 'data:image/') uri = '';
+    if (!uri) {
+      if (img) brand.removeChild(img);
+      return;
+    }
+    if (!img) {
+      img = document.createElement('img');
+      img.className = 'hc-chat-icon';
+      img.alt = '';
+      img.setAttribute('aria-hidden', 'true');
+      brand.insertBefore(img, brand.firstChild);
+    }
+    img.src = uri;
+  };
+
   window.hcApplyTheme = function (vars) {
     var root = document.documentElement;
     var style = document.getElementById('hc-theme');

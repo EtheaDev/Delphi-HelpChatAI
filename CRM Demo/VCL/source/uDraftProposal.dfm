@@ -13,6 +13,7 @@ object DraftProposalForm: TDraftProposalForm
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
+  Position = poMainFormCenter
   TextHeight = 13
   object DraftCardPanel: TCardPanel
     Left = 0

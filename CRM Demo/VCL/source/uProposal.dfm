@@ -12,7 +12,7 @@ object ProposalForm: TProposalForm
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  Position = poOwnerFormCenter
+  Position = poMainFormCenter
   TextHeight = 13
   object WebBrowser: TWebBrowser
     AlignWithMargins = True

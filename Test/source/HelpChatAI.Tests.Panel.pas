@@ -16,6 +16,9 @@ type
     [Test] procedure Page_IsComplete_NoPlaceholdersLeft;
     [Test] procedure Page_EscapesLabels;
     [Test] procedure Page_ThemeIsInjectedAfterTheStylesheet;
+    [Test] procedure Assistant_EmptyNameFollowsTheLanguage;
+    [Test] procedure Page_CarriesTheAssistantNameAndIcon;
+    [Test] procedure Page_TakesOnlyADataImageIcon;
   end;
 
 implementation
@@ -111,6 +114,76 @@ begin
   Assert.Contains(LPage, 'hx-post="https://help.example.com/chat/api/send"');
   Assert.Contains(LPage, '"apiBase":"https://help.example.com/chat"');
   Assert.Contains(LPage, 'placeholder="Ask a question about the application..."');
+end;
+
+procedure TPanelTests.Assistant_EmptyNameFollowsTheLanguage;
+begin
+  Assert.AreEqual('Assistant', THelpChatPanel.AssistantNameOf('', hclEnglish));
+  Assert.AreEqual('Assistente', THelpChatPanel.AssistantNameOf('', hclItalian));
+  Assert.AreEqual('Assistente', THelpChatPanel.AssistantNameOf('   ', hclItalian),
+    'blanks are not a name');
+  Assert.AreEqual('Aida', THelpChatPanel.AssistantNameOf('  Aida  ', hclItalian),
+    'what the application chose wins, trimmed');
+end;
+
+procedure TPanelTests.Page_CarriesTheAssistantNameAndIcon;
+const
+  // A one pixel PNG is enough: what matters is that it reaches the src.
+  ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
+var
+  LOptions: THelpChatPanelOptions;
+  LPage: string;
+  LJson: TJSONObject;
+begin
+  LOptions := THelpChatPanelOptions.Default;
+  LOptions.Token := 'tok';
+  LOptions.Language := hclItalian;
+  LOptions.AssistantName := 'Aida';
+  LOptions.AssistantIcon := ICON;
+  LPage := THelpChatPanel.RenderPage(LOptions);
+  Assert.DoesNotContain(LPage, '{{');
+  Assert.Contains(LPage, '<title>Aida</title>');
+  Assert.Contains(LPage, '<span class="hc-chat-title">Aida</span>');
+  Assert.Contains(LPage, '<img class="hc-chat-icon" src="' + ICON + '"');
+  Assert.IsTrue(LPage.IndexOf('hc-chat-icon') < LPage.IndexOf('hc-chat-title'),
+    'the icon is drawn left of the name');
+
+  LJson := TJSONObject.ParseJSONValue(
+    THelpChatPanel.LabelsJson(hclItalian, 'Aida')) as TJSONObject;
+  try
+    Assert.AreEqual('Aida', LJson.GetValue<string>('title'),
+      'the labels of the page carry the same name');
+  finally
+    LJson.Free;
+  end;
+
+  // Nothing set: the localized default, and no icon at all.
+  LOptions.AssistantName := '';
+  LOptions.AssistantIcon := '';
+  LPage := THelpChatPanel.RenderPage(LOptions);
+  Assert.Contains(LPage, '<title>Assistente</title>');
+  Assert.DoesNotContain(LPage, '<img class="hc-chat-icon"',
+    'no icon: no img at all - the class itself stays in the stylesheet');
+end;
+
+procedure TPanelTests.Page_TakesOnlyADataImageIcon;
+var
+  LOptions: THelpChatPanelOptions;
+begin
+  LOptions := THelpChatPanelOptions.Default;
+  // The CSP of the page allows 'self' and data: for an image, so anything else
+  // would be a broken icon at best; and a value that is not a URI at all must
+  // never become markup.
+  Assert.AreEqual('', THelpChatPanel.AssistantIconTag(''));
+  Assert.AreEqual('', THelpChatPanel.AssistantIconTag('https://example.com/a.png'));
+  Assert.AreEqual('', THelpChatPanel.AssistantIconTag('javascript:alert(1)'));
+  Assert.AreEqual('', THelpChatPanel.AssistantIconTag('"><script>alert(1)</script>'));
+  Assert.Contains(THelpChatPanel.AssistantIconTag('data:image/png;base64,AAA'),
+    'src="data:image/png;base64,AAA"');
+
+  LOptions.AssistantName := '<b>x</b>';
+  Assert.Contains(THelpChatPanel.RenderPage(LOptions), '&lt;b&gt;x&lt;/b&gt;',
+    'the name is text, not markup');
 end;
 
 procedure TPanelTests.Page_ThemeIsInjectedAfterTheStylesheet;

@@ -71,6 +71,14 @@ type
     /// window.hcApplyTheme). Empty theme = page defaults.</summary>
     procedure SetTheme(const ATheme: THelpChatTheme);
     function GetTheme: THelpChatTheme;
+    /// <summary>The name the panel writes in its header and the icon it draws
+    /// left of it, as a <c>data:image/...</c> URI. They travel for the same
+    /// reason the colours do: an image list is a VCL object and a name may
+    /// come from a published property, so only the client knows them. Empty
+    /// name = the localized default; empty icon = no icon.</summary>
+    procedure SetAssistant(const AName, AIconDataUri: string);
+    function GetAssistantName: string;
+    function GetAssistantIcon: string;
     /// <summary>The engine behind this transport (nil for a pure remote one).</summary>
     function GetEngine: THelpChatEngine;
     /// <summary>Receives the commands the page posts to /api/ui/{command}, on

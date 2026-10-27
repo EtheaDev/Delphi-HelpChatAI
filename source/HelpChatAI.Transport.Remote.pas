@@ -81,6 +81,9 @@ type
     FContextSent: Boolean;
     FTheme: THelpChatTheme;
     FThemeCssSent: string;
+    FAssistantName: string;
+    FAssistantIcon: string;
+    FAssistantSent: Boolean;
     FOnUiCommand: THelpChatUiCommandEvent;
     function Post(const APath, ABody: string; out AResponse: string): Integer;
     procedure EnsureSession;
@@ -88,6 +91,7 @@ type
     procedure EndSession;
     procedure PushContext;
     procedure PushTheme;
+    procedure PushAssistant;
   public
     constructor Create(const ABaseUrl, AAppKey: string); overload;
     /// <summary>The usual way: everything comes from <c>Settings.Remote</c>, so
@@ -105,6 +109,9 @@ type
     function GetContext: THelpChatContext;
     procedure SetTheme(const ATheme: THelpChatTheme);
     function GetTheme: THelpChatTheme;
+    procedure SetAssistant(const AName, AIconDataUri: string);
+    function GetAssistantName: string;
+    function GetAssistantIcon: string;
     /// <summary>Always nil: the engine is on the server.</summary>
     function GetEngine: THelpChatEngine;
     procedure SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
@@ -255,7 +262,9 @@ var
 begin
   LBody := 'user=' + HelpChatFormEncode(FUserId) +
     '&userToken=' + HelpChatFormEncode(FUserToken) +
-    '&themeCss=' + HelpChatFormEncode(FTheme.ToCss);
+    '&themeCss=' + HelpChatFormEncode(FTheme.ToCss) +
+    '&assistantName=' + HelpChatFormEncode(FAssistantName) +
+    '&assistantIcon=' + HelpChatFormEncode(FAssistantIcon);
   if Assigned(FChannel) and FChannel.IsActive then
     LBody := LBody + '&uiBase=' + HelpChatFormEncode(FChannel.GetOrigin) +
       '&uiToken=' + HelpChatFormEncode(FChannel.Token);
@@ -297,6 +306,7 @@ begin
   if FToken = '' then
     raise EHelpChatError.CreateFmt('HelpChat server %s: no session token', [FBaseUrl]);
   FThemeCssSent := FTheme.ToCss;
+  FAssistantSent := True;   // the session body carried them
   FContextSent := False;
 end;
 
@@ -422,6 +432,28 @@ begin
   end;
 end;
 
+procedure THelpChatRemoteTransport.PushAssistant;
+var
+  LName, LIcon, LResponse: string;
+begin
+  if not HasSession then
+    Exit;
+  FLock.Enter;
+  try
+    LName := FAssistantName;
+    LIcon := FAssistantIcon;
+  finally
+    FLock.Leave;
+  end;
+  try
+    Post(HELPCHAT_API_ASSISTANT, 'name=' + HelpChatFormEncode(LName) +
+      '&icon=' + HelpChatFormEncode(LIcon), LResponse);
+    FAssistantSent := True;
+  except
+    // Cosmetic, like the theme: the header keeps the name it was loaded with.
+  end;
+end;
+
 procedure THelpChatRemoteTransport.SetContext(const AContext: THelpChatContext);
 var
   LChanged: Boolean;
@@ -473,6 +505,45 @@ begin
   FLock.Enter;
   try
     Result := FTheme;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatRemoteTransport.SetAssistant(const AName, AIconDataUri: string);
+var
+  LChanged: Boolean;
+begin
+  FLock.Enter;
+  try
+    LChanged := not FAssistantSent or (AName <> FAssistantName) or
+      (AIconDataUri <> FAssistantIcon);
+    FAssistantName := AName;
+    FAssistantIcon := AIconDataUri;
+    if LChanged then
+      FAssistantSent := False;
+  finally
+    FLock.Leave;
+  end;
+  if LChanged and HasSession then
+    PushAssistant;
+end;
+
+function THelpChatRemoteTransport.GetAssistantName: string;
+begin
+  FLock.Enter;
+  try
+    Result := FAssistantName;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatRemoteTransport.GetAssistantIcon: string;
+begin
+  FLock.Enter;
+  try
+    Result := FAssistantIcon;
   finally
     FLock.Leave;
   end;

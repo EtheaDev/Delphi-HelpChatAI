@@ -62,6 +62,7 @@ requires
 contains
   HelpChatAI.Types in '..\..\source\HelpChatAI.Types.pas',
   HelpChatAI.Messages in '..\..\source\HelpChatAI.Messages.pas',
+  HelpChatAI.Assistant in '..\..\source\HelpChatAI.Assistant.pas',
   HelpChatAI.Settings in '..\..\source\HelpChatAI.Settings.pas',
   HelpChatAI.Actions in '..\..\source\HelpChatAI.Actions.pas',
   HelpChatAI.Provider in '..\..\source\HelpChatAI.Provider.pas',

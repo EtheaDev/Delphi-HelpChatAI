@@ -292,7 +292,7 @@ begin
   // Qui il sommario dice "Home" e l'intestazione dice altro: il nome del
   // sommario diventa una parola chiave della pagina.
   LPage := FindPage(LPages, 'Home');
-  Assert.AreEqual('Windows 10 CRM Demo', LPage.Title);
+  Assert.AreEqual('CRM Demo', LPage.Title);
   Assert.Contains<string>(LPage.Keywords, 'Home');
 end;
 
@@ -372,7 +372,7 @@ begin
     // il titolo non la contiene: "Home" sta nell'indice, non nel titolo.
     LFound := LRetriever.Search('home', '', 3);
     Assert.IsTrue(Length(LFound) >= 1);
-    Assert.AreEqual('Windows 10 CRM Demo', LFound[0].Title);
+    Assert.AreEqual('CRM Demo', LFound[0].Title);
   finally
     LRetriever := nil;
   end;

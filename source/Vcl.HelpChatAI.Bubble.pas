@@ -63,6 +63,7 @@ uses
   Vcl.ImageCollection,
   Vcl.VirtualImageList,
   Vcl.ActnList,
+  HelpChatAI.Assistant,
   System.UITypes;   // after Vcl.ImgList, whose own TImageIndex is deprecated
 
 const
@@ -77,13 +78,15 @@ const
   /// </summary>
   HELPCHAT_CM_BRINGTOTOP = WM_APP + 117;
 
-  /// <summary>Names of the icons compiled into the component.</summary>
-  HELPCHAT_ICON_AI_MALE = 'AIAssistant_Male';
-  HELPCHAT_ICON_AI_FEMALE = 'AIAssistant_Female';
-  HELPCHAT_ICON_MALE = 'Assistant_Male';
-  HELPCHAT_ICON_FEMALE = 'Assistant_Female';
-  /// <summary>The one used when the application picks none.</summary>
-  HELPCHAT_ICON_DEFAULT = HELPCHAT_ICON_AI_MALE;
+  // The names of the icons, their sizes and the one used by default live in
+  // HelpChatAI.Assistant, with the resource: FireMonkey needs them too.
+  // Re-declared here so the unit that has always published them still does.
+  HELPCHAT_ICON_AI_MALE = HelpChatAI.Assistant.HELPCHAT_ICON_AI_MALE;
+  HELPCHAT_ICON_AI_FEMALE = HelpChatAI.Assistant.HELPCHAT_ICON_AI_FEMALE;
+  HELPCHAT_ICON_MALE = HelpChatAI.Assistant.HELPCHAT_ICON_MALE;
+  HELPCHAT_ICON_FEMALE = HelpChatAI.Assistant.HELPCHAT_ICON_FEMALE;
+  HELPCHAT_ICON_DEFAULT = HelpChatAI.Assistant.HELPCHAT_ICON_DEFAULT;
+  HELPCHAT_ICON_PANEL_SIZE = HelpChatAI.Assistant.HELPCHAT_ICON_PANEL_SIZE;
 
 type
   TVclHelpChatAIBubble = class;
@@ -198,38 +201,229 @@ type
 /// </summary>
 function HelpChatAssistantIcons: TImageCollection;
 
+/// <summary>
+///  Which image of <c>AList</c> the bubble draws: <c>AImageName</c> first, then
+///  <c>AImageIndex</c>, -1 for none. With the built-in collection
+///  (<c>ABuiltIn</c>) an empty name means the default assistant. One rule, so
+///  the bubble and the chat panel cannot show two different icons.
+/// </summary>
+function HelpChatIconIndex(const AList: TCustomImageList; const ABuiltIn: Boolean;
+  const AImageIndex: TImageIndex; const AImageName: TImageName): Integer;
+
+/// <summary>
+///  The icon the bubble would draw, as a <c>data:image/png;base64,</c> URI for
+///  the header of the chat panel; empty when there is no icon. <c>AImages</c>
+///  nil means the icons compiled into the component, rendered at
+///  <c>ASize</c>; an image list of the application is taken at its own size.
+///  Call it on the main thread: it draws through GDI.
+/// </summary>
+function HelpChatIconDataUri(const AImages: TCustomImageList;
+  const AImageIndex: TImageIndex; const AImageName: TImageName;
+  const ASize: Integer = HELPCHAT_ICON_PANEL_SIZE): string;
+
 implementation
 
-{$R HelpChatAI.Assistant.res}
+// The resource itself is linked by HelpChatAI.Assistant, in the engine
+// package: one copy for both frameworks.
 
 uses
   System.Math,
+  System.NetEncoding,
   Vcl.Forms,
   Vcl.Themes;
-
-const
-  /// <summary>Sizes of every icon in HelpChatAI.Assistant.res.</summary>
-  HELPCHAT_ICON_SIZES: array[0..8] of string =
-    ('_16', '_18', '_24', '_32', '_48', '_64', '_96', '_128', '_192');
 
 var
   GAssistantIcons: TImageCollection = nil;
 
 function HelpChatAssistantIcons: TImageCollection;
+var
+  LName: string;
+  LSuffixes: array of string;
+  I: Integer;
 begin
   if GAssistantIcons = nil then
   begin
+    SetLength(LSuffixes, Length(HELPCHAT_ICON_SIZES));
+    for I := Low(HELPCHAT_ICON_SIZES) to High(HELPCHAT_ICON_SIZES) do
+      LSuffixes[I] := '_' + IntToStr(HELPCHAT_ICON_SIZES[I]);
     GAssistantIcons := TImageCollection.Create(nil);
-    GAssistantIcons.Add(HELPCHAT_ICON_AI_MALE, HInstance,
-      'AIASSISTANT_MALE', HELPCHAT_ICON_SIZES);
-    GAssistantIcons.Add(HELPCHAT_ICON_AI_FEMALE, HInstance,
-      'AIASSISTANT_FEMALE', HELPCHAT_ICON_SIZES);
-    GAssistantIcons.Add(HELPCHAT_ICON_MALE, HInstance,
-      'ASSISTANT_MALE', HELPCHAT_ICON_SIZES);
-    GAssistantIcons.Add(HELPCHAT_ICON_FEMALE, HInstance,
-      'ASSISTANT_FEMALE', HELPCHAT_ICON_SIZES);
+    // HelpChatAssistantModule, not HInstance: the pictures are linked into the
+    // engine package, and this unit is in another one.
+    for LName in HelpChatAssistantIconNames do
+      GAssistantIcons.Add(LName, HelpChatAssistantModule,
+        UpperCase(LName), LSuffixes);
   end;
   Result := GAssistantIcons;
+end;
+
+function HelpChatIconIndex(const AList: TCustomImageList; const ABuiltIn: Boolean;
+  const AImageIndex: TImageIndex; const AImageName: TImageName): Integer;
+var
+  LName: TImageName;
+begin
+  Result := -1;
+  if AList = nil then
+    Exit;
+  LName := AImageName;
+  if (LName = '') and ABuiltIn then
+    LName := HELPCHAT_ICON_DEFAULT;      // built-in list: the default assistant
+  if (LName <> '') and AList.IsImageNameAvailable then
+    Result := AList.GetIndexByName(LName);
+  if (Result < 0) and (AImageIndex >= 0) then
+    Result := AImageIndex;
+  if (Result < 0) or (Result >= AList.Count) then
+    Result := -1;
+end;
+
+/// <summary>
+///  One image of a list as a PNG with its transparency. The alpha of an image
+///  list cannot be read back: GDI writes no alpha channel, so a bitmap drawn
+///  from it comes back opaque. Drawing the same image twice, once over white
+///  and once over black, gives it back exactly - where the icon is transparent
+///  the two differ by 255, where it is solid they are equal - and the drawing
+///  over black already *is* the colour multiplied by the alpha, which is what
+///  a bitmap declared afDefined holds.
+/// </summary>
+function HelpChatIconPng(const AImages: TCustomImageList; const AIndex: Integer;
+  const AStream: TStream): Boolean;
+var
+  LW, LH, X, Y, LAlpha: Integer;
+  LWhite, LBlack, LIcon: TBitmap;
+  LWic: TWICImage;
+  LRowW, LRowB, LRowI: PRGBQuad;
+
+  function Flat(const AColor: TColor): TBitmap;
+  begin
+    Result := TBitmap.Create;
+    try
+      Result.PixelFormat := pf32bit;
+      Result.AlphaFormat := afIgnored;
+      Result.SetSize(LW, LH);
+      Result.Canvas.Brush.Style := bsSolid;
+      Result.Canvas.Brush.Color := AColor;
+      Result.Canvas.FillRect(Rect(0, 0, LW, LH));
+      AImages.Draw(Result.Canvas, 0, 0, AIndex, True);
+    except
+      Result.Free;
+      raise;
+    end;
+  end;
+
+begin
+  Result := False;
+  if (AImages = nil) or (AIndex < 0) or (AIndex >= AImages.Count) then
+    Exit;
+  LW := AImages.Width;
+  LH := AImages.Height;
+  if (LW <= 0) or (LH <= 0) then
+    Exit;
+
+  LWhite := nil;
+  LBlack := nil;
+  LIcon := nil;
+  LWic := nil;
+  try
+    LWhite := Flat(clWhite);
+    LBlack := Flat(clBlack);
+
+    LIcon := TBitmap.Create;
+    LIcon.PixelFormat := pf32bit;
+    LIcon.SetSize(LW, LH);
+    // Declared before the pixels are written: setting it afterwards would make
+    // the VCL premultiply values that already are.
+    LIcon.AlphaFormat := afDefined;
+    for Y := 0 to LH - 1 do
+    begin
+      LRowW := LWhite.ScanLine[Y];
+      LRowB := LBlack.ScanLine[Y];
+      LRowI := LIcon.ScanLine[Y];
+      for X := 0 to LW - 1 do
+      begin
+        LAlpha := 255 - (Integer(LRowW^.rgbGreen) - Integer(LRowB^.rgbGreen));
+        if LAlpha < 0 then
+          LAlpha := 0
+        else if LAlpha > 255 then
+          LAlpha := 255;
+        LRowI^.rgbBlue := LRowB^.rgbBlue;
+        LRowI^.rgbGreen := LRowB^.rgbGreen;
+        LRowI^.rgbRed := LRowB^.rgbRed;
+        LRowI^.rgbReserved := Byte(LAlpha);
+        Inc(LRowW);
+        Inc(LRowB);
+        Inc(LRowI);
+      end;
+    end;
+
+    LWic := TWICImage.Create;
+    LWic.Assign(LIcon);          // Assign resets the format, so PNG comes after
+    LWic.ImageFormat := wifPng;
+    LWic.SaveToStream(AStream);
+    Result := AStream.Size > 0;
+  finally
+    LWic.Free;
+    LIcon.Free;
+    LBlack.Free;
+    LWhite.Free;
+  end;
+end;
+
+function HelpChatIconDataUri(const AImages: TCustomImageList;
+  const AImageIndex: TImageIndex; const AImageName: TImageName;
+  const ASize: Integer = HELPCHAT_ICON_PANEL_SIZE): string;
+var
+  LList: TCustomImageList;
+  LOwned: TVirtualImageList;
+  LIndex: Integer;
+  LPng: TMemoryStream;
+  LBase64: TBase64Encoding;
+begin
+  Result := '';
+  LOwned := nil;
+  try
+    if Assigned(AImages) then
+      LList := AImages
+    else
+    begin
+      LOwned := TVirtualImageList.Create(nil);
+      LOwned.ImageCollection := HelpChatAssistantIcons;
+      LOwned.AutoFill := True;
+      LOwned.BeginUpdate;
+      try
+        LOwned.Width := ASize;
+        LOwned.Height := ASize;
+      finally
+        LOwned.EndUpdate;
+      end;
+      LList := LOwned;
+    end;
+
+    LIndex := HelpChatIconIndex(LList, AImages = nil, AImageIndex, AImageName);
+    if LIndex < 0 then
+      Exit;
+
+    // Built-in icon: the resource already is a PNG with its transparency, so
+    // there is nothing to draw and nothing to recover - just hand it over.
+    if AImages = nil then
+      Exit(HelpChatAssistantIconDataUri(LList.GetNameByIndex(LIndex), ASize));
+
+    LPng := TMemoryStream.Create;
+    try
+      if not HelpChatIconPng(LList, LIndex, LPng) then
+        Exit;
+      // No line breaks: this string goes into an src attribute.
+      LBase64 := TBase64Encoding.Create(0);
+      try
+        Result := 'data:image/png;base64,' +
+          LBase64.EncodeBytesToString(LPng.Memory, Integer(LPng.Size));
+      finally
+        LBase64.Free;
+      end;
+    finally
+      LPng.Free;
+    end;
+  finally
+    LOwned.Free;
+  end;
 end;
 
 /// <summary>Mixes a colour towards white (APercent > 0) or black (< 0).</summary>
@@ -353,23 +547,8 @@ begin
 end;
 
 function TVclHelpChatAIBubble.ActiveImageIndex: Integer;
-var
-  LImages: TCustomImageList;
-  LName: TImageName;
 begin
-  Result := -1;
-  LImages := ActiveImages;
-  if LImages = nil then
-    Exit;
-  LName := FImageName;
-  if (LName = '') and (FImages = nil) then
-    LName := HELPCHAT_ICON_DEFAULT;      // built-in list: the default assistant
-  if (LName <> '') and LImages.IsImageNameAvailable then
-    Result := LImages.GetIndexByName(LName);
-  if (Result < 0) and (FImageIndex >= 0) then
-    Result := FImageIndex;
-  if (Result < 0) or (Result >= LImages.Count) then
-    Result := -1;
+  Result := HelpChatIconIndex(ActiveImages, FImages = nil, FImageIndex, FImageName);
 end;
 
 function TVclHelpChatAIBubble.IsImageNameStored: Boolean;

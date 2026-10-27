@@ -18,6 +18,7 @@ object LeadsForm: TLeadsForm
   Font.Style = []
   GlassFrame.Top = 31
   StyleElements = [seFont, seClient]
+  Position = poMainFormCenter
   TextHeight = 13
   object Panel14: TPanel
     Left = 0
