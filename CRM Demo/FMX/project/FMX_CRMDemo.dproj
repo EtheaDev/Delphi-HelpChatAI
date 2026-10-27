@@ -131,8 +131,21 @@
             <FormType>dfm</FormType>
             <DesignClass>TDataModule</DesignClass>
         </DCCReference>
+        <DCCReference Include="..\..\common\uProposalReport.pas"/>
         <DCCReference Include="..\source\uMainFormFmx.pas">
             <Form>MainFormFmx</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
+        <DCCReference Include="..\source\uLeadsFmx.pas">
+            <Form>LeadsFormFmx</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
+        <DCCReference Include="..\source\uProposalFmx.pas">
+            <Form>ProposalFormFmx</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
+        <DCCReference Include="..\source\uDraftProposalFmx.pas">
+            <Form>DraftProposalFormFmx</Form>
             <FormType>fmx</FormType>
         </DCCReference>
                 <BuildConfiguration Include="Release">

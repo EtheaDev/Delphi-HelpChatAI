@@ -131,7 +131,7 @@ It comes **in both frameworks**, sharing one data module, one database and one m
 | | Project | Delphi | What it is |
 |---|---|---|---|
 | VCL | `CRM Demo\VCL\project\VCL_CRMDemo.dproj` | 10.4 → 13 | The whole application: seven pages, the lead and proposal windows, and all three actions |
-| FMX | `CRM Demo\FMX\project\FMX_CRMDemo.dproj` | 12 → 13 | The main form alone — the same seven pages over the same data — so the FireMonkey half of the library runs in a real application. One action, `open_screen`, because the windows the other two open are not ported |
+| FMX | `CRM Demo\FMX\project\FMX_CRMDemo.dproj` | 12 → 13 | The same application: the seven pages, the lead, proposal and draft windows, and the same three actions |
 
 `CRM Demo\BuildAllDemos.ps1` builds both with every Delphi it finds, Win32 and Win64: twelve
 builds, and the FireMonkey ones are reported `N/A` below Delphi 12 rather than failed.
@@ -146,6 +146,35 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+27 Oct 2026: ver. 1.1.1
+
+The library did not change in this release: `source` is the one of 1.1.0, and so are the
+246 tests. What changed is the FireMonkey sample application, which is now the whole
+application and not only its main form.
+
+- **The lead, proposal and proposal draft windows ported to FireMonkey**, over the same bind
+  sources as the VCL ones, so the FireMonkey demo registers the same three actions -
+  `open_screen`, `create_lead` and `draft_proposal`. Four things FireMonkey does differently
+  there, each worth knowing before porting something of your own: a `TCardPanel` is a
+  `TTabControl` with `TabPosition = None`; a `TRelativePanel` that rearranges itself is
+  `Align` plus a scroll box, and the five resize handlers simply disappear; `MessageDlg`
+  answers in a callback, so what follows the question lives there; and the DOM of the old
+  `TWebBrowser` is replaced by `LoadFromStrings`
+- **F1 works in those windows too.** Help properties live on `TStyledControl` and a
+  FireMonkey form has none, so each unit carries its keyword as a constant and
+  `OnGetContext` reads it from the active form - which is what `HandleKeyDown` of the
+  component is there for
+- **The side menu of the FireMonkey demo behaves like the VCL one**: open until the user
+  presses its button, then narrowed to its icons - and they are the icons of the VCL menu,
+  read from the same image collection. None of the three modes of `TMultiView` does this on
+  its own (Panel is permanent and hides the button it is given, Drawer and NavigationPane
+  slide over the content and close again at the first click outside), so the pane is a
+  docked Panel inside a layout whose width the button changes
+- **The proposal document moved to `CRM Demo\common\uProposalReport.pas`**, plain RTL with
+  no VCL and no FireMonkey in it, so the two demos build byte for byte the same invoice from
+  the same code - and the VCL one is ninety lines lighter. On the way there the line titles
+  gained a `TNetEncoding.HTML.Encode` they did not have: that text can come from the model
 
 27 Oct 2026: ver. 1.1.0
 - `Caption` and `AssistantName` on both components: the title of the window the chat opens in, and the name written in the header of the panel. Empty - the default - means the word of the current language, so an English application reads "Help" and "Assistant" and an Italian one "Aiuto" and "Assistente" without anybody writing them

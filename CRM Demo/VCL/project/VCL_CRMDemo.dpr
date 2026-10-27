@@ -6,6 +6,7 @@ uses
   // not to the data module, which the FMX demo shares.
   FireDAC.VCLUI.Wait,
   uDataMod in '..\..\common\uDataMod.pas' {DM: TDataModule},
+  uProposalReport in '..\..\common\uProposalReport.pas',
   uMainForm in '..\source\uMainForm.pas' {MainForm},
   uLeads in '..\source\uLeads.pas' {LeadsForm},
   uDraftProposal in '..\source\uDraftProposal.pas' {DraftProposalForm},

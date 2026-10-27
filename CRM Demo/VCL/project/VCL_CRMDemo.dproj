@@ -127,6 +127,7 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="..\..\common\uProposalReport.pas"/>
         <DCCReference Include="..\..\common\uDataMod.pas">
             <Form>DM</Form>
             <FormType>dfm</FormType>

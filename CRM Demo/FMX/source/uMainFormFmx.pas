@@ -3,9 +3,9 @@
 {   HelpChatAI CRM demo - FireMonkey                                           }
 {                                                                              }
 {   The Windows 10 CRM demo of Embarcadero, ported to FireMonkey to see        }
-{   TFmxHelpChatAI at work in a real application. Only the main form is        }
-{   ported: the lead, proposal and draft windows stay with the VCL demo, so    }
-{   this one registers the one action that needs nothing else - open_screen.   }
+{   TFmxHelpChatAI at work in a real application. Main form, lead detail,      }
+{   proposal and proposal draft, so all three actions of the VCL demo are      }
+{   here too - open_screen, create_lead and draft_proposal.                    }
 {                                                                              }
 {   The data module is the very same one the VCL demo uses (..\..\common):      }
 {   same database, same queries, same bind sources.                            }
@@ -26,11 +26,16 @@ uses
   FMX.ScrollBox, FMX.Grid.Style, FMX.Grid, FMX.Styles,
   Data.Bind.EngExt, Data.Bind.Components, Data.Bind.Grid, Data.Bind.DBScope,
   Fmx.Bind.DBEngExt, Fmx.Bind.Editors, Fmx.Bind.Grid, Fmx.Bind.Navigator,
-  HelpChatAI.Types, HelpChatAI.Actions, FMX.HelpChatAI;
+  HelpChatAI.Types, HelpChatAI.Actions, FMX.HelpChatAI,
+  uProposalReport;
 
 const
   /// <summary>The style the demo wears, relative to the executable.</summary>
   FMX_DEMO_STYLE = '..\..\FMX\Dark.style';
+  /// <summary>The side menu open, and narrowed to its icons. The VCL demo
+  /// gets the second one from CloseStyle = svcCompact of its TSplitView.</summary>
+  MENU_WIDTH_OPEN = 220;
+  MENU_WIDTH_COMPACT = 52;
 
 type
   TMainFormFmx = class(TForm)
@@ -43,15 +48,31 @@ type
     ThemeGroup: TLayout;
     ThemeLabel: TLabel;
     ThemeCombo: TComboBox;
+    MenuHost: TLayout;
     MultiView: TMultiView;
     MenuList: TListBox;
+    MenuImages: TImageList;
     DashboardItem: TListBoxItem;
+    DashboardGlyph: TGlyph;
+    DashboardText: TLabel;
     AccountsItem: TListBoxItem;
+    AccountsGlyph: TGlyph;
+    AccountsText: TLabel;
     LeadsItem: TListBoxItem;
+    LeadsGlyph: TGlyph;
+    LeadsText: TLabel;
     SalesItem: TListBoxItem;
+    SalesGlyph: TGlyph;
+    SalesText: TLabel;
     MarketingItem: TListBoxItem;
+    MarketingGlyph: TGlyph;
+    MarketingText: TLabel;
     CalendarItem: TListBoxItem;
+    CalendarGlyph: TGlyph;
+    CalendarText: TLabel;
     UsersItem: TListBoxItem;
+    UsersGlyph: TGlyph;
+    UsersText: TLabel;
     Tabs: TTabControl;
     DashboardTab: TTabItem;
     AccountsTab: TTabItem;
@@ -178,15 +199,29 @@ type
     procedure TabsChange(Sender: TObject);
     procedure SearchTyping(Sender: TObject);
     procedure ThemeComboChange(Sender: TObject);
+    procedure MenuButtonClick(Sender: TObject);
     procedure HelpChatGetContext(Sender: TObject; var AContext: THelpChatContext);
+    procedure UserComboChange(Sender: TObject);
+    procedure LeadsNewGridCellDblClick(const Column: TColumn; const Row: Integer);
+    procedure LeadsActiveGridCellDblClick(const Column: TColumn; const Row: Integer);
+    procedure LeadsProposalGridCellDblClick(const Column: TColumn; const Row: Integer);
+    procedure LeadsClosedGridCellDblClick(const Column: TColumn; const Row: Integer);
   private
     FStarted: Boolean;
+    procedure SetMenuCompact(ACompact: Boolean);
     procedure ApplyDarkStyle;
     procedure AppIdle(Sender: TObject; var Done: Boolean);
     procedure StartUp;
     procedure RegisterHelpActions;
     function FindTab(const AName: string): TTabItem;
+    /// <summary>The lead called by name, or by company when the name is not
+    /// enough: the model names a lead the way a user would.</summary>
+    function LocateLeadByName(const AName: string): Boolean;
     procedure RefreshTotals;
+    procedure RefreshLeadGrids;
+    /// <summary>Opens the detail on the current record of one of the four
+    /// lead boards.</summary>
+    procedure ShowLeadDetail(ASource: TBindSourceDB);
   public
     { Public declarations }
   end;
@@ -199,7 +234,7 @@ implementation
 {$R *.fmx}
 
 uses
-  uDataMod,
+  uDataMod, uLeadsFmx, uProposalFmx, uDraftProposalFmx,
   // A provider exists only if its unit is linked: it registers itself in
   // the initialization. Same rule as in the VCL demo.
   HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude;
@@ -254,6 +289,9 @@ begin
 
   DM.InitializeDatabase;
 
+  // Open, like the side menu of the VCL demo.
+  SetMenuCompact(False);
+
   // One handler for every search box: each one carries the bind source
   // it filters and, in Hint, the field to match.
   AccountsSearch.TagObject := AcctBindSourceDB;
@@ -293,14 +331,50 @@ begin
   // exists because the form needs one for the chain to hook onto.
 end;
 
+procedure TMainFormFmx.SetMenuCompact(ACompact: Boolean);
+var
+  I, J: Integer;
+  LItem: TListBoxItem;
+begin
+  // The labels go away rather than being cut off: they start right after
+  // the icon, so any width that shows the whole icon shows half a letter
+  // too. The icon is a child of the item, so it is the label that hides.
+  for I := 0 to MenuList.Count - 1 do
+  begin
+    LItem := MenuList.ListItems[I];
+    for J := 0 to LItem.ChildrenCount - 1 do
+      if LItem.Children[J] is TLabel then
+        TLabel(LItem.Children[J]).Visible := not ACompact;
+  end;
+  if ACompact then
+    MenuHost.Width := MENU_WIDTH_COMPACT
+  else
+    MenuHost.Width := MENU_WIDTH_OPEN;
+end;
+
+procedure TMainFormFmx.MenuButtonClick(Sender: TObject);
+begin
+  // None of the three modes of TMultiView behaves like the side menu of the
+  // VCL demo, which is open until the user says otherwise: Panel is
+  // permanent and hides the button it is given, Drawer and NavigationPane
+  // slide over the content and close again at the first click outside.
+  // So the pane stays a Panel - docked, with the content beside it and not
+  // under it - and the button narrows the layout around it, which is what
+  // the VCL TSplitView does with CloseStyle = svcCompact. Narrow, only the
+  // icons are left, and they are the icons of the VCL menu.
+  SetMenuCompact(MenuHost.Width > MENU_WIDTH_COMPACT);
+end;
+
 procedure TMainFormFmx.MenuListItemClick(const Sender: TCustomListBox;
   const Item: TListBoxItem);
 begin
   Tabs.TabIndex := Item.Tag;
   TabsChange(Tabs);
-  // A drawer stays open until somebody closes it, and after a choice
-  // nobody wants it open.
-  MultiView.HideMaster;
+  // The menu stays where it is. As a Drawer it closed after every choice,
+  // which the VCL side menu never does: there it is a TSplitView with
+  // CloseStyle = svcCompact, open until the user presses the button and
+  // then narrowed to its icons. NavigationPane is that, and MasterButton
+  // is what opens and closes it.
 end;
 
 procedure TMainFormFmx.RefreshTotals;
@@ -368,10 +442,66 @@ begin
   Result := nil;
 end;
 
+function TMainFormFmx.LocateLeadByName(const AName: string): Boolean;
+begin
+  Result := DM.LeadsFDTable.Locate('Name', VarArrayOf([AName]), [loCaseInsensitive]);
+  if not Result then
+    Result := DM.LeadsFDTable.Locate('AccountName', VarArrayOf([AName]),
+      [loCaseInsensitive, loPartialKey]);
+end;
+
+procedure TMainFormFmx.RefreshLeadGrids;
+begin
+  LeadsBindNewSourceDB.DataSet.Refresh;
+  LeadsBindActiveSourceDB.DataSet.Refresh;
+  LeadsBindProposalSentSourceDB.DataSet.Refresh;
+  LeadsBindClosedSourceDB.DataSet.Refresh;
+end;
+
+procedure TMainFormFmx.ShowLeadDetail(ASource: TBindSourceDB);
+begin
+  if not Assigned(ASource.DataSet) or (ASource.DataSet.RecordCount = 0) then
+    Exit;
+  LeadsFormFmx.LocateLead(ASource.DataSet.FieldByName('LeadId').AsInteger);
+  LeadsFormFmx.Show;
+end;
+
+procedure TMainFormFmx.LeadsNewGridCellDblClick(const Column: TColumn;
+  const Row: Integer);
+begin
+  ShowLeadDetail(LeadsBindNewSourceDB);
+end;
+
+procedure TMainFormFmx.LeadsActiveGridCellDblClick(const Column: TColumn;
+  const Row: Integer);
+begin
+  ShowLeadDetail(LeadsBindActiveSourceDB);
+end;
+
+procedure TMainFormFmx.LeadsProposalGridCellDblClick(const Column: TColumn;
+  const Row: Integer);
+begin
+  ShowLeadDetail(LeadsBindProposalSentSourceDB);
+end;
+
+procedure TMainFormFmx.LeadsClosedGridCellDblClick(const Column: TColumn;
+  const Row: Integer);
+begin
+  ShowLeadDetail(LeadsBindClosedSourceDB);
+end;
+
+procedure TMainFormFmx.UserComboChange(Sender: TObject);
+begin
+  // The three windows show the data of one user: when the user changes they
+  // are looking at somebody else's records, so they close.
+  LeadsFormFmx.Close;
+  DraftProposalFormFmx.Close;
+  ProposalFormFmx.Close;
+  DM.SetUser(UserCombo.Text);
+end;
+
 procedure TMainFormFmx.RegisterHelpActions;
 begin
-  // Only this one: the windows the other two actions of the VCL demo need
-  // (the lead detail and the proposal draft) are not ported yet.
   HelpChat.Actions.Add('open_screen',
     'Brings one of the application screens to the front.',
     [THelpChatActionParam.Create('name',
@@ -387,11 +517,99 @@ begin
       TabsChange(Tabs);
       AResult := 'Opened the ' + LTab.Text + ' screen.';
     end);
+
+  // Writes a record: it asks for confirmation, and the user sees the name
+  // and the values before answering.
+  HelpChat.Actions.Add('create_lead',
+    'Creates a new lead for the active user and opens its detail window so the ' +
+    'user can check it. Does not send anything to anybody.',
+    [THelpChatActionParam.Create('name', 'Name of the person'),
+     THelpChatActionParam.Create('account', 'Company name, as in the Accounts list', apkString, False),
+     THelpChatActionParam.Create('phone', 'Office phone', apkString, False),
+     THelpChatActionParam.Create('email', 'E-mail address', apkString, False),
+     THelpChatActionParam.Create('notes', 'Anything worth remembering', apkString, False)],
+    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+    var
+      LDataSet: TDataSet;
+    begin
+      Tabs.ActiveTab := LeadsTab;
+      LDataSet := LeadsBindNewSourceDB.DataSet;
+      LDataSet.Append;
+      LDataSet.FieldByName('Status').AsString := 'New';
+      LDataSet.FieldByName('Name').AsString := AArgs.AsString('name');
+      LDataSet.FieldByName('AccountName').AsString := AArgs.AsString('account');
+      LDataSet.FieldByName('OfficePhone').AsString := AArgs.AsString('phone');
+      LDataSet.FieldByName('Email').AsString := AArgs.AsString('email');
+      LDataSet.FieldByName('Notes').AsString := AArgs.AsString('notes');
+      LDataSet.FieldByName('User').AsString := UserCombo.Text;
+      LDataSet.FieldByName('DateCreated').AsDateTime := Now;
+      LDataSet.Post;
+      RefreshLeadGrids;
+      LeadsFormFmx.LocateLead(LDataSet.FieldByName('LeadId').AsInteger);
+      LeadsFormFmx.Show;
+      AResult := Format('Lead "%s" created with status New (id %d).',
+        [AArgs.AsString('name'), LDataSet.FieldByName('LeadId').AsInteger]);
+    end, True);
+
+  HelpChat.Actions.Add('draft_proposal',
+    'Opens the proposal draft for a lead with the address and the line items ' +
+    'already filled in. It does not save it: the user presses Preview and Save Proposal.',
+    [THelpChatActionParam.Create('lead', 'Name of the lead, or of its company'),
+     THelpChatActionParam.Create('items',
+       'The line items, one per line, written as "title x quantity @ price", ' +
+       'for example "Consulting x 12 @ 150". The price uses a dot as decimal separator.'),
+     THelpChatActionParam.Create('address1', 'Street address of the customer', apkString, False),
+     THelpChatActionParam.Create('address2', 'City, state and postal code', apkString, False),
+     THelpChatActionParam.Create('phone', 'Phone of the customer', apkString, False)],
+    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+    var
+      LItems: TArray<TProposalLineItem>;
+      LLeadId: Integer;
+      LCompany: string;
+    begin
+      LItems := ParseProposalLineItems(AArgs.AsString('items'));
+      if not LocateLeadByName(AArgs.AsString('lead')) then
+        raise Exception.CreateFmt('There is no lead called "%s".', [AArgs.AsString('lead')]);
+      LLeadId := DM.LeadsFDTable.FieldByName('LeadId').AsInteger;
+      LCompany := DM.LeadsFDTable.FieldByName('AccountName').AsString;
+      if DM.ProposalsFDTable.Locate('LeadId', VarArrayOf([LLeadId]), []) then
+        raise Exception.Create('This lead already has a proposal.');
+      DraftProposalFormFmx.PrepareDraft(LLeadId, LCompany,
+        AArgs.AsString('address1'), AArgs.AsString('address2'),
+        AArgs.AsString('phone'), LItems);
+      AResult := Format('Draft ready for %s with %d line item(s): check it and press Preview.',
+        [LCompany, Length(LItems)]);
+    end, True);
 end;
 
 procedure TMainFormFmx.HelpChatGetContext(Sender: TObject;
   var AContext: THelpChatContext);
 begin
+  // F1 pressed in one of the three other windows: what the user is looking
+  // at is that window, not the page behind it. The VCL forms declare it in
+  // HelpType/HelpKeyword, which a FireMonkey form does not have, so each
+  // unit carries the keyword as a constant and this is where it is read.
+  if Screen.ActiveForm = TCommonCustomForm(LeadsFormFmx) then
+  begin
+    AContext.ScreenName := 'LeadDetail';
+    AContext.ScreenLabel := 'Lead Detail';
+    AContext.HelpKeyword := LEADS_HELP_KEYWORD;
+    Exit;
+  end;
+  if Screen.ActiveForm = TCommonCustomForm(ProposalFormFmx) then
+  begin
+    AContext.ScreenName := 'Proposal';
+    AContext.ScreenLabel := 'Proposal';
+    AContext.HelpKeyword := PROPOSAL_HELP_KEYWORD;
+    Exit;
+  end;
+  if Screen.ActiveForm = TCommonCustomForm(DraftProposalFormFmx) then
+  begin
+    AContext.ScreenName := 'DraftProposal';
+    AContext.ScreenLabel := 'Draft Proposal';
+    AContext.HelpKeyword := DRAFT_HELP_KEYWORD;
+    Exit;
+  end;
   // Same reason as in the VCL demo: the side menu lives outside the tab
   // control, and from there the component would describe the window
   // instead of the page the user is looking at. Here the active page is

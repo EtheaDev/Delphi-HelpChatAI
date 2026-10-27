@@ -47,14 +47,17 @@ Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
                          of Embarcadero with HelpChatAI in it, and one manual for both in
                          Help/*.md (plus Help/Images and the help-index.json the applications
                          read)
-"CRM Demo"/common/       uDataMod: the FireDAC data module, the database and every query,
-                         shared by the two demos. Framework-neutral on purpose - the
-                         FireDAC wait cursor (FireDAC.VCLUI.Wait / .FMXUI.Wait) is the one
-                         thing that is not, so it lives in each .dpr instead
+"CRM Demo"/common/       uDataMod (the FireDAC data module, the database and every query)
+                         and uProposalReport (the invoice as HTML, and the parser of the
+                         line items the model writes), shared by the two demos.
+                         Framework-neutral on purpose - the FireDAC wait cursor
+                         (FireDAC.VCLUI.Wait / .FMXUI.Wait) is the one thing that is not,
+                         so it lives in each .dpr instead
 "CRM Demo"/VCL/          VCL_CRMDemo: project/ and source/ (uMainForm, uLeads, uProposal,
                          uDraftProposal). Delphi 10.4 to 13
-"CRM Demo"/FMX/          FMX_CRMDemo: project/ and source/ (uMainFormFmx alone). Delphi 12
-                         and 13 only, because TFmxHelpChatAI starts there
+"CRM Demo"/FMX/          FMX_CRMDemo: project/ and source/ (uMainFormFmx, uLeadsFmx,
+                         uProposalFmx, uDraftProposalFmx). Delphi 12 and 13 only, because
+                         TFmxHelpChatAI starts there
 "CRM Demo"/bin/<Platform>    both executables, next to the one WebView2Loader.dll they share
 "CRM Demo"/dcu/<Framework>/<Platform>   svn-ignored build output, one tree per framework so
                          the two projects cannot pick up each other's units. No Delphi
@@ -479,18 +482,34 @@ the edit on every version, not on the one that happens to be open.
 - **The sample application is the integration, and it is where the mistakes show up.**
   `CRM Demo` is the Windows 10 CRM of Embarcadero with the component on the main form,
   `claude`, one manual in `Help/*.md` for both demos, and the actions. The **VCL** one
-  (`VCL/`) is the complete application and the only one with `create_lead` and
-  `draft_proposal`: those two open the lead and draft windows, which are not ported.
-  The **FMX** one (`FMX/`, Delphi 12+) is the main form alone - the seven pages, the same
-  bind sources of the same data module, `TFmxHelpChatAI` with a `HelpKeyword` per `TTabItem`
-  and `open_screen`. It exists because nobody had ever run the FireMonkey half of the library
-  in a real application. What FireMonkey does differently there: no `TRelativePanel` (it is
-  `Align` plus margins, and the five resize handlers of the VCL demo simply do not exist),
-  no `TTitleBarPanel` (the two combo boxes go in a `TToolBar`), `TMultiView` in place of
-  `TSplitView`, `TCalendar` in place of `TCalendarView`, one multi-resolution `TImageList`
-  read by `TGlyph` in place of `TImageCollection` + `TVirtualImageList` + `TVirtualImage`,
-  and a `.style` file loaded at run time in place of the VCL styles linked by
-  `Custom_Styles`.
+  (`VCL/`) is where it started, and the reference for the other.
+  The **FMX** one (`FMX/`, Delphi 12+) is the same application - the seven pages, the
+  lead, proposal and draft windows, the same bind sources of the same data module, and the
+  same three actions. It exists because nobody had ever run the FireMonkey half of the
+  library in a real application, and it is still where the FireMonkey mistakes show up.
+  What FireMonkey does differently there: no `TRelativePanel` (it is `Align` plus margins
+  or a scroll box, and the resize handlers of the VCL demo simply do not exist), no
+  `TTitleBarPanel` (the two combo boxes go in a `TToolBar`), no `TCardPanel` (a
+  `TTabControl` with `TabPosition = None`), `TMultiView` in place of `TSplitView`,
+  `TCalendar` in place of `TCalendarView`, one multi-resolution `TImageList` read by
+  `TGlyph` in place of `TImageCollection` + `TVirtualImageList` + `TVirtualImage`, a
+  `.style` file loaded at run time in place of the VCL styles linked by `Custom_Styles`,
+  `LoadFromStrings` in place of writing into the DOM of the old `TWebBrowser`, and a
+  `MessageDlg` that answers in a callback.
+  Three of its own, measured and all three unobvious:
+  **F1 in a window that is not the host** goes through `HandleKeyDown` of the component,
+  and the keyword cannot come from the form - help properties live on `TStyledControl` -
+  so each unit declares it as a constant and `OnGetContext` reads it from
+  `Screen.ActiveForm`;
+  **a date that is null must be asked of the field, not of the control**: a null never
+  reaches a `TDateEdit` as a zero, it leaves it as it was, and `IsEmpty` is what the four
+  `OnAssignedValue` handlers of the VCL form blank the format for;
+  **no mode of `TMultiView` is a `TSplitView`** - Panel is permanent and hides the
+  `MasterButton` it is given, Drawer and NavigationPane slide over the content and close
+  again at the first click outside - so the side menu is a docked Panel inside a layout
+  whose width its own button changes, which is what `CloseStyle = svcCompact` does. The
+  icons of its items are `TGlyph` children and not the `ImageIndex` of the item, because
+  that one is sized by the style of the `TListBox`.
   Four things the integration taught, each of which cost a run:
   **a provider has to be linked** — `Settings.Provider := 'claude'` with no
   `HelpChatAI.Provider.Claude` in the uses answers "the provider is not available in this

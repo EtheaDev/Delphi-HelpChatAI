@@ -7,7 +7,11 @@ uses
   // not to the data module, which the VCL demo shares.
   FireDAC.FMXUI.Wait,
   uDataMod in '..\..\common\uDataMod.pas' {DM: TDataModule},
-  uMainFormFmx in '..\source\uMainFormFmx.pas' {MainFormFmx};
+  uProposalReport in '..\..\common\uProposalReport.pas',
+  uMainFormFmx in '..\source\uMainFormFmx.pas' {MainFormFmx},
+  uLeadsFmx in '..\source\uLeadsFmx.pas' {LeadsFormFmx},
+  uProposalFmx in '..\source\uProposalFmx.pas' {ProposalFormFmx},
+  uDraftProposalFmx in '..\source\uDraftProposalFmx.pas' {DraftProposalFormFmx};
 
 {$R *.res}
 
@@ -15,5 +19,8 @@ begin
   Application.Initialize;
   Application.CreateForm(TDM, DM);
   Application.CreateForm(TMainFormFmx, MainFormFmx);
+  Application.CreateForm(TLeadsFormFmx, LeadsFormFmx);
+  Application.CreateForm(TProposalFormFmx, ProposalFormFmx);
+  Application.CreateForm(TDraftProposalFormFmx, DraftProposalFormFmx);
   Application.Run;
 end.

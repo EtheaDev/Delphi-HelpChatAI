@@ -18,8 +18,9 @@ uses
   Vcl.BaseImageCollection, Vcl.ImageCollection, System.ImageList, Vcl.ImgList,
   Vcl.VirtualImageList, Vcl.VirtualImage, System.IOUtils, Vcl.TitleBarCtrls,
   HelpChatAI.Types, HelpChatAI.Actions, Vcl.HelpChatAI,
-  // per TProposalLineItem, che un'azione passa alla bozza
-  uDraftProposal
+  // per TProposalLineItem e ParseProposalLineItems, che un'azione
+  // passa alla bozza
+  uProposalReport, uDraftProposal
   {$IFDEF VCLSTYLEDCOMPONENTS}, Vcl.StyledComponentsHooks{$ENDIF};
 
 type
@@ -248,8 +249,6 @@ type
     function FindTab(const AName: string): TTabSheet;
     /// <summary>Il lead chiamato per nome, o per azienda se il nome non basta.</summary>
     function LocateLeadByName(const AName: string): Boolean;
-    /// <summary>"Consulenza x 12 @ 150" per riga, come lo scrive il modello.</summary>
-    function ParseLineItems(const AText: string): TArray<TProposalLineItem>;
   public
     { Public declarations }
   end;
@@ -326,36 +325,6 @@ begin
     Result := DM.LeadsFDTable.Locate('AccountName', VarArrayOf([AName]), [loCaseInsensitive, loPartialKey]);
 end;
 
-function TMainForm.ParseLineItems(const AText: string): TArray<TProposalLineItem>;
-var
-  LLine, LTitle, LRest: string;
-  LItem: TProposalLineItem;
-  LAt, LBy: Integer;
-begin
-  Result := [];
-  for LLine in AText.Replace(#13, '').Split([#10]) do
-  begin
-    if Trim(LLine) = '' then
-      Continue;
-    LBy := LLine.LastIndexOf('x');
-    LAt := LLine.LastIndexOf('@');
-    if (LBy < 0) or (LAt < LBy) then
-      raise Exception.CreateFmt('Non capisco la riga "%s": serve "titolo x quantita @ prezzo".', [LLine.Trim]);
-    LTitle := LLine.Substring(0, LBy).Trim;
-    LRest := LLine.Substring(LBy + 1, LAt - LBy - 1).Trim;
-    LItem.Title := LTitle;
-    LItem.Quantity := StrToIntDef(LRest, 0);
-    // Il prezzo lo scrive il modello, non l'utente: punto decimale, sempre.
-    LItem.Price := StrToCurrDef(LLine.Substring(LAt + 1).Trim.Replace(',', '.'), 0,
-      TFormatSettings.Invariant);
-    if (LItem.Title = '') or (LItem.Quantity <= 0) then
-      raise Exception.CreateFmt('Riga non valida: "%s".', [LLine.Trim]);
-    Result := Result + [LItem];
-  end;
-  if Length(Result) = 0 then
-    raise Exception.Create('Nessuna riga da mettere nella proposta.');
-end;
-
 procedure TMainForm.RegisterHelpActions;
 begin
   HelpChat.Actions.Add('open_screen',
@@ -423,7 +392,7 @@ begin
       LLeadId: Integer;
       LCompany: string;
     begin
-      LItems := ParseLineItems(AArgs.AsString('items'));
+      LItems := ParseProposalLineItems(AArgs.AsString('items'));
       if not LocateLeadByName(AArgs.AsString('lead')) then
         raise Exception.CreateFmt('There is no lead called "%s".', [AArgs.AsString('lead')]);
       LLeadId := DM.LeadsFDTable.FieldByName('LeadId').AsInteger;

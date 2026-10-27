@@ -1,0 +1,677 @@
+object LeadsFormFmx: TLeadsFormFmx
+  Left = 0
+  Top = 0
+  Caption = 'Lead Detail'
+  ClientHeight = 660
+  ClientWidth = 1080
+  Position = MainFormCenter
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  OnKeyDown = FormKeyDown
+  object HeaderLayout: TLayout
+    Align = Top
+    Margins.Left = 20.000000000000000000
+    Margins.Right = 20.000000000000000000
+    Margins.Top = 8.000000000000000000
+    Size.Width = 1040.000000000000000000
+    Size.Height = 64.000000000000000000
+    Size.PlatformDefault = False
+    object HeaderTitle: TLabel
+      Align = Left
+      StyledSettings = [Family, FontColor]
+      Size.Width = 260.000000000000000000
+      Size.Height = 64.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.Font.Size = 24.000000000000000000
+      TextSettings.Font.Style = [fsBold]
+      TextSettings.VertAlign = Center
+      Text = 'Lead Detail'
+    end
+    object ProposalButtons: TLayout
+      Align = Client
+      Size.Width = 780.000000000000000000
+      Size.Height = 64.000000000000000000
+      Size.PlatformDefault = False
+      object CreateProposalButton: TButton
+        Align = Right
+        Margins.Left = 8.000000000000000000
+        Margins.Top = 14.000000000000000000
+        Margins.Bottom = 14.000000000000000000
+        Size.Width = 170.000000000000000000
+        Size.Height = 36.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'Create Proposal'
+        OnClick = CreateProposalButtonClick
+      end
+      object ViewProposalButton: TButton
+        Align = Right
+        Margins.Left = 8.000000000000000000
+        Margins.Top = 14.000000000000000000
+        Margins.Bottom = 14.000000000000000000
+        Size.Width = 170.000000000000000000
+        Size.Height = 36.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'View Proposal'
+        OnClick = ViewProposalButtonClick
+      end
+      object CancelProposalButton: TButton
+        Align = Right
+        Margins.Left = 8.000000000000000000
+        Margins.Top = 14.000000000000000000
+        Margins.Bottom = 14.000000000000000000
+        Size.Width = 170.000000000000000000
+        Size.Height = 36.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'Cancel Proposal'
+        OnClick = CancelProposalButtonClick
+      end
+      object CompleteProposalButton: TButton
+        Align = Right
+        Margins.Left = 8.000000000000000000
+        Margins.Top = 14.000000000000000000
+        Margins.Bottom = 14.000000000000000000
+        Size.Width = 170.000000000000000000
+        Size.Height = 36.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'Complete Proposal'
+        OnClick = CompleteProposalButtonClick
+      end
+    end
+  end
+  object DocsLayout: TLayout
+    Align = Right
+    Margins.Right = 20.000000000000000000
+    Margins.Top = 8.000000000000000000
+    Margins.Bottom = 12.000000000000000000
+    Position.X = 740.000000000000000000
+    Position.Y = 72.000000000000000000
+    Size.Width = 320.000000000000000000
+    Size.Height = 576.000000000000000000
+    Size.PlatformDefault = False
+    object DocsTitle: TLabel
+      Align = Top
+      StyledSettings = [Family, FontColor]
+      Size.Width = 320.000000000000000000
+      Size.Height = 36.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.Font.Size = 18.000000000000000000
+      TextSettings.VertAlign = Center
+      Text = 'Documents'
+    end
+    object DocsButtons: TLayout
+      Align = Top
+      Position.Y = 36.000000000000000000
+      Size.Width = 320.000000000000000000
+      Size.Height = 138.000000000000000000
+      Size.PlatformDefault = False
+      object AddDocButton: TButton
+        Align = Top
+        Margins.Top = 6.000000000000000000
+        Position.Y = 0.000000000000000000
+        Size.Width = 300.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'Add Document'
+        OnClick = AddDocButtonClick
+      end
+      object ViewDocButton: TButton
+        Align = Top
+        Margins.Top = 6.000000000000000000
+        Position.Y = 46.000000000000000000
+        Size.Width = 300.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'View Document'
+        OnClick = ViewDocButtonClick
+      end
+      object DeleteDocButton: TButton
+        Align = Top
+        Margins.Top = 6.000000000000000000
+        Position.Y = 92.000000000000000000
+        Size.Width = 300.000000000000000000
+        Size.Height = 40.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'Delete Document'
+        OnClick = DeleteDocButtonClick
+      end
+    end
+    object DocsGrid: TStringGrid
+      Align = Client
+      CanFocus = True
+      Margins.Top = 12.000000000000000000
+      Size.Width = 320.000000000000000000
+      Size.Height = 390.000000000000000000
+      Size.PlatformDefault = False
+    end
+  end
+  object FieldsScroll: TVertScrollBox
+    Align = Client
+    Margins.Left = 20.000000000000000000
+    Margins.Right = 12.000000000000000000
+    Margins.Top = 8.000000000000000000
+    Margins.Bottom = 12.000000000000000000
+    Size.Width = 708.000000000000000000
+    Size.Height = 576.000000000000000000
+    Size.PlatformDefault = False
+      object LeadIdRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 32.000000000000000000
+        Size.PlatformDefault = False
+        object LeadIdCaption: TLabel
+          Align = Left
+          StyledSettings = [Family, FontColor]
+          Size.Width = 70.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.VertAlign = Center
+          Text = 'Lead Id:'
+        end
+        object LeadIdLabel: TLabel
+          Align = Left
+          StyledSettings = [Family, FontColor]
+          Position.X = 70.000000000000000000
+          Size.Width = 120.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.Font.Style = [fsBold]
+          TextSettings.VertAlign = Center
+        end
+      end
+      object StatusRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Position.Y = 36.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 80.000000000000000000
+        Size.PlatformDefault = False
+        object StatusCaption: TLabel
+          Align = Top
+          StyledSettings = [Family, FontColor]
+          Size.Width = 600.000000000000000000
+          Size.Height = 28.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.VertAlign = Center
+          Text = 'Status'
+        end
+        object StatusCombo: TComboBox
+          Align = None
+          Position.X = 0.000000000000000000
+          Position.Y = 32.000000000000000000
+          Size.Width = 640.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+      end
+      object DatesRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Position.Y = 120.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 80.000000000000000000
+        Size.PlatformDefault = False
+        object DateCreatedBox: TLayout
+          Align = Left
+          Margins.Right = 12.000000000000000000
+          Position.X = 0.000000000000000000
+          Size.Width = 140.000000000000000000
+          Size.Height = 80.000000000000000000
+          Size.PlatformDefault = False
+          object DateCreatedCaption: TLabel
+            Align = Top
+            StyledSettings = [Family, FontColor]
+            Size.Width = 140.000000000000000000
+            Size.Height = 28.000000000000000000
+            Size.PlatformDefault = False
+            TextSettings.Font.Size = 15.000000000000000000
+            TextSettings.VertAlign = Center
+            Text = 'Date Created'
+          end
+          object DateCreatedEdit: TDateEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Top
+            Margins.Top = 4.000000000000000000
+            Position.Y = 32.000000000000000000
+            ShowClearButton = True
+            Size.Width = 140.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+          end
+        end
+        object DateContactedBox: TLayout
+          Align = Left
+          Margins.Right = 12.000000000000000000
+          Position.X = 152.000000000000000000
+          Size.Width = 140.000000000000000000
+          Size.Height = 80.000000000000000000
+          Size.PlatformDefault = False
+          object DateContactedCaption: TLabel
+            Align = Top
+            StyledSettings = [Family, FontColor]
+            Size.Width = 140.000000000000000000
+            Size.Height = 28.000000000000000000
+            Size.PlatformDefault = False
+            TextSettings.Font.Size = 15.000000000000000000
+            TextSettings.VertAlign = Center
+            Text = 'Date Contacted'
+          end
+          object DateContactedEdit: TDateEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Top
+            Margins.Top = 4.000000000000000000
+            Position.Y = 32.000000000000000000
+            ShowClearButton = True
+            Size.Width = 140.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+          end
+        end
+        object DateDraftedBox: TLayout
+          Align = Left
+          Margins.Right = 12.000000000000000000
+          Position.X = 304.000000000000000000
+          Size.Width = 140.000000000000000000
+          Size.Height = 80.000000000000000000
+          Size.PlatformDefault = False
+          object DateDraftedCaption: TLabel
+            Align = Top
+            StyledSettings = [Family, FontColor]
+            Size.Width = 140.000000000000000000
+            Size.Height = 28.000000000000000000
+            Size.PlatformDefault = False
+            TextSettings.Font.Size = 15.000000000000000000
+            TextSettings.VertAlign = Center
+            Text = 'Date Drafted'
+          end
+          object DateDraftedEdit: TDateEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Top
+            Margins.Top = 4.000000000000000000
+            Position.Y = 32.000000000000000000
+            ShowClearButton = True
+            Size.Width = 140.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+          end
+        end
+        object DateClosedBox: TLayout
+          Align = Left
+          Margins.Right = 12.000000000000000000
+          Position.X = 456.000000000000000000
+          Size.Width = 140.000000000000000000
+          Size.Height = 80.000000000000000000
+          Size.PlatformDefault = False
+          object DateClosedCaption: TLabel
+            Align = Top
+            StyledSettings = [Family, FontColor]
+            Size.Width = 140.000000000000000000
+            Size.Height = 28.000000000000000000
+            Size.PlatformDefault = False
+            TextSettings.Font.Size = 15.000000000000000000
+            TextSettings.VertAlign = Center
+            Text = 'Date Closed'
+          end
+          object DateClosedEdit: TDateEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Top
+            Margins.Top = 4.000000000000000000
+            Position.Y = 32.000000000000000000
+            ShowClearButton = True
+            Size.Width = 140.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+          end
+        end
+      end
+      object NameRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Position.Y = 204.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 80.000000000000000000
+        Size.PlatformDefault = False
+        object NameCaption: TLabel
+          Align = Top
+          StyledSettings = [Family, FontColor]
+          Size.Width = 600.000000000000000000
+          Size.Height = 28.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.VertAlign = Center
+          Text = 'Name'
+        end
+        object NameEdit: TEdit
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Align = None
+          Position.X = 0.000000000000000000
+          Position.Y = 32.000000000000000000
+          Size.Width = 640.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+      end
+      object AcctRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Position.Y = 288.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 80.000000000000000000
+        Size.PlatformDefault = False
+        object AcctCaption: TLabel
+          Align = Top
+          StyledSettings = [Family, FontColor]
+          Size.Width = 600.000000000000000000
+          Size.Height = 28.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.VertAlign = Center
+          Text = 'Account Name'
+        end
+        object AccountNameCombo: TComboBox
+          Align = None
+          Position.X = 0.000000000000000000
+          Position.Y = 32.000000000000000000
+          Size.Width = 640.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+      end
+      object PhoneRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Position.Y = 372.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 80.000000000000000000
+        Size.PlatformDefault = False
+        object PhoneCaption: TLabel
+          Align = Top
+          StyledSettings = [Family, FontColor]
+          Size.Width = 600.000000000000000000
+          Size.Height = 28.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.VertAlign = Center
+          Text = 'Office Phone'
+        end
+        object CallButton: TButton
+          Text = 'Call'
+          Align = None
+          Position.X = 512.000000000000000000
+          Position.Y = 32.000000000000000000
+          Size.Width = 120.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+        object OfficePhoneEdit: TEdit
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Align = None
+          Position.X = 0.000000000000000000
+          Position.Y = 32.000000000000000000
+          Size.Width = 500.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+      end
+      object EmailRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Position.Y = 456.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 80.000000000000000000
+        Size.PlatformDefault = False
+        object EmailCaption: TLabel
+          Align = Top
+          StyledSettings = [Family, FontColor]
+          Size.Width = 600.000000000000000000
+          Size.Height = 28.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.VertAlign = Center
+          Text = 'Email'
+        end
+        object EmailButton: TButton
+          Text = 'Email'
+          Align = None
+          Position.X = 512.000000000000000000
+          Position.Y = 32.000000000000000000
+          Size.Width = 120.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+        object EmailEdit: TEdit
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Align = None
+          Position.X = 0.000000000000000000
+          Position.Y = 32.000000000000000000
+          Size.Width = 500.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+      end
+      object UserRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Position.Y = 540.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 80.000000000000000000
+        Size.PlatformDefault = False
+        object UserCaption: TLabel
+          Align = Top
+          StyledSettings = [Family, FontColor]
+          Size.Width = 600.000000000000000000
+          Size.Height = 28.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.VertAlign = Center
+          Text = 'User'
+        end
+        object UserEdit: TEdit
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Align = None
+          Position.X = 0.000000000000000000
+          Position.Y = 32.000000000000000000
+          Size.Width = 640.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+      end
+      object NotesRow: TLayout
+        Align = Top
+        Margins.Bottom = 4.000000000000000000
+        Position.Y = 624.000000000000000000
+        Size.Width = 600.000000000000000000
+        Size.Height = 180.000000000000000000
+        Size.PlatformDefault = False
+        object NotesCaption: TLabel
+          Align = Top
+          StyledSettings = [Family, FontColor]
+          Size.Width = 600.000000000000000000
+          Size.Height = 28.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 15.000000000000000000
+          TextSettings.VertAlign = Center
+          Text = 'Notes'
+        end
+        object NotesMemo: TMemo
+          Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
+          DataDetectorTypes = []
+          Align = Client
+          Margins.Top = 4.000000000000000000
+          Margins.Right = 12.000000000000000000
+          Margins.Bottom = 8.000000000000000000
+          Size.Width = 588.000000000000000000
+          Size.Height = 140.000000000000000000
+          Size.PlatformDefault = False
+        end
+      end
+  end
+  object OpenDialog: TOpenDialog
+    DefaultExt = 'pdf'
+    Filter = 'Documents (*.pdf)|*.pdf'
+    Left = 920
+    Top = 8
+  end
+  object LeadsBindSourceDB: TBindSourceDB
+    DataSet = DM.LeadsFDTable
+    ScopeMappings = <>
+    Left = 40
+    Top = 8
+  end
+  object StatusBindSourceDB: TBindSourceDB
+    DataSet = DM.StatusFDMemTable
+    ScopeMappings = <>
+    Left = 144
+    Top = 8
+  end
+  object AcctBindSourceDB: TBindSourceDB
+    DataSet = DM.AcctFDTable
+    ScopeMappings = <>
+    Left = 248
+    Top = 8
+  end
+  object DocsBindSourceDB: TBindSourceDB
+    DataSet = DM.FDDocsQuery
+    ScopeMappings = <>
+    Left = 352
+    Top = 8
+  end
+  object UsersBindSourceDB: TBindSourceDB
+    DataSet = DM.UsersFDTable
+    ScopeMappings = <>
+    Left = 456
+    Top = 8
+  end
+  object ProposalBindSourceDB: TBindSourceDB
+    DataSet = DM.ProposalsFDTable
+    ScopeMappings = <>
+    Left = 560
+    Top = 8
+  end
+  object BindingsList: TBindingsList
+    Methods = <>
+    OutputConverters = <>
+    Left = 680
+    Top = 8
+    object LinkName: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'Name'
+      Control = NameEdit
+      Track = True
+    end
+    object LinkOfficePhone: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'OfficePhone'
+      Control = OfficePhoneEdit
+      Track = True
+    end
+    object LinkEmail: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'Email'
+      Control = EmailEdit
+      Track = True
+    end
+    object LinkUser: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'User'
+      Control = UserEdit
+      Track = True
+    end
+    object LinkStatus: TLinkFillControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'Status'
+      Control = StatusCombo
+      Track = True
+      FillDataSource = StatusBindSourceDB
+      FillValueFieldName = 'Status'
+      FillDisplayFieldName = 'Status'
+      AutoFill = True
+      FillExpressions = <>
+      FillHeaderExpressions = <>
+      FillBreakGroups = <>
+    end
+    object LinkAccountName: TLinkFillControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'AccountName'
+      Control = AccountNameCombo
+      Track = True
+      FillDataSource = AcctBindSourceDB
+      FillValueFieldName = 'AccountName'
+      FillDisplayFieldName = 'AccountName'
+      AutoFill = True
+      FillExpressions = <>
+      FillHeaderExpressions = <>
+      FillBreakGroups = <>
+    end
+    object LinkDateCreated: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'DateCreated'
+      Control = DateCreatedEdit
+      OnAssignedValue = DateAssignedValue
+      Track = True
+    end
+    object LinkDateContacted: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'DateContacted'
+      Control = DateContactedEdit
+      OnAssignedValue = DateAssignedValue
+      Track = True
+    end
+    object LinkDateDrafted: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'DateDrafted'
+      Control = DateDraftedEdit
+      OnAssignedValue = DateAssignedValue
+      Track = True
+    end
+    object LinkDateClosed: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'DateClosed'
+      Control = DateClosedEdit
+      OnAssignedValue = DateAssignedValue
+      Track = True
+    end
+    object LinkNotes: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'Notes'
+      Control = NotesMemo
+      Track = False
+    end
+    object LinkLeadId: TLinkPropertyToField
+      Category = 'Quick Bindings'
+      DataSource = LeadsBindSourceDB
+      FieldName = 'LeadId'
+      Component = LeadIdLabel
+      ComponentProperty = 'Text'
+    end
+    object LinkGridDocs: TLinkGridToDataSource
+      Category = 'Quick Bindings'
+      DataSource = DocsBindSourceDB
+      GridControl = DocsGrid
+      Columns = <
+        item
+          MemberName = 'DocId'
+          Width = 60
+        end
+        item
+          MemberName = 'DocumentName'
+          Width = 220
+        end>
+    end
+  end
+end

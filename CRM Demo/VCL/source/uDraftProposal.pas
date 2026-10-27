@@ -12,18 +12,13 @@ uses
   FireDAC.Stan.Intf, FireDAC.Stan.Option, FireDAC.Stan.Param,
   FireDAC.Stan.Error, FireDAC.DatS, FireDAC.Phys.Intf, FireDAC.DApt.Intf,
   FireDAC.Stan.StorageBin, Data.DB, FireDAC.Comp.DataSet, FireDAC.Comp.Client,
-  Vcl.VirtualImage
+  Vcl.VirtualImage,
+  // Il documento della proposta e le sue righe: codice senza niente di VCL,
+  // quindi sta in common e lo genera anche la demo FireMonkey.
+  uProposalReport
   {$IFDEF VCLSTYLEDCOMPONENTS}, Vcl.StyledComponentsHooks{$ENDIF};
 
 type
-  /// <summary>Una riga della proposta, come la passa chi prepara la bozza
-  /// dall'esterno.</summary>
-  TProposalLineItem = record
-    Title: string;
-    Quantity: Integer;
-    Price: Currency;
-  end;
-
   TDraftProposalForm = class(TForm)
     StackPanel1: TStackPanel;
     RelativePanel1: TRelativePanel;
@@ -68,7 +63,6 @@ type
     LinkControlToField4: TLinkControlToField;
     LinkControlToField5: TLinkControlToField;
     LinkControlToField6: TLinkControlToField;
-    ProposalCSSMemo: TMemo;
     ReportMemo: TMemo;
     VirtualImage1: TVirtualImage;
     VirtualImage2: TVirtualImage;
@@ -84,14 +78,6 @@ type
     { Private declarations }
     /// <summary>Ricalcola il totale dalle righe presenti.</summary>
     procedure UpdateTotal;
-    procedure AddReportLine(const S: String; AStrings: TStrings);
-    procedure AddReportHeaderLine(const S1, S2: String; AStrings: TStrings);
-    procedure AddReportFooterLine(const S1: String; AStrings: TStrings);
-    procedure AddReportSubHeader(const S1: String; Astrings: Tstrings);
-    procedure AddReportSubHeaderInfo(const S1, S2, S3, S4: String; Astrings: Tstrings);
-    procedure AddInvoiceSection(ALineItemsDataSet: TDataSet; AStrings: TStrings);
-    procedure AddInvoiceData(AName, AQuantity, APrice: String; AStrings: TStrings);
-    function GenerateReport(ADataSet, ALineItemsDataSet: TDataSet): String;
   public
     { Public declarations }
     FLeadId: Integer;
@@ -101,26 +87,9 @@ type
     procedure PrepareDraft(ALeadId: Integer; const ACompanyName, AAddress1,
       AAddress2, APhone: String; const AItems: TArray<TProposalLineItem>);
   end;
-  const
-    EmptyLBRow = '<tr class="row header ltblue"><td>&nbsp;</td><td><h3>&nbsp;</h3></td></tr>';
-    TableTRStart = '<tr class="row header ltblue"><td><b>';
-    TableTDMid = '</b></td><td>';
-    TableTREnd = '</td></tr>';
-    TableTR2Start = '<tr class="row"><td colspan="2"><b>';
-    TableTR2End = '</b></td></tr>';
-    InvoiceTStart = '<tr class="row"><td colspan="2"><table width="100%" align="center" cellspacing="0" cellpadding="10" border="0">';
-    InvoiceTHStart = '<tr class="row"><th><b>';
-    InvoiceTHMid = '</b></th><th><b>';
-    InvoiceTHEnd = '</b></th></tr>';
-    InvoiceTRStart = '<tr class="row" align="center"><td>';
-    InvoiceTRMid = '</td><td>';
-    InvoiceTREnd = '</td></tr>';
-    InvoiceTEnd = '</table></td></tr>';
+
 var
   DraftProposalForm: TDraftProposalForm;
-  /// <summary>Il documento generato e' in inglese: numeri e date non
-  /// seguono le impostazioni della macchina.</summary>
-  InvoiceFormat: TFormatSettings;
 
 implementation
 
@@ -198,7 +167,8 @@ var
 begin
   DraftCardPanel.NextCard;
 
-  ReportMemo.Lines.Text := GenerateReport(BindSourceDBDraftProposal.DataSet, BindSourceDBLineItems.DataSet);
+  ReportMemo.Lines.Text := GenerateProposalReport(BindSourceDBDraftProposal.DataSet,
+    BindSourceDBLineItems.DataSet);
 
   if not Assigned(WebBrowser1.Document) then
     WebBrowser1.Navigate('about:blank');
@@ -220,44 +190,7 @@ begin
   DraftCardPanel.PreviousCard;
 end;
 
-function TDraftProposalForm.GenerateReport(ADataSet, ALineItemsDataSet: TDataSet): String;
-var
-  LReport: TStringList;
-begin
-  LReport := TStringList.Create;
-  try
-
-     AddReportLine('<!DOCTYPE html>',LReport);
-     AddReportLine('<html lang="en"><head>',LReport);
-     AddReportLine('<meta name="viewport" content="width=device-width; initial-scale=1" />',LReport);
-     AddReportLine(ProposalCSSMemo.Lines.Text,LReport);
-     AddReportLine('</head><body><table width="100%" align="center" cellspacing="0" cellpadding="10" border="0">',LReport);
-     AddReportHeaderLine(TNetEncoding.HTML.Encode('My Company'), TNetEncoding.HTML.Encode('Invoice'),LReport);
-     AddReportLine(EmptyLBRow, LReport);
-     AddReportSubHeader(TNetEncoding.HTML.Encode(ADataSet.FieldByName('Date').AsString),LReport);
-     AddReportSubHeaderInfo(TNetEncoding.HTML.Encode(ADataSet.FieldByName('CompanyName').AsString),
-                            TNetEncoding.HTML.Encode(ADataSet.FieldByName('Address1').AsString),
-                            TNetEncoding.HTML.Encode(ADataSet.FieldByName('Address2').AsString),
-                            TNetEncoding.HTML.Encode(ADataSet.FieldByName('Phone').AsString),LReport);
-     AddReportLine(EmptyLBRow, LReport);
-     AddReportLine(EmptyLBRow, LReport);
-     AddInvoiceSection(ALineItemsDataset, LReport);
-     LReport.Append(TableTRStart + '</b></td><td align="right">'  + '<h2>Total</h2>' + TableTREnd);
-     LReport.Append(TableTRStart + '</b></td><td align="right">$' +
-       FormatCurr('#,##0.00', ADataSet.FieldByName('Total').AsCurrency, InvoiceFormat) + TableTREnd);
-     AddReportLine(EmptyLBRow, LReport);
-     AddReportLine(EmptyLBRow, LReport);
-     AddReportLine(EmptyLBRow, LReport);
-     AddReportFooterLine('Thank you for your business!&nbsp;',LReport);
-     LReport.Append('</table></body></html>');
-     Result := LReport.Text;
-
-  finally
-    LReport.Free;
-  end;
-end;
-
- procedure TDraftProposalForm.PreviewCardClick(Sender: TObject);
+procedure TDraftProposalForm.PreviewCardClick(Sender: TObject);
 begin
   DraftCardPanel.PreviousCard;
 end;
@@ -288,63 +221,5 @@ begin
   DraftCardPanel.PreviousCard;
   Close;
 end;
-
-procedure TDraftProposalForm.AddReportLine(const S: String; AStrings: TStrings);
-begin
-  AStrings.Append(S);
-end;
-
-procedure TDraftProposalForm.AddReportHeaderLine(const S1, S2: String; AStrings: TStrings);
-begin
-  AStrings.Append('<tr class="row header blue"><td><h3><p class="bg-primary">' + S1 + '</p></h3></td>'
-                  + '<td align="right"><h3><p class="bg-primary">' + S2 + '</p></h3></td></tr>');
-end;
-
-procedure TDraftProposalForm.AddReportSubHeader(const S1: String; AStrings: TStrings);
-begin
-  AStrings.Append('<tr class="row header blue"><td align="left"><p class="bg-info"><b>Bill To</b></p></td><td align="right">'
-                  + '<p class="bg-info"><b>Date: ' + S1 + '</b></p></td></tr>');
-end;
-
-procedure TDraftProposalForm.AddReportSubHeaderInfo(const S1, S2, S3, S4: String; AStrings: TStrings);
-begin
-  AStrings.Append('<tr class="row header ltblue"><td align="left"><h4>'
-                    +'<p class="bg-info">'+ S1 +'</p>'
-                    +'<p class="bg-info">'+ S2 +'</p>'
-                    +'<p class="bg-info">'+ S3 +'</p>'
-                    +'<p class="bg-info">'+ S4 +'</p>'
-                    +'</h4></td><td></td></tr>');
-end;
-
-procedure TDraftProposalForm.AddReportFooterLine(const S1: String; AStrings: TStrings);
-begin
-  AStrings.Append('<tr class="row header blue"><td colspan="2"><h3><p class="bg-primary" align="center">' + S1 + '</p></h3></td></tr>');
-end;
-
-procedure TDraftProposalForm.AddInvoiceSection(ALineItemsDataSet: TDataSet; AStrings: TStrings);
-begin
-  AddReportLine(InvoiceTStart + InvoiceTHStart + 'Name' + InvoiceTHMid + 'Quantity' + InvoiceTHMid + 'Price' + InvoiceTHEnd, AStrings);
-  ALineItemsDataSet.First;
-  while not ALineItemsDataSet.EOF do
-   begin
-     // La fattura e' in inglese: quantita' e importi non seguono le
-     // impostazioni della macchina, che altrimenti scriverebbero 1.234,50
-     // in un documento che dice $.
-     AddInvoiceData(ALineItemsDataSet.FieldByName('Title').AsString,
-                    IntToStr(ALineItemsDataSet.FieldByName('Quantity').AsInteger),
-                    FormatCurr('#,##0.00', ALineItemsDataSet.FieldByName('Price').AsCurrency,
-                      InvoiceFormat), AStrings);
-     ALineItemsDataSet.Next;
-   end;
-  AddReportLine(InvoiceTEnd, AStrings);
-end;
-
-procedure TDraftProposalForm.AddInvoiceData(AName, AQuantity, APrice: String; AStrings: TStrings);
-begin
-  AddReportLine(InvoiceTRStart + AName + InvoiceTRMid + AQuantity + InvoiceTRMid + APrice + InvoiceTREnd, AStrings);
-end;
-
-initialization
-  InvoiceFormat := TFormatSettings.Create('en-US');
 
 end.

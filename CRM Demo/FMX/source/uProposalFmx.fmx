@@ -1,0 +1,47 @@
+object ProposalFormFmx: TProposalFormFmx
+  Left = 0
+  Top = 0
+  Caption = 'Proposal'
+  ClientHeight = 640
+  ClientWidth = 860
+  Position = MainFormCenter
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  OnKeyDown = FormKeyDown
+  object NavLayout: TLayout
+    Align = Bottom
+    Size.Width = 860.000000000000000000
+    Size.Height = 52.000000000000000000
+    Size.PlatformDefault = False
+    object CloseButton: TButton
+      Align = Left
+      Margins.Left = 12.000000000000000000
+      Margins.Top = 8.000000000000000000
+      Margins.Bottom = 12.000000000000000000
+      Cancel = True
+      Size.Width = 140.000000000000000000
+      Size.Height = 32.000000000000000000
+      Size.PlatformDefault = False
+      Text = 'Close'
+      OnClick = CloseButtonClick
+    end
+    object CompleteButton: TButton
+      Align = Right
+      Margins.Right = 12.000000000000000000
+      Margins.Top = 8.000000000000000000
+      Margins.Bottom = 12.000000000000000000
+      Size.Width = 140.000000000000000000
+      Size.Height = 32.000000000000000000
+      Size.PlatformDefault = False
+      Text = 'Complete'
+      OnClick = CompleteButtonClick
+    end
+  end
+  object Browser: TWebBrowser
+    Align = Client
+    Size.Width = 860.000000000000000000
+    Size.Height = 588.000000000000000000
+    Size.PlatformDefault = False
+  end
+end

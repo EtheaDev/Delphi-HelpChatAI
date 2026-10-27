@@ -1,0 +1,383 @@
+object DraftProposalFormFmx: TDraftProposalFormFmx
+  Left = 0
+  Top = 0
+  Caption = 'Draft Proposal'
+  ClientHeight = 660
+  ClientWidth = 860
+  Position = MainFormCenter
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  OnKeyDown = FormKeyDown
+  OnCreate = FormCreate
+  object Cards: TTabControl
+    Align = Client
+    Size.Width = 860.000000000000000000
+    Size.Height = 660.000000000000000000
+    Size.PlatformDefault = False
+    TabIndex = 0
+    TabPosition = None
+    object DraftCard: TTabItem
+      CustomIcon = <
+        item
+        end>
+      IsSelected = True
+      Size.Width = 69.000000000000000000
+      Size.Height = 49.000000000000000000
+      Size.PlatformDefault = False
+      Text = 'Draft'
+      object DraftHeader: TLayout
+        Align = Top
+        Margins.Left = 20.000000000000000000
+        Margins.Right = 20.000000000000000000
+        Margins.Top = 8.000000000000000000
+        Size.Width = 820.000000000000000000
+        Size.Height = 56.000000000000000000
+        Size.PlatformDefault = False
+        object DraftTitle: TLabel
+          Align = Client
+          StyledSettings = [Family, FontColor]
+          Size.Width = 820.000000000000000000
+          Size.Height = 56.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 24.000000000000000000
+          TextSettings.Font.Style = [fsBold]
+          TextSettings.VertAlign = Center
+          Text = 'Draft Proposal'
+        end
+      end
+      object FieldsLayout: TLayout
+        Align = Top
+        Margins.Left = 20.000000000000000000
+        Margins.Right = 20.000000000000000000
+        Position.Y = 64.000000000000000000
+        Size.Width = 820.000000000000000000
+        Size.Height = 176.000000000000000000
+        Size.PlatformDefault = False
+        object CompanyRow: TLayout
+          Align = Top
+          Size.Width = 820.000000000000000000
+          Size.Height = 44.000000000000000000
+          Size.PlatformDefault = False
+          object InvoiceLabel: TLabel
+            Align = Right
+            StyledSettings = [Family, FontColor]
+            Size.Width = 160.000000000000000000
+            Size.Height = 44.000000000000000000
+            Size.PlatformDefault = False
+            TextSettings.Font.Size = 28.000000000000000000
+            TextSettings.Font.Style = [fsBold]
+            TextSettings.HorzAlign = Trailing
+            TextSettings.VertAlign = Center
+            Text = 'Invoice'
+          end
+          object CompanyEdit: TEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Left
+            Margins.Top = 6.000000000000000000
+            Margins.Bottom = 6.000000000000000000
+            Size.Width = 300.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+            TextPrompt = 'Company Name'
+          end
+        end
+        object Address1Row: TLayout
+          Align = Top
+          Position.Y = 44.000000000000000000
+          Size.Width = 820.000000000000000000
+          Size.Height = 44.000000000000000000
+          Size.PlatformDefault = False
+          object DateEdit: TEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Right
+            Margins.Top = 6.000000000000000000
+            Margins.Bottom = 6.000000000000000000
+            Size.Width = 140.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+            TextPrompt = 'Date'
+          end
+          object Address1Edit: TEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Left
+            Margins.Top = 6.000000000000000000
+            Margins.Bottom = 6.000000000000000000
+            Size.Width = 300.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+            TextPrompt = 'Street Address'
+          end
+        end
+        object Address2Row: TLayout
+          Align = Top
+          Position.Y = 88.000000000000000000
+          Size.Width = 820.000000000000000000
+          Size.Height = 44.000000000000000000
+          Size.PlatformDefault = False
+          object Address2Edit: TEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Left
+            Margins.Top = 6.000000000000000000
+            Margins.Bottom = 6.000000000000000000
+            Size.Width = 300.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+            TextPrompt = 'City, State, Zip'
+          end
+        end
+        object PhoneRow: TLayout
+          Align = Top
+          Position.Y = 132.000000000000000000
+          Size.Width = 820.000000000000000000
+          Size.Height = 44.000000000000000000
+          Size.PlatformDefault = False
+          object PhoneEdit: TEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Align = Left
+            Margins.Top = 6.000000000000000000
+            Margins.Bottom = 6.000000000000000000
+            Size.Width = 300.000000000000000000
+            Size.Height = 32.000000000000000000
+            Size.PlatformDefault = False
+            TextPrompt = 'Phone'
+          end
+        end
+      end
+      object NavLayout: TLayout
+        Align = Bottom
+        Margins.Left = 20.000000000000000000
+        Margins.Right = 20.000000000000000000
+        Position.Y = 599.000000000000000000
+        Size.Width = 820.000000000000000000
+        Size.Height = 52.000000000000000000
+        Size.PlatformDefault = False
+        object CancelButton: TButton
+          Align = Left
+          Margins.Top = 8.000000000000000000
+          Margins.Bottom = 12.000000000000000000
+          Cancel = True
+          Size.Width = 140.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+          Text = 'Cancel'
+          OnClick = CancelButtonClick
+        end
+        object PreviewButton: TButton
+          Align = Right
+          Margins.Top = 8.000000000000000000
+          Margins.Bottom = 12.000000000000000000
+          Size.Width = 140.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+          Text = 'Preview'
+          OnClick = PreviewButtonClick
+        end
+      end
+      object TotalLayout: TLayout
+        Align = Bottom
+        Margins.Left = 20.000000000000000000
+        Margins.Right = 20.000000000000000000
+        Position.Y = 555.000000000000000000
+        Size.Width = 820.000000000000000000
+        Size.Height = 44.000000000000000000
+        Size.PlatformDefault = False
+        object TotalLabel: TLabel
+          Align = Right
+          Margins.Right = 8.000000000000000000
+          StyledSettings = [Family, FontColor]
+          Position.X = 572.000000000000000000
+          Size.Width = 80.000000000000000000
+          Size.Height = 44.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 16.000000000000000000
+          TextSettings.Font.Style = [fsBold]
+          TextSettings.HorzAlign = Trailing
+          TextSettings.VertAlign = Center
+          Text = 'Total'
+        end
+        object TotalEdit: TEdit
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Align = Right
+          Margins.Top = 6.000000000000000000
+          Margins.Bottom = 6.000000000000000000
+          ReadOnly = True
+          Size.Width = 160.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.HorzAlign = Trailing
+        end
+      end
+      object GridLayout: TLayout
+        Align = Client
+        Margins.Left = 20.000000000000000000
+        Margins.Right = 20.000000000000000000
+        Margins.Top = 8.000000000000000000
+        Margins.Bottom = 8.000000000000000000
+        Size.Width = 820.000000000000000000
+        Size.Height = 283.000000000000000000
+        Size.PlatformDefault = False
+        object LineItemsNav: TBindNavigator
+          Align = Bottom
+          DataSource = BindSourceDBLineItems
+          Position.Y = 251.000000000000000000
+          Size.Width = 820.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+        end
+        object LineItemsGrid: TStringGrid
+          Align = Client
+          CanFocus = True
+          Size.Width = 820.000000000000000000
+          Size.Height = 251.000000000000000000
+          Size.PlatformDefault = False
+        end
+      end
+    end
+    object PreviewCard: TTabItem
+      CustomIcon = <
+        item
+        end>
+      Size.Width = 86.000000000000000000
+      Size.Height = 49.000000000000000000
+      Size.PlatformDefault = False
+      Text = 'Preview'
+      object PreviewHeader: TLayout
+        Align = Top
+        Margins.Left = 20.000000000000000000
+        Margins.Right = 20.000000000000000000
+        Margins.Top = 8.000000000000000000
+        Size.Width = 820.000000000000000000
+        Size.Height = 56.000000000000000000
+        Size.PlatformDefault = False
+        object PreviewTitle: TLabel
+          Align = Client
+          StyledSettings = [Family, FontColor]
+          Size.Width = 820.000000000000000000
+          Size.Height = 56.000000000000000000
+          Size.PlatformDefault = False
+          TextSettings.Font.Size = 24.000000000000000000
+          TextSettings.Font.Style = [fsBold]
+          TextSettings.VertAlign = Center
+          Text = 'Proposal Preview'
+        end
+      end
+      object PreviewNav: TLayout
+        Align = Bottom
+        Margins.Left = 20.000000000000000000
+        Margins.Right = 20.000000000000000000
+        Position.Y = 599.000000000000000000
+        Size.Width = 820.000000000000000000
+        Size.Height = 52.000000000000000000
+        Size.PlatformDefault = False
+        object BackButton: TButton
+          Align = Left
+          Margins.Top = 8.000000000000000000
+          Margins.Bottom = 12.000000000000000000
+          Size.Width = 140.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+          Text = 'Back'
+          OnClick = BackButtonClick
+        end
+        object SaveProposalButton: TButton
+          Align = Right
+          Margins.Top = 8.000000000000000000
+          Margins.Bottom = 12.000000000000000000
+          Size.Width = 180.000000000000000000
+          Size.Height = 32.000000000000000000
+          Size.PlatformDefault = False
+          Text = 'Save Proposal'
+          OnClick = SaveProposalButtonClick
+        end
+      end
+      object Browser: TWebBrowser
+        Align = Client
+        Margins.Left = 20.000000000000000000
+        Margins.Right = 20.000000000000000000
+        Size.Width = 820.000000000000000000
+        Size.Height = 535.000000000000000000
+        Size.PlatformDefault = False
+      end
+    end
+  end
+  object BindSourceDBDraftProposal: TBindSourceDB
+    DataSet = DM.DraftProposalFDMemTable
+    ScopeMappings = <>
+    Left = 40
+    Top = 8
+  end
+  object BindSourceDBLineItems: TBindSourceDB
+    DataSource.OnDataChange = LineItemsDataChange
+    DataSet = DM.LineItemsFDMemTable
+    ScopeMappings = <>
+    Left = 144
+    Top = 8
+  end
+  object BindSourceDBProposal: TBindSourceDB
+    DataSet = DM.ProposalsFDTable
+    ScopeMappings = <>
+    Left = 248
+    Top = 8
+  end
+  object BindSourceDBProposalQuery: TBindSourceDB
+    DataSet = DM.FDProposalsQuery
+    ScopeMappings = <>
+    Left = 360
+    Top = 8
+  end
+  object BindingsList: TBindingsList
+    Methods = <>
+    OutputConverters = <>
+    Left = 480
+    Top = 8
+    object LinkGridLineItems: TLinkGridToDataSource
+      Category = 'Quick Bindings'
+      DataSource = BindSourceDBLineItems
+      GridControl = LineItemsGrid
+      Columns = <>
+    end
+    object LinkCompany: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = BindSourceDBDraftProposal
+      FieldName = 'CompanyName'
+      Control = CompanyEdit
+      Track = True
+    end
+    object LinkAddress1: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = BindSourceDBDraftProposal
+      FieldName = 'Address1'
+      Control = Address1Edit
+      Track = True
+    end
+    object LinkAddress2: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = BindSourceDBDraftProposal
+      FieldName = 'Address2'
+      Control = Address2Edit
+      Track = True
+    end
+    object LinkDate: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = BindSourceDBDraftProposal
+      FieldName = 'Date'
+      Control = DateEdit
+      Track = True
+    end
+    object LinkPhone: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = BindSourceDBDraftProposal
+      FieldName = 'Phone'
+      Control = PhoneEdit
+      Track = True
+    end
+    object LinkTotal: TLinkControlToField
+      Category = 'Quick Bindings'
+      DataSource = BindSourceDBDraftProposal
+      FieldName = 'Total'
+      Control = TotalEdit
+      Track = True
+    end
+  end
+end
