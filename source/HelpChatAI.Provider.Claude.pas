@@ -55,11 +55,14 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.JSON,
   System.Generics.Collections,
   HelpChatAI.Types,
+  HelpChatAI.Messages,
   HelpChatAI.Settings,
   HelpChatAI.Actions,
   HelpChatAI.Provider,
+  HelpChatAI.Attachments,
   HelpChatAI.Provider.Sse;
 
 const
@@ -109,6 +112,7 @@ type
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
     function SupportsStreaming: Boolean; override;
     function SupportsActions: Boolean; override;
+    function SupportsDocuments: Boolean; override;
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; override;
@@ -121,7 +125,16 @@ type
     /// (<c>AExtraMessagesJson</c>: a JSON array of message objects).</summary>
     class function BuildRequestBody(const AHistory: TArray<THelpChatMessage>;
       const ASystemPrompt: string; const ASettings: THelpChatClaudeSettings;
-      const AToolsJson, AExtraMessagesJson: string): string; overload; static;
+      const AToolsJson, AExtraMessagesJson: string;
+      const AAttachments: TArray<THelpChatAttachment> = nil;
+      const ALanguage: THelpChatLanguage = hclAuto): string; overload; static;
+    /// <summary>The content of the user turn the attachments belong to: a
+    /// <c>document</c> block per PDF, an <c>image</c> block per picture, and
+    /// the text last - the order Anthropic recommends, because a question
+    /// read after its documents is answered against them.</summary>
+    class function BuildUserContent(const AText: string;
+      const AAttachments: TArray<THelpChatAttachment>;
+      const ALanguage: THelpChatLanguage): TJSONArray; static;
     /// <summary>The assistant turn that asked for the actions, as the API wants
     /// it back: the text it produced plus one tool_use block per call.</summary>
     class function BuildAssistantToolMessage(const AText: string;
@@ -134,11 +147,9 @@ type
 implementation
 
 uses
-  System.JSON,
   System.IOUtils,
   System.Net.HttpClient,
-  System.Net.URLClient,
-  HelpChatAI.Messages;
+  System.Net.URLClient;
 
 type
   /// <summary>Method holder for THTTPClient.OnReceiveData: flips AAbort when the
@@ -334,6 +345,11 @@ begin
   Result := True;
 end;
 
+function THelpChatClaudeProvider.SupportsDocuments: Boolean;
+begin
+  Result := True;
+end;
+
 function THelpChatClaudeProvider.SupportsActions: Boolean;
 begin
   Result := True;
@@ -381,16 +397,62 @@ begin
   Result := BuildRequestBody(AHistory, ASystemPrompt, ASettings, '', '');
 end;
 
+class function THelpChatClaudeProvider.BuildUserContent(const AText: string;
+  const AAttachments: TArray<THelpChatAttachment>;
+  const ALanguage: THelpChatLanguage): TJSONArray;
+var
+  LBlock, LSource: TJSONObject;
+  LText: string;
+  I: Integer;
+begin
+  Result := TJSONArray.Create;
+  try
+    for I := Low(AAttachments) to High(AAttachments) do
+    begin
+      // A text file is not a block: it was decoded when it arrived and goes
+      // into the question itself, below.
+      if (AAttachments[I].Kind = hcakText) or (Length(AAttachments[I].Data) = 0) then
+        Continue;
+      LSource := TJSONObject.Create;
+      LSource.AddPair('type', 'base64');
+      LSource.AddPair('media_type', AAttachments[I].MediaType);
+      LSource.AddPair('data', AAttachments[I].Base64);
+      LBlock := TJSONObject.Create;
+      if AAttachments[I].Kind = hcakImage then
+        LBlock.AddPair('type', 'image')
+      else
+        LBlock.AddPair('type', 'document');
+      LBlock.AddPair('source', LSource);
+      // The name is not part of the API, but the model quotes it back when it
+      // says where a value came from, and with two invoices attached that is
+      // the only way the user can tell the answers apart.
+      if AAttachments[I].Kind <> hcakImage then
+        LBlock.AddPair('title', AAttachments[I].FileName);
+      Result.AddElement(LBlock);
+    end;
+    LText := HelpChatQuestionWithText(AText, AAttachments, ALanguage);
+    LBlock := TJSONObject.Create;
+    LBlock.AddPair('type', 'text');
+    LBlock.AddPair('text', LText);
+    Result.AddElement(LBlock);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
 class function THelpChatClaudeProvider.BuildRequestBody(
   const AHistory: TArray<THelpChatMessage>; const ASystemPrompt: string;
   const ASettings: THelpChatClaudeSettings;
-  const AToolsJson, AExtraMessagesJson: string): string;
+  const AToolsJson, AExtraMessagesJson: string;
+  const AAttachments: TArray<THelpChatAttachment>;
+  const ALanguage: THelpChatLanguage): string;
 var
   LRoot, LMsg: TJSONObject;
   LMessages: TJSONArray;
   LValue: TJSONValue;
   LItem: TJSONValue;
-  I: Integer;
+  I, LLastUser: Integer;
 begin
   LRoot := TJSONObject.Create;
   try
@@ -399,6 +461,19 @@ begin
     LRoot.AddPair('stream', TJSONBool.Create(True));
     if ASystemPrompt <> '' then
       LRoot.AddPair('system', ASystemPrompt);
+
+    // The attachments belong to the question being asked, which is the last
+    // user turn of the history: they are sent again at every round of the
+    // tool loop and at every later question, because the conversation keeps
+    // them until it is cleared.
+    LLastUser := -1;
+    if Length(AAttachments) > 0 then
+      for I := High(AHistory) downto Low(AHistory) do
+        if (AHistory[I].Role = hcrUser) and (Trim(AHistory[I].Content) <> '') then
+        begin
+          LLastUser := I;
+          Break;
+        end;
 
     LMessages := TJSONArray.Create;
     LRoot.AddPair('messages', LMessages);
@@ -412,7 +487,10 @@ begin
         LMsg.AddPair('role', 'user')
       else
         LMsg.AddPair('role', 'assistant');
-      LMsg.AddPair('content', AHistory[I].Content);
+      if I = LLastUser then
+        LMsg.AddPair('content', BuildUserContent(AHistory[I].Content, AAttachments, ALanguage))
+      else
+        LMsg.AddPair('content', AHistory[I].Content);
       LMessages.AddElement(LMsg);
     end;
     // The API wants a non-empty array starting with a user turn.
@@ -420,7 +498,10 @@ begin
     begin
       LMsg := TJSONObject.Create;
       LMsg.AddPair('role', 'user');
-      LMsg.AddPair('content', LastUserMessage(AHistory));
+      if Length(AAttachments) > 0 then
+        LMsg.AddPair('content', BuildUserContent(LastUserMessage(AHistory), AAttachments, ALanguage))
+      else
+        LMsg.AddPair('content', LastUserMessage(AHistory));
       LMessages.AddElement(LMsg);
     end;
 
@@ -582,7 +663,8 @@ begin
     for LRound := 1 to LMaxRounds do
     begin
       LStream := PostRound(BuildRequestBody(AHistory, LSystem, Settings.Claude,
-        LTools, '[' + LExtra.ToString + ']'), AOnToken, ACancel);
+        LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language),
+        AOnToken, ACancel);
       try
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;

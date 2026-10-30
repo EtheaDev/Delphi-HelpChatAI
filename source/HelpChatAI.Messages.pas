@@ -93,7 +93,31 @@ type
     hcmDocNotFound,
     /// <summary>Asked before the assistant runs an action that changes
     /// something: %s is the action, %s its parameters.</summary>
-    hcmActionConfirm);
+    hcmActionConfirm,
+    /// <summary>Paper-clip button, left of the question box.</summary>
+    hcmUiAttach,
+    /// <summary>Title of the button that takes an attachment away.</summary>
+    hcmUiAttachRemove,
+    /// <summary>A file of a type no model reads: %s is the extension,
+    /// %s the list of the accepted ones.</summary>
+    hcmAttachTypeRefused,
+    /// <summary>%s is the file name, %s the largest size allowed.</summary>
+    hcmAttachTooLarge,
+    /// <summary>%d is the number of attachments allowed at a time.</summary>
+    hcmAttachTooMany,
+    /// <summary>%s is the largest total size of the attachments.</summary>
+    hcmAttachTooMuch,
+    /// <summary>%s is the name of a file with nothing in it.</summary>
+    hcmAttachEmpty,
+    /// <summary>The attachment did not arrive (a transfer that failed).</summary>
+    hcmAttachFailed,
+    /// <summary>Said in the conversation when the configured provider cannot
+    /// be given documents: %s is its name.</summary>
+    hcmAttachNotSupported,
+    /// <summary>Heading of the attached documents in the system prompt.</summary>
+    hcmAttachedDocuments,
+    /// <summary>What a text attachment is introduced with: %s is its name.</summary>
+    hcmAttachedTextFile);
 
 /// <summary>Returns the string <c>AId</c> in <c>ALanguage</c> (<c>hclAuto</c> =
 /// <see cref="HelpChatDefaultLanguage" />, resolved against the OS locale).</summary>
@@ -162,6 +186,17 @@ resourcestring
   SEnVoiceUnavailable = 'Speech recognition is not available on this computer. Check Settings, Privacy, Speech, and that the language pack is installed.';
   SEnDocNotFound = 'The page "%s" is not available.';
   SEnActionConfirm = 'The assistant wants to run "%s" (%s).' + sLineBreak + 'Do you allow it?';
+  SEnUiAttach = 'Attach a document';
+  SEnUiAttachRemove = 'Remove this attachment';
+  SEnAttachTypeRefused = 'A %s file is not one the assistant can read. Accepted: %s.';
+  SEnAttachTooLarge = '"%s" is too large: an attachment may not exceed %s.';
+  SEnAttachTooMany = 'No more than %d attachments at a time.';
+  SEnAttachTooMuch = 'The attachments of one conversation may not exceed %s in total.';
+  SEnAttachEmpty = 'There is nothing in "%s".';
+  SEnAttachFailed = 'The document could not be attached.';
+  SEnAttachNotSupported = 'The attached documents were not sent: the %s provider cannot read them.';
+  SEnAttachedDocuments = 'Documents the user attached to the question';
+  SEnAttachedTextFile = 'Content of the attached file "%s"';
 
   // ---- Italian -------------------------------------------------------------
   SItGreeting = 'Ciao! Chiedimi qualsiasi cosa su come usare l''applicazione.';
@@ -202,6 +237,17 @@ resourcestring
   SItVoiceUnavailable = 'Il riconoscimento vocale non è disponibile su questo computer. Controlla Impostazioni, Privacy, Riconoscimento vocale, e che il pacchetto della lingua sia installato.';
   SItDocNotFound = 'La pagina "%s" non è disponibile.';
   SItActionConfirm = 'L''assistente vuole eseguire "%s" (%s).' + sLineBreak + 'Consenti?';
+  SItUiAttach = 'Allega un documento';
+  SItUiAttachRemove = 'Togli questo allegato';
+  SItAttachTypeRefused = 'Un file %s non è fra quelli che l''assistente può leggere. Sono accettati: %s.';
+  SItAttachTooLarge = '"%s" è troppo grande: un allegato non può superare %s.';
+  SItAttachTooMany = 'Non più di %d allegati per volta.';
+  SItAttachTooMuch = 'Gli allegati di una conversazione non possono superare %s in tutto.';
+  SItAttachEmpty = 'Il file "%s" è vuoto.';
+  SItAttachFailed = 'Non è stato possibile allegare il documento.';
+  SItAttachNotSupported = 'I documenti allegati non sono stati inviati: il provider %s non li sa leggere.';
+  SItAttachedDocuments = 'Documenti allegati dall''utente alla domanda';
+  SItAttachedTextFile = 'Contenuto del file allegato "%s"';
 
 const
   LANG_ITALIAN_PRIMARY = $10;
@@ -271,6 +317,17 @@ begin
     hcmVoiceConsentNeeded: Result := SEnVoiceConsentNeeded;
     hcmDocNotFound: Result := SEnDocNotFound;
     hcmActionConfirm: Result := SEnActionConfirm;
+    hcmUiAttach: Result := SEnUiAttach;
+    hcmUiAttachRemove: Result := SEnUiAttachRemove;
+    hcmAttachTypeRefused: Result := SEnAttachTypeRefused;
+    hcmAttachTooLarge: Result := SEnAttachTooLarge;
+    hcmAttachTooMany: Result := SEnAttachTooMany;
+    hcmAttachTooMuch: Result := SEnAttachTooMuch;
+    hcmAttachEmpty: Result := SEnAttachEmpty;
+    hcmAttachFailed: Result := SEnAttachFailed;
+    hcmAttachNotSupported: Result := SEnAttachNotSupported;
+    hcmAttachedDocuments: Result := SEnAttachedDocuments;
+    hcmAttachedTextFile: Result := SEnAttachedTextFile;
   else
     Result := '';
   end;
@@ -311,6 +368,17 @@ begin
     hcmVoiceConsentNeeded: Result := SItVoiceConsentNeeded;
     hcmDocNotFound: Result := SItDocNotFound;
     hcmActionConfirm: Result := SItActionConfirm;
+    hcmUiAttach: Result := SItUiAttach;
+    hcmUiAttachRemove: Result := SItUiAttachRemove;
+    hcmAttachTypeRefused: Result := SItAttachTypeRefused;
+    hcmAttachTooLarge: Result := SItAttachTooLarge;
+    hcmAttachTooMany: Result := SItAttachTooMany;
+    hcmAttachTooMuch: Result := SItAttachTooMuch;
+    hcmAttachEmpty: Result := SItAttachEmpty;
+    hcmAttachFailed: Result := SItAttachFailed;
+    hcmAttachNotSupported: Result := SItAttachNotSupported;
+    hcmAttachedDocuments: Result := SItAttachedDocuments;
+    hcmAttachedTextFile: Result := SItAttachedTextFile;
   else
     Result := '';
   end;

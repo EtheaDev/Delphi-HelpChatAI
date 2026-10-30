@@ -44,7 +44,8 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Settings,
-  HelpChatAI.Actions;
+  HelpChatAI.Actions,
+  HelpChatAI.Attachments;
 
 const
   /// <summary>Name of the always-available placeholder provider.</summary>
@@ -67,6 +68,14 @@ type
     /// <summary>True if the provider can call the actions of the application
     /// (tool use). One that cannot simply ignores them.</summary>
     function SupportsActions: Boolean;
+    /// <summary>True if the provider can be given documents and images. One
+    /// that cannot says so in the conversation instead of answering as though
+    /// it had read them.</summary>
+    function SupportsDocuments: Boolean;
+    /// <summary>What the user attached to this conversation. The runner hands
+    /// it over before <c>Generate</c>, from its own copy: a provider never
+    /// reads the live set.</summary>
+    procedure SetAttachments(const AValue: TArray<THelpChatAttachment>);
     /// <summary>Produces the assistant reply for the given history and context.</summary>
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
@@ -104,6 +113,7 @@ type
     FSettings: THelpChatSettings;
     FRetriever: IHelpChatRetriever;
     FActions: IHelpChatActionInvoker;
+    FAttachments: TArray<THelpChatAttachment>;
   protected
     /// <summary>Settings snapshot of the request (not owned).</summary>
     property Settings: THelpChatSettings read FSettings;
@@ -111,6 +121,15 @@ type
     property Retriever: IHelpChatRetriever read FRetriever;
     /// <summary>What the application lets the assistant do, may be nil.</summary>
     property Actions: IHelpChatActionInvoker read FActions;
+    /// <summary>The attachments of the conversation; empty when there are none.</summary>
+    property Attachments: TArray<THelpChatAttachment> read FAttachments;
+    /// <summary>The question with the text attachments in front of it, which
+    /// is what every provider sends: only the bytes of a PDF or of an image
+    /// travel differently from one API to the next.</summary>
+    function QuestionWithAttachments(const AQuestion: string): string;
+    /// <summary>The sentence to append to a reply when documents were attached
+    /// and this provider cannot read them; empty when there is nothing to say.</summary>
+    function UnreadDocumentsNotice: string;
     /// <summary>Localized string in the language of the settings.</summary>
     function Msg(const AId: THelpChatMsgId): string;
     function MsgFmt(const AId: THelpChatMsgId; const AArgs: array of const): string;
@@ -142,6 +161,8 @@ type
     function GetName: string; virtual; abstract;
     function SupportsStreaming: Boolean; virtual;
     function SupportsActions: Boolean; virtual;
+    function SupportsDocuments: Boolean; virtual;
+    procedure SetAttachments(const AValue: TArray<THelpChatAttachment>);
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; virtual; abstract;
@@ -176,6 +197,11 @@ type
       const AActions: IHelpChatActionInvoker = nil): IHelpChatProvider;
     /// <summary>Sorted names of all registered providers.</summary>
     class function ProviderNames: TArray<string>;
+    /// <summary>True when the named provider can be given documents. Asked
+    /// before the panel shows its paper clip: offering to attach a PDF to a
+    /// provider that cannot read one is a promise the answer would break.
+    /// False for a name nobody registered.</summary>
+    class function SupportsDocuments(const AName: string): Boolean;
   end;
 
   /// <summary>
@@ -212,6 +238,23 @@ implementation
 uses
   System.Generics.Defaults;
 
+class function THelpChatProviderRegistry.SupportsDocuments(const AName: string): Boolean;
+var
+  LClass: THelpChatProviderClass;
+  LProvider: IHelpChatProvider;
+begin
+  LClass := FindProviderClass(AName);
+  Result := Assigned(LClass);
+  if Result then
+  begin
+    // The answer belongs to the provider, so it is asked - on an instance
+    // that is created for the question and freed with the interface. No
+    // settings, no retriever: nothing of what it needs to answer this.
+    LProvider := LClass.Create(nil, nil, nil);
+    Result := LProvider.SupportsDocuments;
+  end;
+end;
+
 { THelpChatProviderBase }
 
 constructor THelpChatProviderBase.Create(const ASettings: THelpChatSettings;
@@ -221,6 +264,35 @@ begin
   FSettings := ASettings;
   FRetriever := ARetriever;
   FActions := AActions;
+end;
+
+procedure THelpChatProviderBase.SetAttachments(const AValue: TArray<THelpChatAttachment>);
+begin
+  FAttachments := AValue;
+end;
+
+function THelpChatProviderBase.SupportsDocuments: Boolean;
+begin
+  Result := False;
+end;
+
+function THelpChatProviderBase.QuestionWithAttachments(const AQuestion: string): string;
+var
+  LLanguage: THelpChatLanguage;
+begin
+  if Assigned(FSettings) then
+    LLanguage := FSettings.Language
+  else
+    LLanguage := hclAuto;
+  Result := HelpChatQuestionWithText(AQuestion, FAttachments, LLanguage);
+end;
+
+function THelpChatProviderBase.UnreadDocumentsNotice: string;
+begin
+  if SupportsDocuments or not HelpChatHasBinary(FAttachments) then
+    Result := ''
+  else
+    Result := Format(Msg(hcmAttachNotSupported), [GetName]);
 end;
 
 { THelpChatToolCall }

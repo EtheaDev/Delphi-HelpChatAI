@@ -132,6 +132,7 @@
         <DCCReference Include="..\..\source\HelpChatAI.Assistant.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Settings.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Actions.pas"/>
+        <DCCReference Include="..\..\source\HelpChatAI.Attachments.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Provider.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Provider.Sse.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Store.pas"/>

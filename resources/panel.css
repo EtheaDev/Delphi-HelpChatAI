@@ -176,5 +176,37 @@ body {
 }
 @keyframes hc-mic-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .hc-chat-mic[aria-pressed="true"] { animation: none; } }
+/* Attachments: the chips above the question box, and the clip beside it.
+   A chip is at most as wide as the panel lets it be - the name gives way,
+   the size and the ✕ never do. */
+.hc-chat-attachments {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px;
+}
+.hc-chat-chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  padding: 4px 4px 4px 8px; border: 1px solid var(--hc-border); border-radius: 10px;
+  background: var(--hc-bg); font-size: 12px;
+}
+.hc-chat-chip-icon { width: 18px; height: 18px; flex: 0 0 auto; }
+.hc-chat-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-chat-chip-size { color: var(--hc-muted); flex: 0 0 auto; }
+.hc-chat-chip-x {
+  flex: 0 0 auto; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--hc-muted); cursor: pointer; line-height: 1;
+}
+.hc-chat-chip-x:hover { background: var(--hc-code-bg); color: var(--hc-text); }
+/* While the bytes travel: the icon is replaced by a turning ring, and the
+   chip says nothing else - the size is not known until the server answers. */
+.hc-chat-chip-busy { opacity: .75; }
+.hc-chat-spinner {
+  width: 14px; height: 14px; flex: 0 0 auto; margin: 2px;
+  border: 2px solid var(--hc-border); border-top-color: var(--hc-accent);
+  border-radius: 50%; animation: hc-spin .8s linear infinite;
+}
+@keyframes hc-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .hc-chat-spinner { animation-duration: 2.4s; } }
+/* A button that draws an icon instead of a character: the glyph takes the
+   colour of the button, so the theme carries it. */
+.hc-chat-glyph { width: 20px; height: 20px; fill: currentColor; vertical-align: middle; }
 [hidden] { display: none !important; }
 .htmx-request .hc-chat-send { opacity: .6; }

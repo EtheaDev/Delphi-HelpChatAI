@@ -157,6 +157,10 @@ key at all; <code>claude</code>, <code>openai</code> and <code>gemini</code> rea
 runs on the UI thread, and the user can stop it.</li>
 <li>If you let it, the assistant can also <strong>act</strong>: you register the actions your application
 allows, and it calls them on the main thread, asking the user first when they change data.</li>
+<li>And it can <strong>read a document the user hands it</strong>: a paper clip next to the question box
+takes a PDF, an image or a text file. Together with an action, that is a PDF filling a
+form without anybody retyping it. Off until you turn it on, because an attachment leaves
+the machine.</li>
 </ol>
 <p>The engine knows nothing about the UI: it runs inside your application or on a <strong>HelpChatAI
 server</strong>, chosen in a configuration file, so the model API key never has to reach the user's
@@ -253,6 +257,10 @@ assistant to your Delphi application, and how to make its answers good.</p>
 <tr>
 <td><a href="https://ethea.it/docs/helpchatai/Actions">Actions</a></td>
 <td>An assistant that does things, safely</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Attachments">Attaching documents</a></td>
+<td>Handing the assistant a PDF, an image or a text file</td>
 </tr>
 <tr>
 <td><a href="https://ethea.it/docs/helpchatai/Server">Running the engine on a server</a></td>
@@ -371,12 +379,47 @@ create a lead or prepare a proposal.</p>
 </table>
 <p><code>CRM Demo\BuildAllDemos.ps1</code> builds both with every Delphi it finds, Win32 and Win64: twelve
 builds, and the FireMonkey ones are reported <code>N/A</code> below Delphi 12 rather than failed.</p>
-<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>246 tests</strong> that runs without
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>271 tests</strong> that runs without
 network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, and the actions from a real worker thread.</p>
-<pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
+<pre><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
+</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>30 Oct 2026: ver. 1.2.0</p>
+<p>The user can hand the assistant a document. A paper clip next to the question box takes a
+PDF, an image or a text file, and the model reads it - which, together with an action, is a
+PDF filling a form without anybody retyping what is in it.</p>
+<ul>
+<li><strong>Attachments</strong> (<code>HelpChatAI.Attachments</code>, RTL): <code>.pdf</code> and <code>.png .jpg .jpeg .gif .webp</code>
+travel as bytes in the block each API wants (Anthropic <code>document</code>/<code>image</code>, OpenAI a <code>file</code>
+part and an <code>image_url</code> data URI, Gemini <code>inlineData</code>); <code>.txt .md .csv .json .xml .log .ini .yaml .yml</code> are decoded when they arrive - BOM, else UTF-8, else the ANSI code page -
+and put in front of the question, fenced so the content of a file cannot read as an
+instruction. <strong>A <code>.docx</code> or an <code>.xlsx</code> is refused by name</strong>: no model reads one, and
+sending it anyway would look like it worked</li>
+<li><strong>The paper clip, or a file dropped on the panel</strong> - anywhere on it, and more than one at
+a time. A chip per document above the question box, with the glyph of its kind, its size
+and an ✕, and a turning ring while the bytes go up</li>
+<li><strong>Off until you turn it on</strong>: <code>Settings.Attachments.Enabled</code> is <code>False</code>, because what the
+user attaches leaves the machine. <code>MaxCount</code>, <code>MaxSizeKB</code> and <code>MaxTotalKB</code> bound the rest.
+The clip appears only when attachments are enabled <em>and</em> the configured provider can read
+documents, so <code>docsearch</code> and <code>stub</code> never promise what their answer could not deliver</li>
+<li><strong>An attachment belongs to the conversation, not to the question</strong>: it is sent again with
+every later question, so a second question about the same document needs no second upload,
+and ↺ takes the documents away with the conversation. They live in memory and are <strong>never</strong>
+written to the conversation file on disk</li>
+<li><strong>The panel draws the chips from the server</strong> (<code>GET /api/attachments</code>), not from its own
+memory: a page reload - a VCL style change recreates the window and reloads it - used to
+leave the bar empty while the documents kept going out with every question</li>
+<li>The file-type glyphs are inline SVG in the panel page (Material Design Icons,
+Apache 2.0): generic glyphs, no brand logo, and nothing new to ship</li>
+<li><code>CRM Demo\Docs</code> holds two documents to try it with - a request for information as a PDF
+and the notes of the follow-up call - and both demos accept attachments. Attach the PDF,
+ask <em>“create a lead from the attached request”</em>, and the model fills <code>create_lead</code> with
+what it read</li>
+<li>271 tests, 25 of them new: the accepted and refused types, the three limits, text
+decoding, the blocks each of the three providers builds, and the endpoints over real HTTP</li>
+</ul>
 <p>27 Oct 2026: ver. 1.1.1</p>
 <p>The library did not change in this release: <code>source</code> is the one of 1.1.0, and so are the
 246 tests. What changed is the FireMonkey sample application, which is now the whole

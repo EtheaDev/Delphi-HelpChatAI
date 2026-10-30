@@ -55,9 +55,11 @@ uses
   System.JSON,
   System.Generics.Collections,
   HelpChatAI.Types,
+  HelpChatAI.Messages,
   HelpChatAI.Settings,
   HelpChatAI.Actions,
   HelpChatAI.Provider,
+  HelpChatAI.Attachments,
   HelpChatAI.Provider.Sse;
 
 const
@@ -104,6 +106,7 @@ type
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
     function SupportsStreaming: Boolean; override;
     function SupportsActions: Boolean; override;
+    function SupportsDocuments: Boolean; override;
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; override;
@@ -119,7 +122,15 @@ type
     /// tools. Public for tests; no network involved.</summary>
     class function BuildRequestBody(const AHistory: TArray<THelpChatMessage>;
       const ASystemPrompt: string; const ASettings: THelpChatOpenAISettings;
-      const AToolsJson, AExtraMessagesJson: string): string; static;
+      const AToolsJson, AExtraMessagesJson: string;
+      const AAttachments: TArray<THelpChatAttachment> = nil;
+      const ALanguage: THelpChatLanguage = hclAuto): string; static;
+    /// <summary>The content of a user message that carries attachments: a
+    /// <c>file</c> part per PDF (the only binary Chat Completions reads), an
+    /// <c>image_url</c> part with a data URI per picture, and the text last.</summary>
+    class function BuildUserContent(const AText: string;
+      const AAttachments: TArray<THelpChatAttachment>;
+      const ALanguage: THelpChatLanguage): TJSONArray; static;
     /// <summary>The assistant turn that asked for the actions, as the API
     /// wants it back.</summary>
     class function BuildAssistantToolMessage(const AText: string;
@@ -135,8 +146,7 @@ uses
   System.IOUtils,
   System.Net.HttpClient,
   System.Net.URLClient,
-  System.NetConsts,
-  HelpChatAI.Messages;
+  System.NetConsts;
 
 type
   /// <summary>Aborts the transfer as soon as the request is cancelled.</summary>
@@ -299,6 +309,11 @@ begin
   Result := True;
 end;
 
+function THelpChatOpenAIProvider.SupportsDocuments: Boolean;
+begin
+  Result := True;
+end;
+
 function THelpChatOpenAIProvider.SupportsActions: Boolean;
 begin
   Result := True;
@@ -362,15 +377,62 @@ begin
   end;
 end;
 
+class function THelpChatOpenAIProvider.BuildUserContent(const AText: string;
+  const AAttachments: TArray<THelpChatAttachment>;
+  const ALanguage: THelpChatLanguage): TJSONArray;
+var
+  LPart, LInner: TJSONObject;
+  I: Integer;
+begin
+  Result := TJSONArray.Create;
+  try
+    for I := Low(AAttachments) to High(AAttachments) do
+    begin
+      if (AAttachments[I].Kind = hcakText) or (Length(AAttachments[I].Data) = 0) then
+        Continue;
+      LPart := TJSONObject.Create;
+      LInner := TJSONObject.Create;
+      if AAttachments[I].Kind = hcakImage then
+      begin
+        // An image is a data: URL, the same shape a hosted one would have.
+        LPart.AddPair('type', 'image_url');
+        LInner.AddPair('url', 'data:' + AAttachments[I].MediaType + ';base64,' +
+          AAttachments[I].Base64);
+        LPart.AddPair('image_url', LInner);
+      end
+      else
+      begin
+        // A PDF is the one file Chat Completions takes, and it wants the name
+        // next to the bytes.
+        LPart.AddPair('type', 'file');
+        LInner.AddPair('filename', AAttachments[I].FileName);
+        LInner.AddPair('file_data', 'data:' + AAttachments[I].MediaType + ';base64,' +
+          AAttachments[I].Base64);
+        LPart.AddPair('file', LInner);
+      end;
+      Result.AddElement(LPart);
+    end;
+    LPart := TJSONObject.Create;
+    LPart.AddPair('type', 'text');
+    LPart.AddPair('text', HelpChatQuestionWithText(AText, AAttachments, ALanguage));
+    Result.AddElement(LPart);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
 class function THelpChatOpenAIProvider.BuildRequestBody(
   const AHistory: TArray<THelpChatMessage>; const ASystemPrompt: string;
   const ASettings: THelpChatOpenAISettings;
-  const AToolsJson, AExtraMessagesJson: string): string;
+  const AToolsJson, AExtraMessagesJson: string;
+  const AAttachments: TArray<THelpChatAttachment>;
+  const ALanguage: THelpChatLanguage): string;
 var
   LRoot, LMsg, LStreamOptions: TJSONObject;
   LMessages: TJSONArray;
   LValue, LItem: TJSONValue;
-  I: Integer;
+  I, LLastUser: Integer;
 begin
   LRoot := TJSONObject.Create;
   try
@@ -393,6 +455,15 @@ begin
       LMsg.AddPair('content', ASystemPrompt);
       LMessages.AddElement(LMsg);
     end;
+    // The attachments belong to the question being asked: the last user turn.
+    LLastUser := -1;
+    if Length(AAttachments) > 0 then
+      for I := High(AHistory) downto Low(AHistory) do
+        if (AHistory[I].Role = hcrUser) and (Trim(AHistory[I].Content) <> '') then
+        begin
+          LLastUser := I;
+          Break;
+        end;
     for I := Low(AHistory) to High(AHistory) do
     begin
       if (AHistory[I].Role = hcrSystem) or (Trim(AHistory[I].Content) = '') then
@@ -402,7 +473,10 @@ begin
         LMsg.AddPair('role', 'user')
       else
         LMsg.AddPair('role', 'assistant');
-      LMsg.AddPair('content', AHistory[I].Content);
+      if I = LLastUser then
+        LMsg.AddPair('content', BuildUserContent(AHistory[I].Content, AAttachments, ALanguage))
+      else
+        LMsg.AddPair('content', AHistory[I].Content);
       LMessages.AddElement(LMsg);
     end;
 
@@ -638,7 +712,8 @@ begin
     for LRound := 1 to LMaxRounds do
     begin
       LStream := PostRound(BuildRequestBody(AHistory, LSystem, Settings.OpenAI,
-        LTools, '[' + LExtra.ToString + ']'), AOnToken, ACancel);
+        LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language),
+        AOnToken, ACancel);
       try
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;

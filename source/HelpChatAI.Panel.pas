@@ -44,6 +44,7 @@ uses
   System.SysUtils,
   System.Classes,
   HelpChatAI.Messages,
+  HelpChatAI.Attachments,
   HelpChatAI.Theme;
 
 const
@@ -79,6 +80,25 @@ const
   HELPCHAT_API_DOC = '/api/doc';
   /// <summary>Query parameter of /api/doc.</summary>
   HELPCHAT_DOC_QUERY = 'page';
+  /// <summary>POST /api/attach?name=...: the bytes of a file the user picked,
+  /// as the whole body (no multipart: Indy would not decode it, and a chat
+  /// sends one file at a time anyway). Answers a JSON object - the attachment
+  /// as the page draws it, or <c>{"error":"..."}</c> with the sentence to
+  /// show, which is also what a refused type gets.</summary>
+  HELPCHAT_API_ATTACH = '/api/attach';
+  /// <summary>POST /api/attach/remove, form field <c>id</c>: the user took an
+  /// attachment away before asking.</summary>
+  HELPCHAT_API_ATTACH_REMOVE = '/api/attach/remove';
+  /// <summary>GET /api/attachments: what this conversation currently holds,
+  /// as <c>{"items":[...]}</c>. The page asks for it when it loads, the way
+  /// it asks for the history: the attachments belong to the conversation, so
+  /// a reload - a VCL style change recreates the window and reloads the page -
+  /// must not lose sight of documents that are still being sent.</summary>
+  HELPCHAT_API_ATTACHMENTS = '/api/attachments';
+  /// <summary>Query parameter of /api/attach carrying the file name.</summary>
+  HELPCHAT_ATTACH_NAME_QUERY = 'name';
+  /// <summary>Form field of /api/attach/remove.</summary>
+  HELPCHAT_FIELD_ATTACH_ID = 'id';
   /// <summary>POST /session opens a conversation on a remote server and returns
   /// its token; POST /session/end closes it.</summary>
   HELPCHAT_SESSION_PATH = '/session';
@@ -131,6 +151,16 @@ type
     /// <summary>Name written in the header of the panel; empty = the localized
     /// <c>hcmUiTitle</c> ("Assistant" / "Assistente").</summary>
     AssistantName: string;
+    /// <summary>True when the panel offers the paper clip: the engine accepts
+    /// attachments (<c>Settings.Attachments.Enabled</c>) and the configured
+    /// provider can read documents. False = no clip, and the page never posts
+    /// to /api/attach.</summary>
+    AttachmentsEnabled: Boolean;
+    /// <summary>Largest attachment in KB, so the page can refuse an oversized
+    /// file before uploading it. 0 = no limit.</summary>
+    AttachMaxKB: Integer;
+    /// <summary>What the file dialog of the page offers (".pdf,.png,...").</summary>
+    AttachAccept: string;
     /// <summary>Icon drawn left of the name, as a <c>data:image/...</c> URI -
     /// the only kind the page may load, since its CSP allows images from
     /// <c>'self'</c> and <c>data:</c> alone. Empty = no icon.</summary>
@@ -251,6 +281,9 @@ begin
     LRoot.AddPair('sendError', HelpChatMsg(hcmUiSendError, ALanguage));
     LRoot.AddPair('back', HelpChatMsg(hcmUiBack, ALanguage));
     LRoot.AddPair('docNotFound', HelpChatMsg(hcmDocNotFound, ALanguage));
+    LRoot.AddPair('attach', HelpChatMsg(hcmUiAttach, ALanguage));
+    LRoot.AddPair('attachRemove', HelpChatMsg(hcmUiAttachRemove, ALanguage));
+    LRoot.AddPair('attachFailed', HelpChatMsg(hcmAttachFailed, ALanguage));
     Result := LRoot.ToJSON;
   finally
     LRoot.Free;
@@ -274,6 +307,15 @@ begin
     LRoot.AddPair('lang', HelpChatLanguageCode(AOptions.Language));
     LRoot.AddPair('docs', TJSONBool.Create(AOptions.DocsAvailable));
     LRoot.AddPair('docBase', AOptions.DocBaseUrl);
+    LRoot.AddPair('attach', TJSONBool.Create(AOptions.AttachmentsEnabled));
+    LRoot.AddPair('attachMaxKB', TJSONNumber.Create(AOptions.AttachMaxKB));
+    LRoot.AddPair('attachAccept', AOptions.AttachAccept);
+    // Already carrying the limit, so the page can refuse an oversized file
+    // without transferring it: what is left for it to fill in is the name.
+    if AOptions.AttachMaxKB > 0 then
+      LRoot.AddPair('attachTooLarge',
+        Format(HelpChatMsg(hcmAttachTooLarge, AOptions.Language),
+          ['%s', HelpChatFormatSize(Int64(AOptions.AttachMaxKB) * 1024)]));
     LLabels := TJSONObject.ParseJSONValue(
       LabelsJson(AOptions.Language, AOptions.AssistantName));
     LRoot.AddPair('labels', LLabels);
@@ -303,6 +345,7 @@ begin
   Result := Result.Replace('{{L_SEND}}', Attr(hcmUiSend));
   Result := Result.Replace('{{L_STOP}}', Attr(hcmUiStop));
   Result := Result.Replace('{{L_BACK}}', Attr(hcmUiBack));
+  Result := Result.Replace('{{L_ATTACH}}', Attr(hcmUiAttach));
   Result := Result.Replace('{{API_BASE}}', TNetEncoding.HTML.Encode(AOptions.ApiBase));
   // The page may only talk to its API and, when there is one, to the loopback
   // channel of its host: the policy names both, and nothing else.

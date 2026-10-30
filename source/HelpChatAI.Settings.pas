@@ -42,7 +42,8 @@ uses
   System.SysUtils,
   System.Classes,
   System.JSON,
-  HelpChatAI.Messages;
+  HelpChatAI.Messages,
+  HelpChatAI.Attachments;
 
 const
   HELPCHAT_DEF_PROVIDER = 'stub';
@@ -328,6 +329,38 @@ type
     property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs default HELPCHAT_REMOTE_DEF_TIMEOUTMS;
   end;
 
+  /// <summary>
+  ///  What the user may attach to a question. Off by default: an attachment
+  ///  leaves the machine and reaches the model, which is the application's
+  ///  decision and not the library's - and a provider that cannot read
+  ///  documents would ignore it anyway.
+  /// </summary>
+  THelpChatAttachmentSettings = class(TPersistent)
+  private
+    FEnabled: Boolean;
+    FMaxCount: Integer;
+    FMaxSizeKB: Integer;
+    FMaxTotalKB: Integer;
+  public
+    constructor Create;
+    procedure Assign(Source: TPersistent); override;
+    /// <summary>The three limits as the attachment set wants them.</summary>
+    function Limits: THelpChatAttachmentLimits;
+    procedure LoadFromJSONObject(const AObject: TJSONObject);
+    procedure SaveToJSONObject(const AObject: TJSONObject);
+  published
+    /// <summary>Show the paper clip in the panel and accept what it sends.</summary>
+    property Enabled: Boolean read FEnabled write FEnabled default HELPCHAT_DEF_ATTACH_ENABLED;
+    /// <summary>Attachments allowed on one conversation at a time (0 = no limit).</summary>
+    property MaxCount: Integer read FMaxCount write FMaxCount default HELPCHAT_DEF_ATTACH_MAXCOUNT;
+    /// <summary>Largest single attachment, in KB (0 = no limit).</summary>
+    property MaxSizeKB: Integer read FMaxSizeKB write FMaxSizeKB default HELPCHAT_DEF_ATTACH_MAXSIZEKB;
+    /// <summary>Largest total of the attachments of a conversation, in KB
+    /// (0 = no limit). Every one of them is sent with every question, so this
+    /// is what keeps a conversation from becoming expensive.</summary>
+    property MaxTotalKB: Integer read FMaxTotalKB write FMaxTotalKB default HELPCHAT_DEF_ATTACH_MAXTOTALKB;
+  end;
+
   /// <summary>Settings of the whole engine.</summary>
   THelpChatSettings = class(TPersistent)
   private
@@ -348,10 +381,12 @@ type
     FOpenAI: THelpChatOpenAISettings;
     FGemini: THelpChatGeminiSettings;
     FRemote: THelpChatRemoteSettings;
+    FAttachments: THelpChatAttachmentSettings;
     procedure SetClaude(const Value: THelpChatClaudeSettings);
     procedure SetOpenAI(const Value: THelpChatOpenAISettings);
     procedure SetGemini(const Value: THelpChatGeminiSettings);
     procedure SetRemote(const Value: THelpChatRemoteSettings);
+    procedure SetAttachments(const Value: THelpChatAttachmentSettings);
   public
     constructor Create;
     destructor Destroy; override;
@@ -450,6 +485,8 @@ type
     property Gemini: THelpChatGeminiSettings read FGemini write SetGemini;
     /// <summary>Where the engine lives: in process (default) or on a server.</summary>
     property Remote: THelpChatRemoteSettings read FRemote write SetRemote;
+    /// <summary>What the user may attach to a question (off by default).</summary>
+    property Attachments: THelpChatAttachmentSettings read FAttachments write SetAttachments;
   end;
 
 /// <summary>Per-user writable data folder of the running application
@@ -874,6 +911,58 @@ begin
   AObject.AddPair('TimeoutMs', TJSONNumber.Create(FTimeoutMs));
 end;
 
+{ THelpChatAttachmentSettings }
+
+constructor THelpChatAttachmentSettings.Create;
+begin
+  inherited Create;
+  FEnabled := HELPCHAT_DEF_ATTACH_ENABLED;
+  FMaxCount := HELPCHAT_DEF_ATTACH_MAXCOUNT;
+  FMaxSizeKB := HELPCHAT_DEF_ATTACH_MAXSIZEKB;
+  FMaxTotalKB := HELPCHAT_DEF_ATTACH_MAXTOTALKB;
+end;
+
+procedure THelpChatAttachmentSettings.Assign(Source: TPersistent);
+var
+  LSource: THelpChatAttachmentSettings;
+begin
+  if Source is THelpChatAttachmentSettings then
+  begin
+    LSource := THelpChatAttachmentSettings(Source);
+    FEnabled := LSource.FEnabled;
+    FMaxCount := LSource.FMaxCount;
+    FMaxSizeKB := LSource.FMaxSizeKB;
+    FMaxTotalKB := LSource.FMaxTotalKB;
+  end
+  else
+    inherited Assign(Source);
+end;
+
+function THelpChatAttachmentSettings.Limits: THelpChatAttachmentLimits;
+begin
+  Result.MaxCount := FMaxCount;
+  Result.MaxSizeBytes := Int64(FMaxSizeKB) * 1024;
+  Result.MaxTotalBytes := Int64(FMaxTotalKB) * 1024;
+end;
+
+procedure THelpChatAttachmentSettings.LoadFromJSONObject(const AObject: TJSONObject);
+begin
+  if AObject = nil then
+    Exit;
+  FEnabled := JsonBool(AObject, 'Enabled', FEnabled);
+  FMaxCount := JsonInt(AObject, 'MaxCount', FMaxCount);
+  FMaxSizeKB := JsonInt(AObject, 'MaxSizeKB', FMaxSizeKB);
+  FMaxTotalKB := JsonInt(AObject, 'MaxTotalKB', FMaxTotalKB);
+end;
+
+procedure THelpChatAttachmentSettings.SaveToJSONObject(const AObject: TJSONObject);
+begin
+  AObject.AddPair('Enabled', TJSONBool.Create(FEnabled));
+  AObject.AddPair('MaxCount', TJSONNumber.Create(FMaxCount));
+  AObject.AddPair('MaxSizeKB', TJSONNumber.Create(FMaxSizeKB));
+  AObject.AddPair('MaxTotalKB', TJSONNumber.Create(FMaxTotalKB));
+end;
+
 { THelpChatSettings }
 
 constructor THelpChatSettings.Create;
@@ -883,6 +972,7 @@ begin
   FOpenAI := THelpChatOpenAISettings.Create;
   FGemini := THelpChatGeminiSettings.Create;
   FRemote := THelpChatRemoteSettings.Create;
+  FAttachments := THelpChatAttachmentSettings.Create;
   FProvider := HELPCHAT_DEF_PROVIDER;
   FPoolSize := HELPCHAT_DEF_POOLSIZE;
   FMessageMaxLength := HELPCHAT_DEF_MSGMAXLEN;
@@ -896,6 +986,7 @@ end;
 destructor THelpChatSettings.Destroy;
 begin
   FRemote.Free;
+  FAttachments.Free;
   FGemini.Free;
   FOpenAI.Free;
   FClaude.Free;
@@ -942,6 +1033,11 @@ begin
     Result := FClaude;
 end;
 
+procedure THelpChatSettings.SetAttachments(const Value: THelpChatAttachmentSettings);
+begin
+  FAttachments.Assign(Value);
+end;
+
 procedure THelpChatSettings.SetRemote(const Value: THelpChatRemoteSettings);
 begin
   FRemote.Assign(Value);
@@ -971,6 +1067,7 @@ begin
     FOpenAI.Assign(LSource.FOpenAI);
     FGemini.Assign(LSource.FGemini);
     FRemote.Assign(LSource.FRemote);
+    FAttachments.Assign(LSource.FAttachments);
   end
   else
     inherited Assign(Source);
@@ -1049,6 +1146,8 @@ begin
       FGemini.LoadFromJSONObject(TJSONObject(JsonFind(LRoot, 'Gemini')));
     if JsonFind(LRoot, 'Remote') is TJSONObject then
       FRemote.LoadFromJSONObject(TJSONObject(JsonFind(LRoot, 'Remote')));
+    if JsonFind(LRoot, 'Attachments') is TJSONObject then
+      FAttachments.LoadFromJSONObject(TJSONObject(JsonFind(LRoot, 'Attachments')));
   finally
     LRoot.Free;
   end;
@@ -1056,7 +1155,7 @@ end;
 
 function THelpChatSettings.SaveToJSON: string;
 var
-  LRoot, LClaude, LSection, LRemote: TJSONObject;
+  LRoot, LClaude, LSection, LRemote, LAttachments: TJSONObject;
 begin
   LRoot := TJSONObject.Create;
   try
@@ -1085,6 +1184,9 @@ begin
     LRemote := TJSONObject.Create;
     LRoot.AddPair('Remote', LRemote);
     FRemote.SaveToJSONObject(LRemote);
+    LAttachments := TJSONObject.Create;
+    LRoot.AddPair('Attachments', LAttachments);
+    FAttachments.SaveToJSONObject(LAttachments);
     Result := LRoot.Format(2);
   finally
     LRoot.Free;

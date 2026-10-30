@@ -53,6 +53,7 @@ uses
   HelpChatAI.DocIndex,
   HelpChatAI.DocPages,
   HelpChatAI.Actions,
+  HelpChatAI.Attachments,
   HelpChatAI.Runner;
 
 type
@@ -79,6 +80,7 @@ type
     FDocPages: THelpChatDocPages;
     FDocPageFilter: THelpChatDocPageFilter;
     FRunner: THelpChatRunner;
+    FAttachments: THelpChatAttachmentSet;
     FConversationKey: string;
     FActions: IHelpChatActionInvoker;
     FActive: Boolean;
@@ -121,6 +123,17 @@ type
     /// <summary>Cancels the pending replies of AKey and empties that conversation.</summary>
     procedure Clear(const AKey: string); overload;
 
+    /// <summary>Takes a file the user attached to the conversation AKey.
+    /// False with a localized sentence in AError when the type is not one a
+    /// model reads, or a limit of <c>Settings.Attachments</c> is reached.
+    /// Every attachment is sent again with every question until the
+    /// conversation is cleared - which is what makes a second question about
+    /// the same document work, and what the size limits are there for.</summary>
+    function AddAttachment(const AKey, AFileName: string; const AData: TBytes;
+      out AAttachment: THelpChatAttachment; out AError: string): Boolean;
+    /// <summary>Drops one attachment of the conversation.</summary>
+    function RemoveAttachment(const AKey, AId: string): Boolean;
+
     /// <summary>The greeting bubble text (settings or localized default).</summary>
     function Greeting: string;
     /// <summary>The localized question the contextual help (F1) pre-fills for a screen.</summary>
@@ -152,6 +165,11 @@ type
     /// before the panel opens; called on HTTP threads).</summary>
     property DocPageFilter: THelpChatDocPageFilter read FDocPageFilter write FDocPageFilter;
     property Retriever: IHelpChatRetriever read FRetriever;
+    /// <summary>What the user attached, per conversation. Lives here and not
+    /// in the store because the bytes of a PDF have no business in the JSON
+    /// the conversation is persisted to: attachments last as long as the
+    /// conversation is open.</summary>
+    property Attachments: THelpChatAttachmentSet read FAttachments;
     property Runner: THelpChatRunner read FRunner;
     /// <summary>What the assistant may do in the application (the VCL and FMX
     /// components set this to their own broker). nil = it can only answer.</summary>
@@ -187,12 +205,16 @@ begin
     FOwnsSettings := True;
   end;
   FConversationKey := HELPCHAT_DEFAULT_CONVERSATION;
+  // Created with the engine and not by Start: the panel may offer the paper
+  // clip before the first question has started anything.
+  FAttachments := THelpChatAttachmentSet.Create;
 end;
 
 destructor THelpChatEngine.Destroy;
 begin
   Stop;
   FreeAndNil(FDocPages);
+  FreeAndNil(FAttachments);
   if FOwnsSettings then
     FSettings.Free;
   inherited;
@@ -298,7 +320,8 @@ begin
   Result.Sent := True;
 
   FRunner.Submit(AKey, LAssistantId, FSettings.Provider, AContext,
-    FSettings.HistoryMaxMessages, FSettings, FActions);
+    FSettings.HistoryMaxMessages, FSettings, FActions,
+    FAttachments.ItemsOf(AKey));
 end;
 
 function THelpChatEngine.TryGetMessage(const AId: string; out AMessage: THelpChatMessage): Boolean;
@@ -345,6 +368,26 @@ begin
   for LId in FStore.PendingIds(AKey) do
     FRunner.Cancel(LId);
   FStore.Clear(AKey);
+  // The attachments went with the conversation that is gone: keeping them
+  // would send documents nobody can see any more with the next question.
+  FAttachments.ClearKey(AKey);
+end;
+
+function THelpChatEngine.AddAttachment(const AKey, AFileName: string;
+  const AData: TBytes; out AAttachment: THelpChatAttachment;
+  out AError: string): Boolean;
+begin
+  AAttachment := Default(THelpChatAttachment);
+  AError := '';
+  if not FSettings.Attachments.Enabled then
+    Exit(False);
+  Result := FAttachments.TryAdd(AKey, AFileName, AData,
+    FSettings.Attachments.Limits, FSettings.Language, AAttachment, AError);
+end;
+
+function THelpChatEngine.RemoveAttachment(const AKey, AId: string): Boolean;
+begin
+  Result := FAttachments.Remove(AKey, AId);
 end;
 
 function THelpChatEngine.Greeting: string;

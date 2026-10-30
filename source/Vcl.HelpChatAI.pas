@@ -203,6 +203,9 @@ type
     procedure EnsureView;
     procedure EnsureOwnForm;
     procedure PositionOwnForm;
+    /// <summary>Gives the own window the right owner before showing it: the
+    /// active modal form when there is one, the host form otherwise.</summary>
+    procedure UpdateOwnFormOwner;
     procedure OwnFormClosedByUser(Sender: TObject);
     procedure ViewCloseRequested(Sender: TObject);
     procedure UiCommand(const ACommand: string);
@@ -213,6 +216,7 @@ type
     procedure HideView;
     procedure AppMessage(var Msg: tagMSG; var Handled: Boolean);
     procedure AppIdle(Sender: TObject; var Done: Boolean);
+    procedure AppModalEnd(Sender: TObject);
     procedure HookApplication;
     procedure UnhookApplication;
     function IsOurWindow(const AHandle: HWND): Boolean;
@@ -624,6 +628,7 @@ begin
     FAppEvents := TApplicationEvents.Create(Self);
     FAppEvents.OnMessage := AppMessage;
     FAppEvents.OnIdle := AppIdle;
+    FAppEvents.OnModalEnd := AppModalEnd;
   end;
   if FRegisterHelpViewer and not Assigned(FHelpViewer) then
   begin
@@ -699,6 +704,19 @@ begin
     Exit;
   Handled := True;
   OpenForCurrentScreen;
+end;
+
+procedure TVclHelpChatAI.AppModalEnd(Sender: TObject);
+begin
+  // A modal form is going away. If the chat window is owned by it - which is
+  // what UpdateOwnFormOwner did to keep it in front - it has to be handed
+  // back now: Windows destroys the windows a window owns together with it,
+  // and the chat would disappear with the form the user just closed.
+  // ModalFinished runs inside ShowModal, so the form is still alive; what it
+  // no longer has is fsModal, which ShowModal clears one line earlier - so
+  // the question to ask is simply whether the owner is still the host.
+  if Assigned(FOwnForm) and (FOwnForm.PopupParent <> ResolveHostForm) then
+    FOwnForm.PopupParent := ResolveHostForm;
 end;
 
 procedure TVclHelpChatAI.AppIdle(Sender: TObject; var Done: Boolean);
@@ -1028,7 +1046,6 @@ begin
 
   if Assigned(LHost) and LHost.HandleAllocated then
   begin
-    FOwnForm.PopupParent := LHost;
     LLeft := LHost.Left + LHost.Width - LWidth - LMargin;
     LTop := LHost.Top + LHost.Height - LHeight - LMargin;
     LArea := Screen.MonitorFromWindow(LHost.Handle).WorkareaRect;
@@ -1048,6 +1065,34 @@ begin
   if LTop < LArea.Top then
     LTop := LArea.Top;
   FOwnForm.SetBounds(LLeft, LTop, LWidth, LHeight);
+end;
+
+procedure TVclHelpChatAI.UpdateOwnFormOwner;
+var
+  LActive, LOwner: TCustomForm;
+begin
+  // Windows keeps a modal window above every window that shares its owner,
+  // and the VCL disables the other windows of the application while one is
+  // up (DisableTaskWindows). A chat window owned by the host form therefore
+  // ends up behind the modal one, and disabled with it - which is not what
+  // the user asked for when they pressed F1 from that very form.
+  // Owned by the modal form instead, it stays above it and can be used.
+  LActive := Screen.ActiveCustomForm;
+  if Assigned(LActive) and (LActive <> FOwnForm) and (fsModal in LActive.FormState) then
+    LOwner := LActive
+  else
+    LOwner := ResolveHostForm;      // no modal form: back to the host
+
+  // Changing PopupParent recreates the window, and with it the WebView, which
+  // reloads the page: only when it really changes.
+  if (LOwner <> nil) and not LOwner.HandleAllocated then
+    LOwner := nil;
+  if FOwnForm.PopupParent <> LOwner then
+    FOwnForm.PopupParent := LOwner;
+
+  // The window may have been disabled by the modal form that opened after it.
+  if FOwnForm.HandleAllocated and not IsWindowEnabled(FOwnForm.Handle) then
+    EnableWindow(FOwnForm.Handle, True);
 end;
 
 procedure TVclHelpChatAI.OwnFormClosedByUser(Sender: TObject);
@@ -1418,6 +1463,7 @@ begin
 
   if LContainer = FOwnForm then
   begin
+    UpdateOwnFormOwner;
     if not FOwnForm.Visible then
       PositionOwnForm;
     FOwnForm.Show;

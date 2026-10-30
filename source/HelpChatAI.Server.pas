@@ -61,7 +61,9 @@ uses
   HelpChatAI.Engine,
   HelpChatAI.DocPages,
   HelpChatAI.Transport,
-  HelpChatAI.Panel;
+  HelpChatAI.Panel,
+  HelpChatAI.Attachments,
+  HelpChatAI.Provider;
 
 const
   HELPCHAT_SERVER_HOST = '127.0.0.1';
@@ -139,6 +141,12 @@ type
       AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleApi(const ADocument: string; const ASession: THelpChatServerSession;
       ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    /// <summary>Hands the engine the bytes of an upload and answers what the
+    /// page needs to draw the chip - or the sentence that says why not.</summary>
+    function AttachmentJson(const AKey, AFileName: string;
+      const AStream: TStream): string;
+    /// <summary>The attachments of the conversation, as the page draws them.</summary>
+    function AttachmentListJson(const AKey: string): string;
   strict protected
     /// <summary>Closes the listener. Not virtual and idempotent: the destructor
     /// calls it, and a destructor must never dispatch to a descendant whose
@@ -532,6 +540,73 @@ begin
   WriteHtml(AResponseInfo, '');
 end;
 
+/// <summary>One attachment as the page wants it. Owned by the caller.</summary>
+function AttachmentObject(const AAttachment: THelpChatAttachment): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('id', AAttachment.Id);
+  Result.AddPair('name', AAttachment.FileName);
+  Result.AddPair('ext', AAttachment.Extension);
+  Result.AddPair('size', TJSONNumber.Create(AAttachment.OriginalSize));
+  Result.AddPair('sizeText', HelpChatFormatSize(AAttachment.OriginalSize));
+end;
+
+function THelpChatHttpServerBase.AttachmentListJson(const AKey: string): string;
+var
+  LRoot: TJSONObject;
+  LItems: TJSONArray;
+  LAttachment: THelpChatAttachment;
+begin
+  LRoot := TJSONObject.Create;
+  try
+    LItems := TJSONArray.Create;
+    LRoot.AddPair('items', LItems);
+    for LAttachment in FEngine.Attachments.ItemsOf(AKey) do
+      LItems.AddElement(AttachmentObject(LAttachment));
+    Result := LRoot.ToJSON;
+  finally
+    LRoot.Free;
+  end;
+end;
+
+function THelpChatHttpServerBase.AttachmentJson(const AKey, AFileName: string;
+  const AStream: TStream): string;
+var
+  LRoot: TJSONObject;
+  LData: TBytes;
+  LAttachment: THelpChatAttachment;
+  LError: string;
+begin
+  LData := nil;
+  if Assigned(AStream) and (AStream.Size > 0) then
+  begin
+    AStream.Position := 0;
+    SetLength(LData, AStream.Size);
+    AStream.ReadBuffer(LData[0], Length(LData));
+  end;
+
+  if FEngine.AddAttachment(AKey, AFileName, LData, LAttachment, LError) then
+  begin
+    LRoot := AttachmentObject(LAttachment);
+    try
+      Result := LRoot.ToJSON;
+    finally
+      LRoot.Free;
+    end;
+    Exit;
+  end;
+
+  LRoot := TJSONObject.Create;
+  try
+    if LError = '' then       // attachments are off: the page should not have asked
+      LError := HelpChatMsg(hcmAttachFailed, FEngine.Settings.Language);
+    LRoot.AddPair('error', LError);
+    Result := LRoot.ToJSON;
+  finally
+    LRoot.Free;
+  end;
+end;
+
 function THelpChatHttpServerBase.PanelOptionsFor(
   const ASession: THelpChatServerSession): THelpChatPanelOptions;
 begin
@@ -548,6 +623,12 @@ begin
   Result.DocBaseUrl := FEngine.Settings.DocBaseUrl;
   Result.AssistantName := ASession.GetAssistantName;
   Result.AssistantIcon := ASession.GetAssistantIcon;
+  // The clip is offered only when both halves agree: the application allows
+  // attachments and the configured provider can actually read one.
+  Result.AttachmentsEnabled := FEngine.Settings.Attachments.Enabled and
+    THelpChatProviderRegistry.SupportsDocuments(FEngine.Settings.Provider);
+  Result.AttachMaxKB := FEngine.Settings.Attachments.MaxSizeKB;
+  Result.AttachAccept := HelpChatAcceptedExtensions;
 end;
 
 function THelpChatHttpServerBase.HandleRoute(const ADocument: string;
@@ -715,6 +796,26 @@ begin
     // Same reasoning as the theme: the name of the assistant and its icon are
     // what the client decided, and the page is reloaded with them.
     ASession.SetAssistant(FormField(LBody, 'name'), FormField(LBody, 'icon'));
+    WriteHtml(AResponseInfo, '');
+  end
+
+  else if (ADocument = HELPCHAT_API_ATTACH) and LIsPost then
+  begin
+    // The bytes are the whole body: a multipart form would have to be decoded
+    // by hand here (Indy only parses the urlencoded kind), and the page sends
+    // one file per call anyway. The name travels in the query string, where
+    // it is already percent-encoded.
+    WriteJson(AResponseInfo, AttachmentJson(LKey,
+      FormField(ARequestInfo.QueryParams, HELPCHAT_ATTACH_NAME_QUERY),
+      ARequestInfo.PostStream));
+  end
+
+  else if (ADocument = HELPCHAT_API_ATTACHMENTS) and not LIsPost then
+    WriteJson(AResponseInfo, AttachmentListJson(LKey))
+
+  else if (ADocument = HELPCHAT_API_ATTACH_REMOVE) and LIsPost then
+  begin
+    FEngine.RemoveAttachment(LKey, FormField(LBody, HELPCHAT_FIELD_ATTACH_ID));
     WriteHtml(AResponseInfo, '');
   end
 

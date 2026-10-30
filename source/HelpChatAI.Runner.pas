@@ -55,6 +55,7 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Settings,
   HelpChatAI.Actions,
+  HelpChatAI.Attachments,
   HelpChatAI.Store;
 
 const
@@ -76,6 +77,10 @@ type
     Settings: THelpChatSettings;
     /// <summary>What the assistant may do in the application; nil = nothing.</summary>
     Actions: IHelpChatActionInvoker;
+    /// <summary>Copy of what the user attached to this conversation, taken
+    /// when the question was sent: a worker never reads the live set, which
+    /// the HTTP threads of the panel keep changing.</summary>
+    Attachments: TArray<THelpChatAttachment>;
     Cancel: IHelpChatCancelToken;
     destructor Destroy; override;
   end;
@@ -99,7 +104,8 @@ type
     function Submit(const AKey, AAssistantId, AProviderName: string;
       const AContext: THelpChatContext; const AMaxHistory: Integer;
       const ASettings: THelpChatSettings;
-      const AActions: IHelpChatActionInvoker = nil): IHelpChatCancelToken;
+      const AActions: IHelpChatActionInvoker = nil;
+      const AAttachments: TArray<THelpChatAttachment> = nil): IHelpChatCancelToken;
     /// <summary>Cancels the request producing <c>AAssistantId</c>; True if it was active.</summary>
     function Cancel(const AAssistantId: string): Boolean;
     /// <summary>Cancels every queued or running request.</summary>
@@ -438,6 +444,7 @@ begin
   try
     LProvider := THelpChatProviderRegistry.CreateProvider(ARequest.ProviderName,
       ARequest.Settings, LShared.Retriever, ARequest.Actions);
+    LProvider.SetAttachments(ARequest.Attachments);
     LReply := LProvider.Generate(
       LShared.GetHistory(LKey, ARequest.MaxHistory),
       ARequest.Context,
@@ -492,7 +499,8 @@ end;
 function THelpChatRunner.Submit(const AKey, AAssistantId, AProviderName: string;
   const AContext: THelpChatContext; const AMaxHistory: Integer;
   const ASettings: THelpChatSettings;
-  const AActions: IHelpChatActionInvoker): IHelpChatCancelToken;
+  const AActions: IHelpChatActionInvoker;
+  const AAttachments: TArray<THelpChatAttachment>): IHelpChatCancelToken;
 var
   LShared: IHelpChatRunnerShared;
   LRequest: THelpChatRequest;
@@ -511,6 +519,7 @@ begin
     if Assigned(ASettings) then
       LRequest.Settings.Assign(ASettings);
     LRequest.Actions := AActions;
+    LRequest.Attachments := AAttachments;
     LRequest.Cancel := THelpChatCancelToken.Create;
     Result := LRequest.Cancel;
     LShared.RegisterActive(AAssistantId, Result);

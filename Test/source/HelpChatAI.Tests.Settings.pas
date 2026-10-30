@@ -229,6 +229,10 @@ begin
     LSource.Remote.UserToken := 'u-token';
     LSource.Remote.UseHostChannel := False;
     LSource.Remote.TimeoutMs := 1500;
+    LSource.Attachments.Enabled := True;
+    LSource.Attachments.MaxCount := 3;
+    LSource.Attachments.MaxSizeKB := 2048;
+    LSource.Attachments.MaxTotalKB := 4096;
 
     LCopy.LoadFromJSON(LSource.SaveToJSON);
 
@@ -274,6 +278,11 @@ begin
     Assert.IsFalse(LCopy.Remote.UseHostChannel);
     Assert.AreEqual(1500, LCopy.Remote.TimeoutMs);
     Assert.IsTrue(LCopy.Remote.IsConfigured);
+    Assert.IsTrue(LCopy.Attachments.Enabled);
+    Assert.AreEqual(3, LCopy.Attachments.MaxCount);
+    Assert.AreEqual(2048, LCopy.Attachments.MaxSizeKB);
+    Assert.AreEqual(4096, LCopy.Attachments.MaxTotalKB);
+    Assert.AreEqual(Int64(2048) * 1024, LCopy.Attachments.Limits.MaxSizeBytes);
   finally
     LCopy.Free;
     LSource.Free;

@@ -65,6 +65,7 @@ contains
   HelpChatAI.Assistant in '..\..\source\HelpChatAI.Assistant.pas',
   HelpChatAI.Settings in '..\..\source\HelpChatAI.Settings.pas',
   HelpChatAI.Actions in '..\..\source\HelpChatAI.Actions.pas',
+  HelpChatAI.Attachments in '..\..\source\HelpChatAI.Attachments.pas',
   HelpChatAI.Provider in '..\..\source\HelpChatAI.Provider.pas',
   HelpChatAI.Provider.Sse in '..\..\source\HelpChatAI.Provider.Sse.pas',
   HelpChatAI.Store in '..\..\source\HelpChatAI.Store.pas',

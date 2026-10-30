@@ -54,9 +54,11 @@ uses
   System.JSON,
   System.Generics.Collections,
   HelpChatAI.Types,
+  HelpChatAI.Messages,
   HelpChatAI.Settings,
   HelpChatAI.Actions,
   HelpChatAI.Provider,
+  HelpChatAI.Attachments,
   HelpChatAI.Provider.Sse;
 
 const
@@ -108,6 +110,7 @@ type
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
     function SupportsStreaming: Boolean; override;
     function SupportsActions: Boolean; override;
+    function SupportsDocuments: Boolean; override;
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; override;
@@ -122,7 +125,9 @@ type
     /// tools. Public for tests; no network involved.</summary>
     class function BuildRequestBody(const AHistory: TArray<THelpChatMessage>;
       const ASystemPrompt: string; const ASettings: THelpChatGeminiSettings;
-      const AToolsJson, AExtraContentsJson: string): string; static;
+      const AToolsJson, AExtraContentsJson: string;
+      const AAttachments: TArray<THelpChatAttachment> = nil;
+      const ALanguage: THelpChatLanguage = hclAuto): string; static;
     /// <summary>The model turn that asked for the actions, as the API wants it
     /// back: its text and one functionCall part per call, each carrying again
     /// the <c>thoughtSignature</c> it arrived with. Dropping those is a 400
@@ -141,8 +146,7 @@ uses
   System.IOUtils,
   System.Net.HttpClient,
   System.Net.URLClient,
-  System.NetConsts,
-  HelpChatAI.Messages;
+  System.NetConsts;
 
 type
   /// <summary>Aborts the transfer as soon as the request is cancelled.</summary>
@@ -296,6 +300,11 @@ begin
   Result := True;
 end;
 
+function THelpChatGeminiProvider.SupportsDocuments: Boolean;
+begin
+  Result := True;
+end;
+
 function THelpChatGeminiProvider.SupportsActions: Boolean;
 begin
   Result := True;
@@ -359,12 +368,14 @@ end;
 class function THelpChatGeminiProvider.BuildRequestBody(
   const AHistory: TArray<THelpChatMessage>; const ASystemPrompt: string;
   const ASettings: THelpChatGeminiSettings;
-  const AToolsJson, AExtraContentsJson: string): string;
+  const AToolsJson, AExtraContentsJson: string;
+  const AAttachments: TArray<THelpChatAttachment>;
+  const ALanguage: THelpChatLanguage): string;
 var
   LRoot, LContent, LPart, LConfig, LSystem, LToolConfig, LCallingConfig: TJSONObject;
   LContents, LParts, LTools: TJSONArray;
   LValue, LItem: TJSONValue;
-  I: Integer;
+  I, LLastUser: Integer;
 
   function NewTextContent(const ARole, AText: string): TJSONObject;
   var
@@ -378,6 +389,35 @@ var
     LTextPart := TJSONObject.Create;
     LTextPart.AddPair('text', AText);
     LTextParts.AddElement(LTextPart);
+  end;
+
+  // The same turn with the documents in front of the text: here a part is an
+  // inlineData, and a PDF and an image are told apart by the MIME type alone.
+  function NewUserContentWithFiles: TJSONObject;
+  var
+    LFilePart, LInline: TJSONObject;
+    LFileParts: TJSONArray;
+    J: Integer;
+  begin
+    Result := TJSONObject.Create;
+    Result.AddPair('role', 'user');
+    LFileParts := TJSONArray.Create;
+    Result.AddPair('parts', LFileParts);
+    for J := Low(AAttachments) to High(AAttachments) do
+    begin
+      if (AAttachments[J].Kind = hcakText) or (Length(AAttachments[J].Data) = 0) then
+        Continue;
+      LInline := TJSONObject.Create;
+      LInline.AddPair('mimeType', AAttachments[J].MediaType);
+      LInline.AddPair('data', AAttachments[J].Base64);
+      LFilePart := TJSONObject.Create;
+      LFilePart.AddPair('inlineData', LInline);
+      LFileParts.AddElement(LFilePart);
+    end;
+    LFilePart := TJSONObject.Create;
+    LFilePart.AddPair('text', HelpChatQuestionWithText(
+      AHistory[LLastUser].Content, AAttachments, ALanguage));
+    LFileParts.AddElement(LFilePart);
   end;
 
 begin
@@ -395,6 +435,16 @@ begin
       LParts.AddElement(LPart);
     end;
 
+    // The attachments belong to the question being asked: the last user turn.
+    LLastUser := -1;
+    if Length(AAttachments) > 0 then
+      for I := High(AHistory) downto Low(AHistory) do
+        if (AHistory[I].Role = hcrUser) and (Trim(AHistory[I].Content) <> '') then
+        begin
+          LLastUser := I;
+          Break;
+        end;
+
     LContents := TJSONArray.Create;
     LRoot.AddPair('contents', LContents);
     for I := Low(AHistory) to High(AHistory) do
@@ -402,7 +452,9 @@ begin
       if (AHistory[I].Role = hcrSystem) or (Trim(AHistory[I].Content) = '') then
         Continue;
       // The assistant is called "model" here.
-      if AHistory[I].Role = hcrUser then
+      if I = LLastUser then
+        LContent := NewUserContentWithFiles
+      else if AHistory[I].Role = hcrUser then
         LContent := NewTextContent('user', AHistory[I].Content)
       else
         LContent := NewTextContent('model', AHistory[I].Content);
@@ -671,7 +723,8 @@ begin
     for LRound := 1 to LMaxRounds do
     begin
       LStream := PostRound(BuildRequestBody(AHistory, LSystem, Settings.Gemini,
-        LTools, '[' + LExtra.ToString + ']'), AOnToken, ACancel);
+        LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language),
+        AOnToken, ACancel);
       try
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;

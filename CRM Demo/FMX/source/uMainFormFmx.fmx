@@ -3946,6 +3946,7 @@ object MainFormFmx: TMainFormFmx
   object HelpChat: TFmxHelpChatAI
     ImageName = 'AIAssistant_Female'
     Settings.Provider = 'claude'
+    Settings.Attachments.Enabled = True
     Settings.DocIndexFile = '..\..\Help\help-index.json'
     Settings.DocFolder = '..\..\Help'
     Settings.Language = hclEnglish

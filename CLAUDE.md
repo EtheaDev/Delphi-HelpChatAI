@@ -309,6 +309,19 @@ the edit on every version, not on the one that happens to be open.
   the size it needs. Adding an icon = the PNGs in `Images\`, an entry in
   `resources/HelpChatAI.Assistant.rc`, `Tools\BuildResources.cmd`, a name in
   `HelpChatAssistantIcons`. The image lists come from `vclwinx`, which the VCL package requires.
+- **A modal form owns the chat while it is up.** Windows keeps a modal window above every
+  window that shares its owner, and `ShowModal` calls `DisableTaskWindows`: a chat window
+  owned by the host form ends up *behind* the modal one and disabled with it, which is not
+  what the user asked for by pressing F1 on that very form. `UpdateOwnFormOwner`, called
+  before showing the own window, makes the active modal form its `PopupParent` (and
+  re-enables it); with no modal form the owner goes back to the host. Changing `PopupParent`
+  recreates the window and reloads the page, so it is done only when the owner really
+  changes. **And it must be undone before the modal form dies**: Windows destroys the
+  windows a window owns together with it, so without `AppModalEnd` the chat disappears with
+  the form the user just closed. That handler cannot ask `fsModal`, because `ShowModal`
+  clears it one line before calling `Application.ModalFinished` — it asks whether the owner
+  is still the host. None of this applies to a `Container` of the application: there the
+  chat is a control inside a form of theirs, and that form's own modality rules apply.
 - **VCL style change recreates windows.** `TStyleManager.SetStyle` posts `CM_CUSTOMSTYLECHANGED`
   to each visible form; `TCustomForm` recreates its window (the WebView reloads the page).
   `TVclHelpChatAI.AppMessage` catches the posted message first and stores the theme in the
@@ -528,6 +541,33 @@ the edit on every version, not on the one that happens to be open.
   the shared file. And `Help/Assistant.md` documents the assistant itself: when its behaviour
   changes, that page and the FAQ change with it — it already said "nothing is sent anywhere"
   once, which stopped being true the moment the provider became `claude`.
+- **An attachment belongs to the conversation, not to the question.**
+  `HelpChatAI.Attachments` (RTL) holds `THelpChatAttachmentSet`, keyed the way the store is
+  and owned by the engine; a request takes a copy, so a worker never reads the live list
+  while an HTTP thread adds to it. It is sent again with every later question - which is
+  what makes a second question about the same document work - until `Clear` takes the
+  conversation and its documents away together. **The bytes never reach the conversation
+  file**: a persisted JSON carrying a scanned PDF would be reloaded at every start.
+  `Settings.Attachments.Enabled` is **False by default**, because what the user attaches
+  leaves the machine, and that is the application's decision; the panel shows the clip only
+  when that is on *and* `THelpChatProviderRegistry.SupportsDocuments` says the configured
+  provider can read one.
+  **Three kinds, because that is what the APIs take**: a PDF and an image travel as base64
+  bytes (Anthropic `document`/`image` blocks, OpenAI a `file` part - PDF only - and an
+  `image_url` data URI, Gemini `inlineData`), and everything textual is decoded on arrival
+  and put in front of the question, fenced so the content of a file cannot read as an
+  instruction. A `.docx` or an `.xlsx` is refused by name: no model reads one, and sending
+  it would look like it worked. Base64 goes up **without line breaks** - all three refuse
+  them - which is why `Base64` is wrapped in a `{$IFDEF D11+}`: 10.4 has no
+  `TNetEncoding.Base64String` and the old encoder wraps at 76 characters.
+  The page takes them from the clip and from a file dropped on it (a `drop` handler on the
+  document, so anywhere on the panel works).
+  **The server is where they live, so the page asks it**: `GET /api/attachments` rebuilds
+  the bar when the page loads, because a reload - and a VCL style change recreates the
+  window, which reloads the page - used to empty the bar while the documents kept going out
+  with every question. The file-type glyphs are inline SVG in `panel.js` (Material Design
+  Icons, Apache 2.0, generic glyphs and no brand logo): the panel is one self-contained
+  page, so they cannot be PNGs in a `.res`.
 - **Defaults live once** in `HelpChatAI.Settings` constants (`HELPCHAT_DEF_*`). Settings also
   load/save as JSON (`helpchatai.json`: app file next to the exe, then per-user file in
   `%APPDATA%\<Exe>`); a new property must be added to `Assign`, `LoadFromJSON`, `SaveToJSON`

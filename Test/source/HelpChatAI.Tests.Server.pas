@@ -4,6 +4,7 @@ interface
 
 uses
   DUnitX.TestFramework,
+  System.SysUtils,
   System.Net.HttpClient,
   System.Net.URLClient,
   HelpChatAI.Types,
@@ -27,6 +28,8 @@ type
     function Headers: TNetHeaders;
     function Get(const APath: string; const AWithToken: Boolean = True): IHTTPResponse;
     function Post(const APath, ABody: string; const AWithToken: Boolean = True): IHTTPResponse;
+    /// <summary>An upload: the bytes as the whole body, the name in the query.</summary>
+    function PostFile(const AFileName: string; const AData: TBytes): IHTTPResponse;
     function ExtractMsgIds(const AHtml: string): TArray<string>;
   public
     [Setup] procedure Setup;
@@ -46,14 +49,18 @@ type
     [Test] procedure Stop_Start_Again;
     [Test] procedure Page_CarriesTheHostTheme;
     [Test] procedure Page_CarriesTheAssistant_SetAndPosted;
+    [Test] procedure Attach_Upload_List_Remove;
+    [Test] procedure Attach_RefusedType_AnswersWithTheSentence;
+    [Test] procedure Attach_Disabled_IsRefused;
+    [Test] procedure Attach_ClearTakesThemAway;
   end;
 
 implementation
 
 uses
-  System.SysUtils,
   System.Classes,
   System.NetEncoding,
+  System.JSON,
   System.RegularExpressions,
   HelpChatAI.Messages,
   HelpChatAI.Panel,
@@ -119,6 +126,23 @@ begin
   end;
 end;
 
+function TServerTests.PostFile(const AFileName: string;
+  const AData: TBytes): IHTTPResponse;
+var
+  LSource: TBytesStream;
+  LHeaders: TNetHeaders;
+begin
+  LSource := TBytesStream.Create(AData);
+  try
+    LHeaders := [TNetHeader.Create('Content-Type', 'application/octet-stream')] + Headers;
+    Result := FClient.Post(Url(HELPCHAT_API_ATTACH + '?' +
+      HELPCHAT_ATTACH_NAME_QUERY + '=' + TNetEncoding.URL.Encode(AFileName)),
+      LSource, nil, LHeaders);
+  finally
+    LSource.Free;
+  end;
+end;
+
 function TServerTests.ExtractMsgIds(const AHtml: string): TArray<string>;
 var
   LMatch: TMatch;
@@ -130,6 +154,82 @@ begin
     Result := Result + [LMatch.Groups[1].Value];
     LMatch := LMatch.NextMatch;
   end;
+end;
+
+procedure TServerTests.Attach_Upload_List_Remove;
+var
+  LResponse: IHTTPResponse;
+  LRoot: TJSONValue;
+  LId: string;
+begin
+  FSettings.Attachments.Enabled := True;
+  LResponse := PostFile('invoice.pdf', TEncoding.UTF8.GetBytes('%PDF-1.7 pretend'));
+  Assert.AreEqual(200, LResponse.StatusCode);
+  LRoot := TJSONObject.ParseJSONValue(LResponse.ContentAsString(TEncoding.UTF8));
+  try
+    Assert.IsTrue(LRoot is TJSONObject, LResponse.ContentAsString(TEncoding.UTF8));
+    LId := TJSONObject(LRoot).GetValue<string>('id', '');
+    Assert.AreNotEqual('', LId, 'the chip needs an id to remove it with');
+    Assert.AreEqual('invoice.pdf', TJSONObject(LRoot).GetValue<string>('name'));
+    Assert.AreEqual('pdf', TJSONObject(LRoot).GetValue<string>('ext'));
+    Assert.AreNotEqual('', TJSONObject(LRoot).GetValue<string>('sizeText'));
+  finally
+    LRoot.Free;
+  end;
+
+  // The page rebuilds its bar from here after a reload.
+  LResponse := Get(HELPCHAT_API_ATTACHMENTS);
+  Assert.IsTrue(LResponse.ContentAsString(TEncoding.UTF8).Contains('invoice.pdf'));
+  Assert.AreEqual(1, FEngine.Attachments.Count(FEngine.ConversationKey));
+
+  LResponse := Post(HELPCHAT_API_ATTACH_REMOVE, HELPCHAT_FIELD_ATTACH_ID + '=' + LId);
+  Assert.AreEqual(200, LResponse.StatusCode);
+  Assert.AreEqual(0, FEngine.Attachments.Count(FEngine.ConversationKey));
+  Assert.IsFalse(Get(HELPCHAT_API_ATTACHMENTS).ContentAsString(TEncoding.UTF8)
+    .Contains('invoice.pdf'));
+end;
+
+procedure TServerTests.Attach_RefusedType_AnswersWithTheSentence;
+var
+  LRoot: TJSONValue;
+  LError: string;
+begin
+  FSettings.Attachments.Enabled := True;
+  LRoot := TJSONObject.ParseJSONValue(
+    PostFile('contract.docx', TEncoding.UTF8.GetBytes('PK')).ContentAsString(TEncoding.UTF8));
+  try
+    LError := TJSONObject(LRoot).GetValue<string>('error', '');
+    Assert.IsTrue(LError.Contains('DOCX'), 'the page shows this as it is: ' + LError);
+  finally
+    LRoot.Free;
+  end;
+  Assert.AreEqual(0, FEngine.Attachments.Count(FEngine.ConversationKey));
+end;
+
+procedure TServerTests.Attach_Disabled_IsRefused;
+var
+  LRoot: TJSONValue;
+begin
+  // Off is the default: a page that asks anyway gets an error, not a chip.
+  LRoot := TJSONObject.ParseJSONValue(
+    PostFile('invoice.pdf', TEncoding.UTF8.GetBytes('%PDF')).ContentAsString(TEncoding.UTF8));
+  try
+    Assert.AreNotEqual('', TJSONObject(LRoot).GetValue<string>('error', ''));
+    Assert.AreEqual('', TJSONObject(LRoot).GetValue<string>('id', ''));
+  finally
+    LRoot.Free;
+  end;
+  Assert.AreEqual(0, FEngine.Attachments.Count(FEngine.ConversationKey));
+end;
+
+procedure TServerTests.Attach_ClearTakesThemAway;
+begin
+  FSettings.Attachments.Enabled := True;
+  PostFile('invoice.pdf', TEncoding.UTF8.GetBytes('%PDF'));
+  Assert.AreEqual(1, FEngine.Attachments.Count(FEngine.ConversationKey));
+  Post(HELPCHAT_API_CLEAR, '');
+  Assert.AreEqual(0, FEngine.Attachments.Count(FEngine.ConversationKey),
+    'the documents went with the conversation');
 end;
 
 procedure TServerTests.Start_BindsLocalhost_FreePort_Token;

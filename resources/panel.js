@@ -12,7 +12,15 @@
    the host, which opens them outside.
    The question box empties as soon as a question leaves; Up/Down recall the
    previous questions (the user bubbles of the conversation plus what was sent
-   in this page), like a shell. */
+   in this page), like a shell.
+   Attachments (HC.attach): the clip and dropping a file on the panel post the
+   bytes to /api/attach, which answers with the chip to draw. They belong to
+   the conversation, not to one question - they are sent again with every
+   question until ↺ clears it, which is what makes a second question about the
+   same document work.
+   The file-type glyphs are Material Design Icons (Pictogrammers), Apache 2.0:
+   generic glyphs, no brand logo - the Brand/Logos category of that set is
+   excluded from its licence and none of it is used here. */
 (function () {
   'use strict';
   var HC = window.HC || {};
@@ -35,6 +43,11 @@
   var questionDraft = '';    // what was typed before browsing the questions
   var polling = {};          // message id -> attempts
   var pollingCount = 0;
+  var attachBar = document.getElementById('hc-attachments');
+  var fileInput = document.getElementById('hc-file');
+  var clipBtn = document.getElementById('hc-clip');
+  var attachments = [];      // {id, name, sizeText, ext} as the server took them
+  var attachSeq = 0;         // local id of a chip while it is still uploading
 
   function api(path) { return (HC.apiBase || '') + path; }
   function scrollBottom() { body.scrollTop = body.scrollHeight; }
@@ -163,6 +176,13 @@
   });
   document.body.addEventListener('htmx:afterSwap', function (e) {
     if (e.detail.target !== body) return;
+    // The conversation was cleared: the engine dropped its attachments with
+    // it, so the bar has to go as well.
+    if (e.detail.requestConfig &&
+        String(e.detail.requestConfig.path || '').indexOf('/api/clear') >= 0) {
+      attachments = [];
+      renderAttachments();
+    }
     scrollBottom();
     watchPending();
     if (!fromForm(e)) seedQuestions();
@@ -344,6 +364,161 @@
     if (HC.hostCommands === false) closeBtn.hidden = true;
     else closeBtn.addEventListener('click', closePanel);
   }
+
+  // ---- attachments -----------------------------------------------------------
+  // One glyph per family, drawn at 24x24. A document is red, a spreadsheet
+  // green, a presentation orange, an image purple: the convention everyone
+  // reads at a glance, and none of it is a logo.
+  var ICONS = {
+    pdf: ['#d93025', 'M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M9.5 11.5C9.5 12.3 8.8 13 8 13H7V15H5.5V9H8C8.8 9 9.5 9.7 9.5 10.5V11.5M14.5 13.5C14.5 14.3 13.8 15 13 15H10.5V9H13C13.8 9 14.5 9.7 14.5 10.5V13.5M18.5 10.5H17V11.5H18.5V13H17V15H15.5V9H18.5V10.5M12 10.5H13V13.5H12V10.5M7 10.5H8V11.5H7V10.5Z'],
+    image: ['#8e24aa', 'M13,9H18.5L13,3.5V9M6,2H14L20,8V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V4C4,2.89 4.89,2 6,2M6,20H15L18,20V12L14,16L12,14L6,20M8,9A2,2 0 0,0 6,11A2,2 0 0,0 8,13A2,2 0 0,0 10,11A2,2 0 0,0 8,9Z'],
+    word: ['#2b579a', 'M15.5,17H14L12,9.5L10,17H8.5L6.1,7H7.8L9.34,14.5L11.3,7H12.7L14.67,14.5L16.2,7H17.9M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z'],
+    excel: ['#217346', 'M16.2,17H14.2L12,13.2L9.8,17H7.8L11,12L7.8,7H9.8L12,10.8L14.2,7H16.2L13,12M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z'],
+    ppt: ['#d24726', 'M9.8,13.4H12.3C13.8,13.4 14.46,13.12 15.1,12.58C15.74,12.03 16,11.25 16,10.23C16,9.26 15.75,8.5 15.1,7.88C14.45,7.29 13.83,7 12.3,7H8V17H9.8V13.4M19,3A2,2 0 0,1 21,5V19A2,2 0 0,1 19,21H5A2,2 0 0,1 3,19V5C3,3.89 3.9,3 5,3H19M9.8,12V8.4H12.1C12.76,8.4 13.27,8.65 13.6,9C13.93,9.35 14.1,9.72 14.1,10.24C14.1,10.8 13.92,11.19 13.6,11.5C13.28,11.81 12.9,12 12.22,12H9.8Z'],
+    csv: ['#217346', 'M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2M15 16L13 20H10L12 16H9V11H15V16M13 9V3.5L18.5 9H13Z'],
+    json: ['#b08000', 'M5,3H7V5H5V10A2,2 0 0,1 3,12A2,2 0 0,1 5,14V19H7V21H5C3.93,20.73 3,20.1 3,19V15A2,2 0 0,0 1,13H0V11H1A2,2 0 0,0 3,9V5A2,2 0 0,1 5,3M19,3A2,2 0 0,1 21,5V9A2,2 0 0,0 23,11H24V13H23A2,2 0 0,0 21,15V19A2,2 0 0,1 19,21H17V19H19V14A2,2 0 0,1 21,12A2,2 0 0,1 19,10V5H17V3H19M12,15A1,1 0 0,1 13,16A1,1 0 0,1 12,17A1,1 0 0,1 11,16A1,1 0 0,1 12,15M8,15A1,1 0 0,1 9,16A1,1 0 0,1 8,17A1,1 0 0,1 7,16A1,1 0 0,1 8,15M16,15A1,1 0 0,1 17,16A1,1 0 0,1 16,17A1,1 0 0,1 15,16A1,1 0 0,1 16,15Z'],
+    text: ['', 'M6,2A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2H6M6,4H13V9H18V20H6V4M8,12V14H16V12H8M8,16V18H13V16H8Z'],
+    other: ['', 'M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z']
+  };
+  var BY_EXT = {
+    pdf: 'pdf',
+    png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image',
+    doc: 'word', docx: 'word', odt: 'word', rtf: 'word',
+    xls: 'excel', xlsx: 'excel', ods: 'excel',
+    ppt: 'ppt', pptx: 'ppt', odp: 'ppt',
+    csv: 'csv', tsv: 'csv',
+    json: 'json',
+    txt: 'text', md: 'text', log: 'text', ini: 'text', xml: 'text', yaml: 'text', yml: 'text'
+  };
+  function iconFor(ext) { return ICONS[BY_EXT[String(ext || '').toLowerCase()] || 'other']; }
+  function iconSvg(ext) {
+    var icon = iconFor(ext);
+    return '<svg class="hc-chat-chip-icon" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path fill="' + (icon[0] || 'currentColor') + '" d="' + icon[1] + '"/></svg>';
+  }
+
+  function renderAttachments() {
+    if (!attachBar) return;
+    var html = '';
+    for (var i = 0; i < attachments.length; i++) {
+      var a = attachments[i];
+      html += '<span class="hc-chat-chip' + (a.busy ? ' hc-chat-chip-busy' : '') +
+        '" data-att="' + escapeHtml(a.id) + '" title="' + escapeHtml(a.name) + '">' +
+        (a.busy ? '<span class="hc-chat-spinner" role="progressbar"></span>' : iconSvg(a.ext)) +
+        '<span class="hc-chat-chip-name">' + escapeHtml(a.name) + '</span>' +
+        (a.sizeText ? '<span class="hc-chat-chip-size">' + escapeHtml(a.sizeText) + '</span>' : '') +
+        (a.busy ? '' : '<button type="button" class="hc-chat-chip-x" data-att-x="' +
+          escapeHtml(a.id) + '" title="' + escapeHtml(HC.labels.attachRemove || '') +
+          '" aria-label="' + escapeHtml(HC.labels.attachRemove || '') + '">&#x2715;</button>') +
+        '</span>';
+    }
+    attachBar.innerHTML = html;
+    attachBar.hidden = attachments.length === 0;
+  }
+  function extOf(name) {
+    var dot = String(name || '').lastIndexOf('.');
+    return dot < 0 ? '' : name.substring(dot + 1);
+  }
+  function dropAttachment(id) {
+    for (var i = 0; i < attachments.length; i++)
+      if (attachments[i].id === id) { attachments.splice(i, 1); return; }
+  }
+  // The bytes go up as the whole body: no multipart to build here and none to
+  // decode on the other side. The name rides in the query string.
+  function upload(file) {
+    if (!HC.attach || !file) return;
+    var maxKB = HC.attachMaxKB || 0;
+    if (maxKB > 0 && file.size > maxKB * 1024) {
+      showSystem(String(HC.attachTooLarge || '%s').replace('%s', file.name));
+      return;
+    }
+    var local = 'up' + (++attachSeq);
+    attachments.push({ id: local, name: file.name, ext: extOf(file.name), busy: true });
+    renderAttachments();
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    headers['Content-Type'] = 'application/octet-stream';
+    fetch(api('/api/attach?name=' + encodeURIComponent(file.name)),
+      { method: 'POST', headers: headers, body: file })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        dropAttachment(local);
+        if (!data) { showSystem(HC.labels.attachFailed); renderAttachments(); return; }
+        // The server refused it (a type no model reads, a limit): its sentence
+        // is already localized and says what to do about it.
+        if (data.error) { showSystem(data.error); renderAttachments(); return; }
+        attachments.push({ id: data.id, name: data.name, ext: data.ext, sizeText: data.sizeText });
+        renderAttachments();
+        focusInput();
+      })
+      .catch(function () {
+        dropAttachment(local);
+        renderAttachments();
+        showSystem(HC.labels.attachFailed);
+      });
+  }
+  function removeAttachment(id) {
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    fetch(api('/api/attach/remove'),
+      { method: 'POST', headers: headers, body: 'id=' + encodeURIComponent(id) })
+      .catch(function () {});
+    dropAttachment(id);
+    renderAttachments();
+    focusInput();
+  }
+  function uploadList(files) {
+    for (var i = 0; i < files.length; i++) upload(files[i]);
+  }
+  // The attachments belong to the conversation, and the server is where they
+  // live: the page asks for them when it loads, the way it asks for the
+  // history. Without this a reload - and a VCL style change recreates the
+  // window, which reloads the page - would leave the bar empty while the
+  // documents kept going out with every question.
+  function loadAttachments() {
+    if (!HC.attach) return;
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    fetch(api('/api/attachments'), { headers: headers, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.items) return;
+        // Whatever was still uploading when this started keeps its chip.
+        var busy = attachments.filter(function (a) { return a.busy; });
+        attachments = data.items.concat(busy);
+        renderAttachments();
+      })
+      .catch(function () {});
+  }
+  if (clipBtn && fileInput) {
+    if (HC.attach) {
+      clipBtn.hidden = false;
+      loadAttachments();
+      if (HC.attachAccept) fileInput.setAttribute('accept', HC.attachAccept);
+    }
+    clipBtn.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () {
+      uploadList(fileInput.files);
+      fileInput.value = '';     // the same file twice in a row still fires change
+    });
+  }
+  if (attachBar) {
+    attachBar.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('[data-att-x]') : null;
+      if (btn) removeAttachment(btn.getAttribute('data-att-x'));
+    });
+  }
+  // Dropping a file anywhere on the panel attaches it: the clip is for those
+  // who look for a button, this is for everybody else.
+  document.addEventListener('dragover', function (e) {
+    if (!HC.attach) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  document.addEventListener('drop', function (e) {
+    if (!HC.attach) return;
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)
+      uploadList(e.dataTransfer.files);
+  });
 
   // ---- native entry points ---------------------------------------------------
   window.hcAsk = function (text, send) {

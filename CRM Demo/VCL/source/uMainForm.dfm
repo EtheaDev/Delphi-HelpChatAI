@@ -6465,6 +6465,7 @@ object MainForm: TMainForm
   end
   object HelpChat: TVclHelpChatAI
     Settings.Provider = 'claude'
+    Settings.Attachments.Enabled = True
     Settings.DocIndexFile = '..\..\Help\help-index.json'
     Settings.DocFolder = '..\..\Help'
     Settings.Language = hclEnglish
