@@ -59,7 +59,7 @@
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
-        <DCC_UnitSearchPath>..\..\..\source;..\..\..\Ext\MarkdownProcessor\source;..\source;..\..\common;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..\..\source;..\..\..\Ext\MarkdownProcessor\source;..\..\..\Ext\DCPcrypt;..\..\..\Ext\DCPcrypt\Ciphers;..\..\..\Ext\DCPcrypt\Hashes;..\source;..\..\common;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_DcuOutput>..\..\dcu\VCL\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>..\..\bin\$(Platform)\</DCC_ExeOutput>
         <DCC_E>false</DCC_E>
@@ -128,6 +128,11 @@
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="..\..\common\uProposalReport.pas"/>
+        <DCCReference Include="..\..\common\uAppSecret.pas"/>
+        <DCCReference Include="..\source\uLicenseActivation.pas">
+            <Form>LicenseActivationForm</Form>
+            <FormType>dfm</FormType>
+        </DCCReference>
         <DCCReference Include="..\..\common\uDataMod.pas">
             <Form>DM</Form>
             <FormType>dfm</FormType>

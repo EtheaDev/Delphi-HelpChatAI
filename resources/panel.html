@@ -16,6 +16,10 @@
   <header class="hc-chat-header">
     <span class="hc-chat-brand">{{ICON}}<span class="hc-chat-title">{{TITLE}}</span></span>
     <span class="hc-chat-actions">
+      <!-- The clipboard is the browser's own: no host, no engine, always there -->
+      <button type="button" id="hc-copy" class="hc-chat-hbtn" hidden></button>
+      <!-- Shown only when the engine can be asked for a PDF and a host can save it -->
+      <button type="button" id="hc-pdf" class="hc-chat-hbtn" hidden></button>
       <button type="button" class="hc-chat-hbtn" data-action="clear" title="{{L_CLEAR}}" aria-label="{{L_CLEAR}}"
               hx-post="{{API_BASE}}/api/clear" hx-target="#hc-body" hx-swap="innerHTML">&#x21BA;</button>
       <button type="button" class="hc-chat-hbtn" data-action="close" title="{{L_CLOSE}}" aria-label="{{L_CLOSE}}">&#x2715;</button>
@@ -26,6 +30,8 @@
     <div class="hc-chat-doc-bar">
       <button type="button" id="hc-doc-back" class="hc-chat-hbtn" title="{{L_BACK}}" aria-label="{{L_BACK}}">&#x2190;</button>
       <span id="hc-doc-title" class="hc-chat-doc-title"></span>
+      <button type="button" id="hc-doc-copy" class="hc-chat-hbtn" hidden></button>
+      <button type="button" id="hc-doc-pdf" class="hc-chat-hbtn" hidden></button>
     </div>
     <div id="hc-doc-body" class="hc-chat-doc-body" tabindex="-1"></div>
   </section>

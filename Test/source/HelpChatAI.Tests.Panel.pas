@@ -47,6 +47,12 @@ begin
     Assert.AreEqual('Assistente', LJson.GetValue<string>('title'));
     Assert.AreEqual('Invia', LJson.GetValue<string>('send'));
     Assert.AreEqual(HelpChatMsg(hcmUiSendError, hclItalian), LJson.GetValue<string>('sendError'));
+    // The copy button is the page alone: no engine, no host, so the labels
+    // are the only thing it needs from this side.
+    Assert.AreEqual('Copia la conversazione', LJson.GetValue<string>('copyConversation'));
+    Assert.AreEqual(HelpChatMsg(hcmUiCopied, hclItalian), LJson.GetValue<string>('copied'));
+    Assert.AreEqual(HelpChatMsg(hcmPdfUser, hclItalian), LJson.GetValue<string>('roleUser'),
+      'the copied conversation names the two sides as the document does');
   finally
     LJson.Free;
   end;

@@ -234,6 +234,8 @@ type
     procedure HelpChatGetContext(Sender: TObject; var AContext: THelpChatContext);
     procedure HelpChatActionExecuted(Sender: TObject; const AName: string;
       const AOutcome: THelpChatActionOutcome; const AResult: string);
+    procedure HelpChatDecryptSecret(Sender: TObject; const AName, AValue: string;
+      var AResult: string; var AHandled: Boolean);
   private
     { Private declarations }
     FRanOnce: Boolean;
@@ -245,6 +247,12 @@ type
     /// gestore gira sul thread principale. Quelle che scrivono dati chiedono
     /// conferma all'utente prima di partire.</summary>
     procedure RegisterHelpActions;
+    /// <summary>Ripiego: la chiave di Claude non c'e' da nessuna parte (ne'
+    /// nei file di configurazione ne' in ANTHROPIC_API_KEY). La chiediamo una
+    /// volta sola, la cifriamo con il segreto di questa applicazione e la
+    /// scriviamo nel file utente, da dove la prossima esecuzione la rilegge
+    /// cifrata.</summary>
+    procedure AskForApiKeyIfMissing;
     /// <summary>La scheda che l'assistente ha chiamato per nome.</summary>
     function FindTab(const AName: string): TTabSheet;
     /// <summary>Il lead chiamato per nome, o per azienda se il nome non basta.</summary>
@@ -269,6 +277,11 @@ implementation
 
 uses
   uDataMod, uLeads, uProposal,
+  HelpChatAI.Settings,
+  // La chiave API non sta in chiaro nella configurazione: uAppSecret la
+  // cifra e la rilegge, e HelpChatDecryptSecret e' il gancio che il
+  // componente chiama. DCPcrypt serve a questa demo, non alla libreria.
+  uAppSecret, uLicenseActivation,
   // Un provider esiste solo se la sua unit e' linkata: si registra nella
   // initialization. Senza questa riga Settings.Provider = 'docsearch'
   // trova soltanto lo stub e la chat risponde che il provider non c'e'.
@@ -413,6 +426,36 @@ begin
   // che lo riceve comunque, e all'utente, che vede la finestra aprirsi.
   if AOutcome = aoFailed then
     Beep;
+end;
+
+procedure TMainForm.HelpChatDecryptSecret(Sender: TObject; const AName, AValue: string;
+  var AResult: string; var AHandled: Boolean);
+begin
+  // Gira sul thread del worker che sta per chiamare il servizio: solo
+  // calcolo, nessuna finestra e nessuna attesa. AName direbbe di quale
+  // segreto si tratta (Claude.ApiKey, Remote.AppKey...): qui rispondiamo per
+  // tutti quelli che portano il prefisso, chiunque li abbia chiesti.
+  AHandled := AppSecretIsProtected(AValue);
+  if AHandled then
+    AResult := AppSecretReveal(AValue);
+end;
+
+procedure TMainForm.AskForApiKeyIfMissing;
+var
+  LKey, LProtected: string;
+begin
+  // ResolveApiKey guarda la property, i tre helpchatai.json gia' caricati e
+  // la variabile d'ambiente, e passa dal gestore qui sopra: se risponde
+  // qualcosa, la chiave c'e' ed e' leggibile.
+  if HelpChat.Settings.Claude.ResolveApiKey <> '' then
+    Exit;
+  if not TLicenseActivationForm.Execute(THelpChatSettings.UserConfigFile, LKey) then
+    Exit;
+  LProtected := AppSecretProtect(LKey);
+  AppSecretStoreApiKey('Claude', LProtected);
+  // Quella che resta in memoria e' la cifrata, come se fosse appena stata
+  // letta dal file: la chiave in chiaro vive quanto la richiesta.
+  HelpChat.Settings.Claude.ApiKey := LProtected;
 end;
 
 procedure TMainForm.HelpChatGetContext(Sender: TObject; var AContext: THelpChatContext);
@@ -945,6 +988,7 @@ begin
     // delle finestre) e la bolla in basso a destra la apre senza contesto.
     RegisterHelpActions;
     HelpChat.Active := True;
+    AskForApiKeyIfMissing;
 
     DashboardButton.SetFocus;
   end;

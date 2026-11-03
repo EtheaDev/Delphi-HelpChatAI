@@ -6466,10 +6466,13 @@ object MainForm: TMainForm
   object HelpChat: TVclHelpChatAI
     Settings.Provider = 'claude'
     Settings.Attachments.Enabled = True
+    Settings.Pdf.Action = True
+    Settings.Pdf.HeaderFooter = True
     Settings.DocIndexFile = '..\..\Help\help-index.json'
     Settings.DocFolder = '..\..\Help'
     Settings.Language = hclEnglish
     OnActionExecuted = HelpChatActionExecuted
+    OnDecryptSecret = HelpChatDecryptSecret
     OnGetContext = HelpChatGetContext
     Left = 480
     Top = 456

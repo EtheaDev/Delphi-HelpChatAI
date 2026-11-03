@@ -330,6 +330,12 @@ begin
       LSb.Append(HELPCHAT_MODEL_DEF_SYSTEMPROMPT);
     LSb.Append(' ');
     LSb.Append(Format(HELPCHAT_MODEL_DEF_LANGUAGE_RULE, [HelpChatLanguageName(LLang)]));
+    LSb.Append(' ');
+    // Invariant, so that the month is November and not novembre: the
+    // instruction is English, and the model writes the date back in the
+    // language it is answering in.
+    LSb.Append(Format(HELPCHAT_MODEL_DEF_DATE_RULE,
+      [FormatDateTime('dddd, d mmmm yyyy', Date, TFormatSettings.Invariant)]));
 
     if not AContext.IsEmpty then
     begin

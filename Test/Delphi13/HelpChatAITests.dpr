@@ -48,6 +48,7 @@ uses
   HelpChatAI.Tests.Remote in '..\source\HelpChatAI.Tests.Remote.pas',
   HelpChatAI.Tests.Actions in '..\source\HelpChatAI.Tests.Actions.pas',
   HelpChatAI.Tests.Attachments in '..\source\HelpChatAI.Tests.Attachments.pas',
+  HelpChatAI.Tests.Pdf in '..\source\HelpChatAI.Tests.Pdf.pas',
   HelpChatAI.Tests.Theme in '..\source\HelpChatAI.Tests.Theme.pas';
 
 {$IFNDEF TESTINSIGHT}

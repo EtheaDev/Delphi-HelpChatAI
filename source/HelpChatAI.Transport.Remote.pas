@@ -85,6 +85,7 @@ type
     FAssistantIcon: string;
     FAssistantSent: Boolean;
     FOnUiCommand: THelpChatUiCommandEvent;
+    FOnPdfRequest: THelpChatPdfRequestEvent;
     function Post(const APath, ABody: string; out AResponse: string): Integer;
     procedure EnsureSession;
     procedure OpenSession;
@@ -115,6 +116,7 @@ type
     /// <summary>Always nil: the engine is on the server.</summary>
     function GetEngine: THelpChatEngine;
     procedure SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
+    procedure SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
 
     /// <summary>True once a conversation is open on the server.</summary>
     function HasSession: Boolean;
@@ -209,9 +211,9 @@ end;
 
 constructor THelpChatRemoteTransport.Create(const ARemote: THelpChatRemoteSettings);
 begin
-  Create(ARemote.NormalizedBaseUrl, ARemote.AppKey);
+  Create(ARemote.NormalizedBaseUrl, ARemote.ResolveAppKey);
   FUserId := ARemote.ResolveUserId;
-  FUserToken := ARemote.UserToken;
+  FUserToken := ARemote.ResolveUserToken;
   FUseHostChannel := ARemote.UseHostChannel;
   if ARemote.TimeoutMs > 0 then
     FTimeoutMs := ARemote.TimeoutMs;
@@ -552,6 +554,14 @@ end;
 function THelpChatRemoteTransport.GetEngine: THelpChatEngine;
 begin
   Result := nil;
+end;
+
+procedure THelpChatRemoteTransport.SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
+begin
+  // Kept, and never called: the document would be built by the server, and
+  // the host channel carries commands, not documents. Like the actions, this
+  // is local for now.
+  FOnPdfRequest := AHandler;
 end;
 
 procedure THelpChatRemoteTransport.SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);

@@ -45,7 +45,8 @@ interface
 uses
   System.SysUtils,
   System.Classes,
-  System.Generics.Collections;
+  System.Generics.Collections,
+  HelpChatAI.Settings;
 
 const
   HELPCHAT_INDEXBUILDER_DEF_URLEXT = '.html';
@@ -135,6 +136,50 @@ type
     /// <summary>Non-fatal findings of the last Build (pages without title or text...).</summary>
     property Warnings: TStrings read FWarnings;
   end;
+
+  /// <summary>
+  ///  Rebuilding the index of an application that is configured already: the
+  ///  settings say where the pages are (<c>DocFolder</c>) and where the index
+  ///  goes (<c>DocIndexFile</c>), so nobody has to type a path again. Filled
+  ///  by <see cref="HelpChatPlanIndexBuild" /> - which decides and explains,
+  ///  without touching anything - and carried into
+  ///  <see cref="HelpChatRunIndexBuild" />, which does the work and writes
+  ///  back how it went.
+  /// </summary>
+  THelpChatIndexPlan = record
+    /// <summary>Folder of the Markdown pages (<c>Settings.DocFolder</c>).</summary>
+    SourceFolder: string;
+    /// <summary>The JSON to write (<c>Settings.DocIndexFile</c>).</summary>
+    OutputFile: string;
+    /// <summary>Table of contents found in the folder; empty when there is none.</summary>
+    TocFile: string;
+    /// <summary>Extension the links get: empty when the pages are shown inside
+    /// the panel, <c>.html</c> when they are published under <c>DocBaseUrl</c>.</summary>
+    UrlExtension: string;
+    /// <summary>An index is already there and will be replaced.</summary>
+    OutputExists: Boolean;
+    /// <summary>Markdown files found under the folder.</summary>
+    MarkdownCount: Integer;
+    /// <summary>Why it cannot be built, or why it failed; empty when all is well.</summary>
+    Problem: string;
+    /// <summary>Pages written, after the build.</summary>
+    PageCount: Integer;
+    /// <summary>What the builder had to say about single pages, after the build.</summary>
+    Warnings: string;
+    /// <summary>Nothing is in the way.</summary>
+    function CanBuild: Boolean;
+    /// <summary>The plan in four lines, for whoever has to confirm it.</summary>
+    function Describe: string;
+  end;
+
+/// <summary>Works out what rebuilding the index of these settings would do,
+/// and changes nothing. Read <c>Problem</c> first.</summary>
+function HelpChatPlanIndexBuild(const ASettings: THelpChatSettings): THelpChatIndexPlan;
+
+/// <summary>Runs the plan, writing the index. False, with <c>Problem</c> set,
+/// when it could not: a plan that cannot be built, a folder that is read-only,
+/// a file somebody has open.</summary>
+function HelpChatRunIndexBuild(var APlan: THelpChatIndexPlan): Boolean;
 
 implementation
 
@@ -556,6 +601,124 @@ begin
     TDirectory.CreateDirectory(LDir);
   TFile.WriteAllText(AOutputFile, ToJSON(LPages), TEncoding.UTF8);
   Result := Length(LPages);
+end;
+
+{ THelpChatIndexPlan }
+
+function THelpChatIndexPlan.CanBuild: Boolean;
+begin
+  Result := (Problem = '') and (SourceFolder <> '') and (OutputFile <> '');
+end;
+
+function THelpChatIndexPlan.Describe: string;
+const
+  SLine = '%-10s%s';
+var
+  LIndex, LToc, LLinks: string;
+begin
+  LIndex := OutputFile;
+  if OutputExists then
+    LIndex := LIndex + ' (replacing the one that is there)';
+  if TocFile = '' then
+    LToc := Format('none (no %s in the folder): titles come from the headings',
+      [HELPCHAT_INDEXBUILDER_DEF_TOCFILE])
+  else
+    LToc := TocFile;
+  if UrlExtension = '' then
+    LLinks := 'page.md - the pages are shown inside the panel (DocBaseUrl is empty)'
+  else
+    LLinks := 'page' + UrlExtension + ' - the pages are published under DocBaseUrl';
+  Result :=
+    Format(SLine, ['Pages:', Format('%s (%d Markdown files)',
+      [SourceFolder, MarkdownCount])]) + sLineBreak +
+    Format(SLine, ['Index:', LIndex]) + sLineBreak +
+    Format(SLine, ['Contents:', LToc]) + sLineBreak +
+    Format(SLine, ['Links:', LLinks]);
+end;
+
+function HelpChatPlanIndexBuild(const ASettings: THelpChatSettings): THelpChatIndexPlan;
+var
+  LToc: TArray<string>;
+begin
+  Result := Default(THelpChatIndexPlan);
+  if ASettings = nil then
+  begin
+    Result.Problem := 'No settings to build an index from.';
+    Exit;
+  end;
+  Result.SourceFolder := ASettings.ResolveDocFolder;
+  Result.OutputFile := ASettings.ResolveDocIndexFile;
+  // Without DocBaseUrl the pages are read from DocFolder and rendered inside
+  // the panel, so a link keeps the name of the file; with one they are
+  // published somewhere, where a page is .html.
+  if Trim(ASettings.DocBaseUrl) <> '' then
+    Result.UrlExtension := HELPCHAT_INDEXBUILDER_DEF_URLEXT;
+  if Result.SourceFolder = '' then
+  begin
+    Result.Problem := 'Settings.DocFolder is empty: there is no folder of ' +
+      'Markdown pages to build an index from.';
+    Exit;
+  end;
+  if not TDirectory.Exists(Result.SourceFolder) then
+  begin
+    Result.Problem := Format('Settings.DocFolder points to "%s", which does ' +
+      'not exist.', [Result.SourceFolder]);
+    Exit;
+  end;
+  if Result.OutputFile = '' then
+  begin
+    Result.Problem := 'There is nowhere to write the index: Settings.DocIndexFile ' +
+      'resolves to nothing.';
+    Exit;
+  end;
+  Result.MarkdownCount := Length(TDirectory.GetFiles(Result.SourceFolder, '*.md',
+    TSearchOption.soAllDirectories));
+  if Result.MarkdownCount = 0 then
+  begin
+    Result.Problem := Format('No Markdown page under "%s".', [Result.SourceFolder]);
+    Exit;
+  end;
+  // The name as the folder spells it: the builder matches it case-insensitively
+  // anyway, but what is shown has to be what is there.
+  LToc := TDirectory.GetFiles(Result.SourceFolder, HELPCHAT_INDEXBUILDER_DEF_TOCFILE);
+  if Length(LToc) > 0 then
+    Result.TocFile := TPath.GetFileName(LToc[0]);
+  Result.OutputExists := TFile.Exists(Result.OutputFile);
+end;
+
+function HelpChatRunIndexBuild(var APlan: THelpChatIndexPlan): Boolean;
+var
+  LBuilder: THelpChatIndexBuilder;
+  LOptions: THelpChatIndexBuilderOptions;
+begin
+  APlan.PageCount := 0;
+  APlan.Warnings := '';
+  if not APlan.CanBuild then
+    Exit(False);
+  LOptions := THelpChatIndexBuilderOptions.Default;
+  LOptions.SourceFolder := APlan.SourceFolder;
+  LOptions.TocFile := APlan.TocFile;
+  LOptions.UrlExtension := APlan.UrlExtension;
+  LBuilder := THelpChatIndexBuilder.Create;
+  try
+    try
+      APlan.PageCount := LBuilder.BuildToFile(LOptions, APlan.OutputFile);
+      APlan.Warnings := LBuilder.Warnings.Text;
+    except
+      on E: Exception do
+      begin
+        APlan.Problem := E.Message;
+        Exit(False);
+      end;
+    end;
+  finally
+    LBuilder.Free;
+  end;
+  Result := APlan.PageCount > 0;
+  if not Result then
+    APlan.Problem := Format('Nothing was indexed: the %d Markdown files under ' +
+      '"%s" produced no page.', [APlan.MarkdownCount, APlan.SourceFolder]);
+  APlan.OutputExists := TFile.Exists(APlan.OutputFile);
 end;
 
 end.

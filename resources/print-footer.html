@@ -1,0 +1,23 @@
+<!-- HelpChat printable document: the band at the foot of every sheet.
+     Same rules as print-header.html - its own style, one line, replaced as
+     a whole by the file an application names in PdfFooterFile. -->
+
+<style>
+  .hc-band {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 8pt;
+    color: #5c6660;
+    width: 100%;
+    padding: 0 10mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-top: 0.5pt solid #d4dad6;
+    padding-top: 2pt;
+  }
+</style>
+
+<div class="hc-band">
+  <span>{user} &middot; {date} {time}</span>
+  <span>{page} / {pages}</span>
+</div>

@@ -12,6 +12,7 @@ uses
   HelpChatAI.Theme,
   HelpChatAI.Engine,
   HelpChatAI.Transport,
+  HelpChatAI.Html,
   HelpChatAI.Server;
 
 type
@@ -53,6 +54,10 @@ type
     [Test] procedure Attach_RefusedType_AnswersWithTheSentence;
     [Test] procedure Attach_Disabled_IsRefused;
     [Test] procedure Attach_ClearTakesThemAway;
+    [Test] procedure Pdf_Answer_ReachesTheHost;
+    [Test] procedure Pdf_Conversation_HasBothSides;
+    [Test] procedure Pdf_WithoutAHost_Says501;
+    [Test] procedure Pdf_Disabled_Says403;
   end;
 
 implementation
@@ -402,6 +407,125 @@ begin
   Assert.AreEqual('close', LGot, 'lower-cased command');
   Assert.IsTrue(LOnMainThread, 'delivered on the main thread');
   FServer.SetOnUiCommand(nil);
+end;
+
+// The document is built by the engine and handed to the host on the main
+// thread: everything below the save dialog, which belongs to the components.
+procedure TServerTests.Pdf_Answer_ReachesTheHost;
+var
+  LGot: THelpChatPrintableDoc;
+  LOnMainThread: Boolean;
+  LIds: TArray<string>;
+  I: Integer;
+begin
+  LGot := Default(THelpChatPrintableDoc);
+  LOnMainThread := False;
+  FServer.SetOnPdfRequest(
+    procedure(const ADoc: THelpChatPrintableDoc)
+    begin
+      LGot := ADoc;
+      LOnMainThread := TThread.CurrentThread.ThreadID = MainThreadID;
+    end);
+  try
+    LIds := ExtractMsgIds(Post(HELPCHAT_API_SEND,
+      HELPCHAT_FIELD_MESSAGE + '=' + 'what is **this**').ContentAsString);
+    Assert.IsTrue(Length(LIds) >= 2, 'a question and a reply');
+    // The echo provider answers at once, but not synchronously.
+    for I := 1 to 200 do
+    begin
+      if not Get(HELPCHAT_API_POLL + LIds[1]).ContentAsString.Contains('data-pending') then
+        Break;
+      Sleep(10);
+    end;
+    Assert.AreEqual(200, Post(HELPCHAT_API_PDF,
+      HELPCHAT_FIELD_PDF_KIND + '=' + HELPCHAT_PDF_KIND_ANSWER + '&' +
+      HELPCHAT_FIELD_PDF_ID + '=' + LIds[1]).StatusCode);
+    for I := 1 to 200 do
+    begin
+      CheckSynchronize(10);
+      if LGot.BodyHtml <> '' then
+        Break;
+    end;
+    Assert.IsTrue(LOnMainThread, 'delivered on the main thread');
+    Assert.IsTrue(LGot.BodyHtml.Contains('<strong>this</strong>'),
+      'the reply as Markdown, like the bubble');
+    Assert.AreEqual('', LGot.Css, 'the stylesheet is the client''s');
+    Assert.IsTrue(LGot.Title <> '', 'a document has a title: it names the file');
+    // An id nobody knows is not a document.
+    Assert.AreEqual(404, Post(HELPCHAT_API_PDF,
+      HELPCHAT_FIELD_PDF_KIND + '=' + HELPCHAT_PDF_KIND_ANSWER +
+      '&' + HELPCHAT_FIELD_PDF_ID + '=nothing').StatusCode);
+    Assert.AreEqual(404, Post(HELPCHAT_API_PDF,
+      HELPCHAT_FIELD_PDF_KIND + '=nonsense').StatusCode, 'an unknown kind');
+  finally
+    FServer.SetOnPdfRequest(nil);
+  end;
+end;
+
+procedure TServerTests.Pdf_Conversation_HasBothSides;
+var
+  LGot: THelpChatPrintableDoc;
+  I: Integer;
+begin
+  LGot := Default(THelpChatPrintableDoc);
+  FServer.SetOnPdfRequest(
+    procedure(const ADoc: THelpChatPrintableDoc)
+    begin
+      LGot := ADoc;
+    end);
+  try
+    // Nothing said yet: there is nothing to print, and that is a 404.
+    Assert.AreEqual(404, Post(HELPCHAT_API_PDF,
+      HELPCHAT_FIELD_PDF_KIND + '=' + HELPCHAT_PDF_KIND_CONVERSATION).StatusCode);
+    Post(HELPCHAT_API_SEND, HELPCHAT_FIELD_MESSAGE + '=hello');
+    for I := 1 to 200 do
+    begin
+      if not Get(HELPCHAT_API_HISTORY).ContentAsString.Contains('data-pending') then
+        Break;
+      Sleep(10);
+    end;
+    Assert.AreEqual(200, Post(HELPCHAT_API_PDF,
+      HELPCHAT_FIELD_PDF_KIND + '=' + HELPCHAT_PDF_KIND_CONVERSATION).StatusCode);
+    for I := 1 to 200 do
+    begin
+      CheckSynchronize(10);
+      if LGot.BodyHtml <> '' then
+        Break;
+    end;
+    Assert.IsTrue(LGot.BodyHtml.Contains('hc-doc-turn-user'), 'the question');
+    Assert.IsTrue(LGot.BodyHtml.Contains('hc-doc-turn-assistant'), 'the reply');
+    Assert.IsTrue(LGot.ShowTitle, 'a conversation gets a title block');
+  finally
+    FServer.SetOnPdfRequest(nil);
+  end;
+end;
+
+procedure TServerTests.Pdf_WithoutAHost_Says501;
+begin
+  // No handler: nobody in this process can write a file. Not 404 - the page
+  // says "not available here" instead of "there is nothing to print".
+  Assert.AreEqual(501, Post(HELPCHAT_API_PDF,
+    HELPCHAT_FIELD_PDF_KIND + '=' + HELPCHAT_PDF_KIND_CONVERSATION).StatusCode);
+  Assert.AreEqual(403, Post(HELPCHAT_API_PDF, '', False).StatusCode, 'token required');
+  Assert.AreEqual(404, Get(HELPCHAT_API_PDF).StatusCode, 'POST only');
+end;
+
+procedure TServerTests.Pdf_Disabled_Says403;
+begin
+  FSettings.Pdf.Enabled := False;
+  FServer.SetOnPdfRequest(
+    procedure(const ADoc: THelpChatPrintableDoc)
+    begin
+      Assert.Fail('nothing may be built when the application said no');
+    end);
+  try
+    Assert.AreEqual(403, Post(HELPCHAT_API_PDF,
+      HELPCHAT_FIELD_PDF_KIND + '=' + HELPCHAT_PDF_KIND_CONVERSATION).StatusCode);
+    Assert.DoesNotContain(FClient.Get(FTransport.GetPanelUrl).ContentAsString,
+      '"pdf":true', 'and the page is not offered the buttons');
+  finally
+    FServer.SetOnPdfRequest(nil);
+  end;
 end;
 
 procedure TServerTests.Unknown_Is404;

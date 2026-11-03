@@ -195,6 +195,10 @@ begin
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
     Assert.StartsWith(HELPCHAT_CLAUDE_DEF_SYSTEMPROMPT, LPrompt);
     Assert.Contains(LPrompt, 'The user interface of the application is in Italian. Reply in Italian,');
+    // A model has no calendar: a document it writes would be dated "today".
+    Assert.Contains(LPrompt, Format('Today is %s.',
+      [FormatDateTime('dddd, d mmmm yyyy', Date, TFormatSettings.Invariant)]),
+      'the date of today, in English, whatever the language of the reply');
     Assert.Contains(LPrompt, 'ONLY on the documentation excerpts', 'the default prompt forbids generic answers');
     Assert.DoesNotContain(LPrompt, HelpChatMsg(hcmRelevantDocs, hclItalian));
   finally

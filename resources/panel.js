@@ -49,7 +49,152 @@
   var attachments = [];      // {id, name, sizeText, ext} as the server took them
   var attachSeq = 0;         // local id of a chip while it is still uploading
 
+  var NEWLINE = '\n';
+
   function api(path) { return (HC.apiBase || '') + path; }
+
+  // ---- save as PDF -------------------------------------------------------------
+  // The page asks, the engine builds the document and the host prints it and
+  // puts it where the user says: a browser cannot write a file by itself, and
+  // the panel has no business knowing how it is done.
+  var pdfBtn = document.getElementById('hc-pdf');
+  var docPdfBtn = document.getElementById('hc-doc-pdf');
+  var copyBtn = document.getElementById('hc-copy');
+  var docCopyBtn = document.getElementById('hc-doc-copy');
+  var PDF_GLYPH = '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+    '<path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/></svg>';
+  var COPY_GLYPH = '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+    '<path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 ' +
+    '21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>';
+  var DONE_GLYPH = '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+    '<path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>';
+  function pdfOn() { return HC.pdf !== false && HC.hostCommands !== false; }
+  function requestPdf(kind, id) {
+    var headers = {};
+    headers[TOKEN_HEADER] = HC.token;
+    headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
+    fetch(api('/api/pdf'), {
+      method: 'POST', headers: headers,
+      body: 'kind=' + encodeURIComponent(kind) + '&id=' + encodeURIComponent(id || '')
+    }).then(function (r) {
+      if (r.ok) return;
+      // 501: nobody on this side can write a file (a remote engine).
+      // 404: there is nothing to print yet.
+      showSystem(r.status === 501 ? HC.labels.pdfUnavailable : HC.labels.pdfNothing);
+    }).catch(function () { showSystem(HC.labels.sendError); });
+  }
+  function setGlyph(btn, label, glyph) {
+    btn.innerHTML = glyph || PDF_GLYPH;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.hidden = false;
+  }
+
+  // ---- copy to the clipboard ---------------------------------------------
+  // Both flavours at once: the HTML keeps the bold, the lists and the tables
+  // for a word processor, the plain text is what an editor or a plain mail
+  // gets. This one needs nobody - no engine, no host - so it is there even
+  // when the engine is remote and the PDF button is not.
+  function copyRich(html, text, btn) {
+    var done = function () { flashDone(btn); };
+    var fallback = function () {
+      // No ClipboardItem, or it was refused: select a hidden node and let the
+      // browser put both flavours there, which is what copying a selection
+      // has always done.
+      var holder = document.createElement('div');
+      holder.setAttribute('aria-hidden', 'true');
+      holder.style.cssText =
+        'position:fixed;left:-9999px;top:0;white-space:pre-wrap;user-select:text';
+      holder.innerHTML = html;
+      document.body.appendChild(holder);
+      var ok = false;
+      var sel = window.getSelection();
+      try {
+        var range = document.createRange();
+        range.selectNodeContents(holder);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        ok = document.execCommand('copy');
+      } catch (e) { ok = false; }
+      sel.removeAllRanges();
+      document.body.removeChild(holder);
+      if (ok) done(); else showSystem(HC.labels.copyFailed);
+      focusInput();
+    };
+    if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+      try {
+        var item = new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' })
+        });
+        navigator.clipboard.write([item]).then(done, fallback);
+        return;
+      } catch (e) { /* down to the selection */ }
+    }
+    fallback();
+  }
+  // The button says it took, for a moment, then goes back to what it was.
+  function flashDone(btn) {
+    if (!btn) return;
+    var title = btn.title;
+    btn.innerHTML = DONE_GLYPH;
+    btn.classList.add('hc-done');
+    btn.title = HC.labels.copied;
+    btn.setAttribute('aria-label', HC.labels.copied);
+    setTimeout(function () {
+      btn.innerHTML = COPY_GLYPH;
+      btn.classList.remove('hc-done');
+      btn.title = title;
+      btn.setAttribute('aria-label', title);
+    }, 1400);
+  }
+  // What a turn is made of, on both sides: the HTML the engine sent, and the
+  // text the browser lays out from it - which is why a table copied as text
+  // still reads as a table.
+  function bubbleOf(node) { return node ? node.querySelector('.hc-chat-bubble') : null; }
+  function copyAnswer(id, btn) {
+    var bubble = bubbleOf(findMsg(id));
+    if (!bubble) return;
+    copyRich(bubble.innerHTML, bubble.innerText, btn);
+  }
+  function copyConversation(btn) {
+    var nodes = body.querySelectorAll('.hc-chat-msg[data-msgid]');
+    var html = '', text = '', i, node, bubble, who;
+    for (i = 0; i < nodes.length; i++) {
+      node = nodes[i];
+      // A reply still being written, and the errors, are not the
+      // conversation: the printed document leaves them out too.
+      if (node.hasAttribute('data-pending') || node.hasAttribute('data-error')) continue;
+      bubble = bubbleOf(node);
+      if (!bubble) continue;
+      who = node.classList.contains('hc-chat-user')
+        ? HC.labels.roleUser : HC.labels.roleAssistant;
+      html += '<p><strong>' + escapeHtml(who) + '</strong></p>' + bubble.innerHTML;
+      text += who + ':' + NEWLINE + bubble.innerText + NEWLINE + NEWLINE;
+    }
+    if (!html) { showSystem(HC.labels.pdfNothing); return; }
+    copyRich('<div>' + html + '</div>', text, btn);
+  }
+  // An answer gets its button after every swap and after every poll that
+  // replaced the bubble: the node that had one is gone.
+  function answerButton(node, attribute, label, glyph) {
+    if (node.querySelector('[' + attribute + ']')) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'hc-chat-mbtn';
+    btn.setAttribute(attribute, node.getAttribute('data-msgid'));
+    setGlyph(btn, label, glyph);
+    node.appendChild(btn);
+  }
+  function decorateAnswers() {
+    var nodes = body.querySelectorAll(
+      '.hc-chat-assistant[data-msgid]:not([data-pending]):not([data-error])');
+    for (var i = 0; i < nodes.length; i++) {
+      answerButton(nodes[i], 'data-copy-msg', HC.labels.copyAnswer, COPY_GLYPH);
+      if (pdfOn())
+        answerButton(nodes[i], 'data-pdf-msg', HC.labels.pdfAnswer, PDF_GLYPH);
+    }
+  }
   function scrollBottom() { body.scrollTop = body.scrollHeight; }
   function findMsg(id) {
     var nodes = body.querySelectorAll('[data-msgid]');
@@ -97,6 +242,7 @@
         var el = findMsg(id);
         if (!el || !html) { stopPoll(id); return; }
         el.outerHTML = html;               // the old node is gone: re-read it
+        decorateAnswers();
         scrollBottom();
         var fresh = findMsg(id);
         if (!fresh || !fresh.hasAttribute('data-pending')) { stopPoll(id); return; }
@@ -185,6 +331,7 @@
     }
     scrollBottom();
     watchPending();
+    decorateAnswers();
     if (!fromForm(e)) seedQuestions();
     focusInput();          // every command ends with the caret back in the box
   });
@@ -487,6 +634,37 @@
         renderAttachments();
       })
       .catch(function () {});
+  }
+  if (copyBtn) {
+    setGlyph(copyBtn, HC.labels.copyConversation, COPY_GLYPH);
+    copyBtn.addEventListener('click', function () { copyConversation(copyBtn); });
+  }
+  if (docCopyBtn) {
+    setGlyph(docCopyBtn, HC.labels.copyPage, COPY_GLYPH);
+    docCopyBtn.addEventListener('click', function () {
+      var page = document.getElementById('hc-doc-body');
+      if (page) copyRich(page.innerHTML, page.innerText, docCopyBtn);
+    });
+  }
+  body.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-copy-msg]') : null;
+    if (btn) copyAnswer(btn.getAttribute('data-copy-msg'), btn);
+  });
+  if (pdfOn()) {
+    if (pdfBtn) {
+      setGlyph(pdfBtn, HC.labels.pdfConversation);
+      pdfBtn.addEventListener('click', function () { requestPdf('conversation', ''); });
+    }
+    if (docPdfBtn) {
+      setGlyph(docPdfBtn, HC.labels.pdfPage);
+      docPdfBtn.addEventListener('click', function () {
+        if (docPage) requestPdf('page', docPage);
+      });
+    }
+    body.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('[data-pdf-msg]') : null;
+      if (btn) requestPdf('answer', btn.getAttribute('data-pdf-msg'));
+    });
   }
   if (clipBtn && fileInput) {
     if (HC.attach) {

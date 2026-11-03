@@ -95,6 +95,47 @@ function HelpChatRenderGreeting(const AGreeting: string): string;
 function HelpChatRenderHistory(const AMessages: TArray<THelpChatMessage>;
   const AGreeting: string): string;
 
+type
+  /// <summary>
+  ///  A whole HTML document to print, as opposed to the fragments the panel
+  ///  swaps into its page. Self-contained on purpose: the stylesheet is
+  ///  written inline and the images are expected to be <c>data:</c> URIs
+  ///  already, because what renders it is a WebView2 that loads the document
+  ///  as a string and has nowhere to fetch a relative file from.
+  /// </summary>
+  THelpChatPrintableDoc = record
+    /// <summary>Document title: the window title and, when
+    /// <see cref="ShowTitle" />, the heading at the top.</summary>
+    Title: string;
+    /// <summary>One line under the title: the application, the date.</summary>
+    Subtitle: string;
+    /// <summary>Language of the document ("en", "it"), for hyphenation.</summary>
+    LangCode: string;
+    /// <summary>The stylesheet, written inline.</summary>
+    Css: string;
+    /// <summary>The body, already HTML.</summary>
+    BodyHtml: string;
+    /// <summary>Print the title block. Off when the body already opens with
+    /// the title of the document, which an answer in Markdown usually
+    /// does.</summary>
+    ShowTitle: Boolean;
+    /// <summary>The complete page.</summary>
+    function Render: string;
+  end;
+
+/// <summary>A printable document out of Markdown (the answer of a model, a
+/// page of the manual): the Markdown goes through
+/// <see cref="HelpChatMarkdownToSafeHtml" />, exactly like a bubble - what the
+/// model writes is untrusted on paper too.</summary>
+function HelpChatMarkdownDocument(const ATitle, AMarkdown, ACss: string): THelpChatPrintableDoc;
+
+/// <summary>A printable document out of a conversation: one block per turn,
+/// the question as text and the answer as Markdown. The two labels are the
+/// localized names of who speaks, because this unit knows no language.</summary>
+function HelpChatConversationDocument(const ATitle: string;
+  const AMessages: TArray<THelpChatMessage>;
+  const ACss, AUserLabel, AAssistantLabel: string): THelpChatPrintableDoc;
+
 implementation
 
 uses
@@ -346,6 +387,101 @@ begin
     for LMessage in AMessages do
       LSb.Append(HelpChatRenderBubble(LMessage));
     Result := LSb.ToString;
+  finally
+    LSb.Free;
+  end;
+end;
+
+{ THelpChatPrintableDoc }
+
+function THelpChatPrintableDoc.Render: string;
+var
+  LSb: TStringBuilder;
+  LLang: string;
+begin
+  LSb := TStringBuilder.Create;
+  try
+    LLang := LangCode;
+    if LLang = '' then
+      LLang := 'en';
+    LSb.Append('<!doctype html>'#13#10);
+    LSb.Append('<html lang="').Append(TNetEncoding.HTML.Encode(LLang)).Append('">'#13#10);
+    LSb.Append('<head>'#13#10);
+    LSb.Append('<meta charset="utf-8">'#13#10);
+    LSb.Append('<title>').Append(TNetEncoding.HTML.Encode(Title)).Append('</title>'#13#10);
+    LSb.Append('<style>'#13#10).Append(Css).Append(#13#10'</style>'#13#10);
+    LSb.Append('</head>'#13#10);
+    LSb.Append('<body><article class="hc-doc">'#13#10);
+    if ShowTitle and (Title.Trim <> '') then
+    begin
+      LSb.Append('<header class="hc-doc-head"><h1>');
+      LSb.Append(TNetEncoding.HTML.Encode(Title)).Append('</h1>');
+      if Subtitle.Trim <> '' then
+        LSb.Append('<div class="hc-doc-meta">')
+          .Append(TNetEncoding.HTML.Encode(Subtitle)).Append('</div>');
+      LSb.Append('</header>'#13#10);
+    end;
+    LSb.Append(BodyHtml);
+    LSb.Append(#13#10'</article></body></html>');
+    Result := LSb.ToString;
+  finally
+    LSb.Free;
+  end;
+end;
+
+function HelpChatMarkdownDocument(const ATitle, AMarkdown, ACss: string): THelpChatPrintableDoc;
+begin
+  Result := Default(THelpChatPrintableDoc);
+  Result.Title := ATitle;
+  Result.Css := ACss;
+  Result.BodyHtml := HelpChatMarkdownToSafeHtml(AMarkdown);
+  // A document written by a model nearly always opens with its own "# Title":
+  // a title block on top of it would say the same thing twice. A "##" is a
+  // section, not the title of the document, so that one keeps its block.
+  Result.ShowTitle := not AMarkdown.TrimLeft.StartsWith('# ');
+end;
+
+function HelpChatConversationDocument(const ATitle: string;
+  const AMessages: TArray<THelpChatMessage>;
+  const ACss, AUserLabel, AAssistantLabel: string): THelpChatPrintableDoc;
+var
+  LMessage: THelpChatMessage;
+  LSb: TStringBuilder;
+begin
+  Result := Default(THelpChatPrintableDoc);
+  Result.Title := ATitle;
+  Result.Css := ACss;
+  Result.ShowTitle := True;
+  LSb := TStringBuilder.Create;
+  try
+    for LMessage in AMessages do
+    begin
+      // A reply still being written, and the errors, are not part of a
+      // document somebody files away.
+      if LMessage.Pending or LMessage.IsError or (LMessage.Content.Trim = '') then
+        Continue;
+      if LMessage.Role = hcrSystem then
+      begin
+        LSb.Append('<p class="hc-doc-note">')
+          .Append(HelpChatTextToHtml(LMessage.Content)).Append('</p>'#13#10);
+        Continue;
+      end;
+      LSb.Append('<section class="hc-doc-turn hc-doc-turn-')
+        .Append(HelpChatRoleClass(LMessage.Role)).Append('">'#13#10);
+      LSb.Append('<div class="hc-doc-who">');
+      if LMessage.Role = hcrUser then
+        LSb.Append(TNetEncoding.HTML.Encode(AUserLabel))
+      else
+        LSb.Append(TNetEncoding.HTML.Encode(AAssistantLabel));
+      LSb.Append('</div>'#13#10);
+      LSb.Append('<div class="hc-doc-body">');
+      if LMessage.Role = hcrUser then
+        LSb.Append('<p>').Append(HelpChatTextToHtml(LMessage.Content)).Append('</p>')
+      else
+        LSb.Append(HelpChatMarkdownToSafeHtml(LMessage.Content));
+      LSb.Append('</div>'#13#10'</section>'#13#10);
+    end;
+    Result.BodyHtml := LSb.ToString;
   finally
     LSb.Free;
   end;

@@ -24,6 +24,9 @@ type
     [Test] procedure Build_Encodings_AreDecoded;
     [Test] procedure Build_RealHelp_TextIsClean;
     [Test] procedure Json_IsLoadableByDocIndex;
+    [Test] procedure Plan_FromSettings_ReadsFolderTocAndLinks;
+    [Test] procedure Plan_WithoutAFolder_SaysWhy;
+    [Test] procedure Plan_Run_WritesTheIndex;
   end;
 
 implementation
@@ -35,6 +38,7 @@ uses
   System.Generics.Collections,
   HelpChatAI.Types,
   HelpChatAI.DocIndex,
+  HelpChatAI.Settings,
   HelpChatAI.Tests.Helpers;
 
 function HelpFolder: string;
@@ -375,6 +379,104 @@ begin
     Assert.AreEqual('CRM Demo', LFound[0].Title);
   finally
     LRetriever := nil;
+  end;
+end;
+
+procedure TIndexBuilderTests.Plan_FromSettings_ReadsFolderTocAndLinks;
+var
+  LSettings: THelpChatSettings;
+  LPlan: THelpChatIndexPlan;
+begin
+  // Il piano e' quello che la voce di menu del componente propone: la
+  // cartella e il file li dicono le impostazioni, il sommario e l'estensione
+  // dei link si deducono da quello che c'e'.
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.DocFolder := HelpFolder;
+    LSettings.DocIndexFile := TPath.Combine(HelpFolder, 'help-index.json');
+    LPlan := HelpChatPlanIndexBuild(LSettings);
+    Assert.IsTrue(LPlan.CanBuild, LPlan.Problem);
+    Assert.AreEqual(HelpFolder, LPlan.SourceFolder);
+    Assert.IsTrue(LPlan.MarkdownCount >= 15, 'the manual has more pages than that');
+    // Il sommario del manuale si chiama Index.md: il nome e' quello scritto
+    // sul disco, non quello cercato.
+    Assert.AreEqual('Index.md', LPlan.TocFile);
+    Assert.IsTrue(LPlan.OutputExists, 'the index of the demo is versioned');
+    // Senza DocBaseUrl le pagine si leggono nel pannello: il link resta .md.
+    Assert.AreEqual('', LPlan.UrlExtension);
+    Assert.Contains(LPlan.Describe, 'page.md');
+    LSettings.DocBaseUrl := 'https://help.example.com/crm/';
+    LPlan := HelpChatPlanIndexBuild(LSettings);
+    Assert.AreEqual(HELPCHAT_INDEXBUILDER_DEF_URLEXT, LPlan.UrlExtension);
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TIndexBuilderTests.Plan_WithoutAFolder_SaysWhy;
+var
+  LSettings: THelpChatSettings;
+  LPlan: THelpChatIndexPlan;
+begin
+  LSettings := THelpChatSettings.Create;
+  try
+    // Nessuna cartella: niente da indicizzare, e il perche' si legge.
+    LPlan := HelpChatPlanIndexBuild(LSettings);
+    Assert.IsFalse(LPlan.CanBuild);
+    Assert.Contains(LPlan.Problem, 'DocFolder');
+    Assert.IsFalse(HelpChatRunIndexBuild(LPlan), 'a plan that cannot be built must not run');
+
+    // Una cartella che non c'e' e' un errore diverso, e lo dice.
+    LSettings.DocFolder := TPath.Combine(TPath.GetTempPath, 'HelpChatNoSuchFolder');
+    LPlan := HelpChatPlanIndexBuild(LSettings);
+    Assert.IsFalse(LPlan.CanBuild);
+    Assert.Contains(LPlan.Problem, 'does not exist');
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TIndexBuilderTests.Plan_Run_WritesTheIndex;
+var
+  LSettings: THelpChatSettings;
+  LPlan: THelpChatIndexPlan;
+  LFolder, LOutput: string;
+  LIndex: THelpChatDocIndex;
+begin
+  LFolder := TPath.Combine(TPath.GetTempPath, 'HelpChatPlan' + TGUID.NewGuid.ToString);
+  TDirectory.CreateDirectory(LFolder);
+  try
+    TFile.WriteAllText(TPath.Combine(LFolder, 'Index.md'),
+      '# Contents'#13#10#13#10'- [The first page](First.md)'#13#10, TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(LFolder, 'First.md'),
+      '# First'#13#10#13#10'How to export the mailing list of a campaign.'#13#10,
+      TEncoding.UTF8);
+    LOutput := TPath.Combine(LFolder, 'help-index.json');
+    LSettings := THelpChatSettings.Create;
+    try
+      LSettings.DocFolder := LFolder;
+      LSettings.DocIndexFile := LOutput;
+      LPlan := HelpChatPlanIndexBuild(LSettings);
+      Assert.IsFalse(LPlan.OutputExists, 'nothing has been written yet');
+      Assert.AreEqual('Index.md', LPlan.TocFile);
+      Assert.IsTrue(HelpChatRunIndexBuild(LPlan), LPlan.Problem);
+      // Il sommario non e' una pagina: resta una sola.
+      Assert.AreEqual(1, LPlan.PageCount);
+      Assert.IsTrue(LPlan.OutputExists);
+      Assert.IsTrue(TFile.Exists(LOutput));
+      // E quello che ha scritto e' quello che l'applicazione legge.
+      LIndex := THelpChatDocIndex.Create;
+      try
+        LIndex.LoadFromJSON(TFile.ReadAllText(LOutput, TEncoding.UTF8));
+        Assert.AreEqual(1, LIndex.Count);
+      finally
+        LIndex.Free;
+      end;
+    finally
+      LSettings.Free;
+    end;
+  finally
+    TDirectory.Delete(LFolder, True);
   end;
 end;
 

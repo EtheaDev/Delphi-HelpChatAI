@@ -65,6 +65,8 @@ uses
   HelpChatAI.Settings,
   HelpChatAI.Theme,
   HelpChatAI.Engine,
+  HelpChatAI.Html,
+  HelpChatAI.Pdf,
   HelpChatAI.Transport;
 
 const
@@ -141,6 +143,11 @@ type
     FRegisterHelpViewer: Boolean;
     FShowBubble: Boolean;
     FConfigFileName: TFileName;
+    FPdfStyleSheet: TFileName;
+    FPdfHeaderFile: TFileName;
+    FPdfFooterFile: TFileName;
+    FOnPdfInfo: THelpChatPdfInfoEvent;
+    FOnDecryptSecret: THelpChatSecretEvent;
     FCaption: string;
     FAssistantName: string;
     FRememberPanelPosition: Boolean;
@@ -169,6 +176,7 @@ type
     procedure ActionExecuted(Sender: TObject; const AName: string;
       const AOutcome: THelpChatActionOutcome; const AResult: string);
     procedure SetSettings(const Value: THelpChatSettings);
+    procedure SetOnDecryptSecret(const Value: THelpChatSecretEvent);
     procedure SetContainer(const Value: TFmxObject);
     procedure SetActive(const Value: Boolean);
     procedure SetShowBubble(const Value: Boolean);
@@ -191,6 +199,8 @@ type
     procedure PositionOwnForm;
     procedure OwnFormClosedByUser(Sender: TObject);
     procedure UiCommand(const ACommand: string);
+    procedure PdfRequest(const ADoc: THelpChatPrintableDoc);
+    procedure RegisterPdfAction;
     procedure ViewPageReady(Sender: TObject);
     procedure ViewOpenLink(Sender: TObject; const AUrl: string; var AHandled: Boolean);
     procedure HideView;
@@ -328,6 +338,43 @@ type
     /// (%APPDATA%\HelpChat), the one next to the executable, then the per-user
     /// one of this application - which is where an API key belongs.</summary>
     property ConfigFileName: TFileName read FConfigFileName write FConfigFileName;
+    /// <summary>The stylesheet a saved PDF is laid out with. Empty = the one
+    /// built into the library; a relative path resolves against the
+    /// executable.</summary>
+    property PdfStyleSheet: TFileName read FPdfStyleSheet write FPdfStyleSheet;
+    /// <summary>The band printed at the top of every sheet of a saved PDF,
+    /// as an HTML template. Empty = the one built into the library; a
+    /// relative path resolves against the executable. Only printed when
+    /// <c>Settings.Pdf.HeaderFooter</c> is on. The placeholders are
+    /// <c>{app} {version} {user} {title} {date} {time} {extra}</c> and, for
+    /// the numbering, <c>{page}</c> and <c>{pages}</c>.</summary>
+    property PdfHeaderFile: TFileName read FPdfHeaderFile write FPdfHeaderFile;
+    /// <summary>The band printed at the foot of every sheet. See
+    /// <see cref="PdfHeaderFile" />.</summary>
+    property PdfFooterFile: TFileName read FPdfFooterFile write FPdfFooterFile;
+    /// <summary>Fired before a document is printed, with what the library
+    /// found out by itself: the name and version in the version information
+    /// of the executable, the user Windows is logged on as, the clock. Change
+    /// what the application knows better - the user who logged into it is
+    /// rarely the user of the machine - and fill <c>Extra</c> for the
+    /// <c>{extra}</c> placeholder.</summary>
+    property OnPdfInfo: THelpChatPdfInfoEvent read FOnPdfInfo write FOnPdfInfo;
+    /// <summary>Turns a secret kept encrypted in the configuration into the
+    /// value to use: the API key of the provider
+    /// (<c>Claude.ApiKey</c>...) and the credentials of a remote engine
+    /// (<c>Remote.AppKey</c>, <c>Remote.UserToken</c>), told apart by
+    /// <c>AName</c>. Without a handler nothing changes: the value is used as
+    /// the configuration holds it.
+    ///
+    /// <b>It runs on the worker thread</b> that is about to call the service:
+    /// decrypt and return, never show anything. It does not run inside the
+    /// IDE either, so a design-time check cannot try the key - it only asks
+    /// whether one is there.
+    ///
+    /// See <see cref="THelpChatSecretEvent" />, and <c>uAppSecret</c> of the
+    /// CRM demo for a worked example.</summary>
+    property OnDecryptSecret: THelpChatSecretEvent read FOnDecryptSecret
+      write SetOnDecryptSecret;
     /// <summary>Offer the registered actions to the model. False keeps them
     /// registered but invisible: the assistant can only answer.</summary>
     property ActionsEnabled: Boolean read FActionsEnabled write SetActionsEnabled default True;
@@ -369,6 +416,8 @@ uses
   System.IOUtils,
   System.JSON,
   System.Math,
+  FMX.Dialogs,
+  FMX.DialogService,
   FMX.TabControl,
   HelpChatAI.Panel,            // the page contract: it decides the default name
   HelpChatAI.Server,
@@ -499,6 +548,15 @@ end;
 procedure TFmxHelpChatAI.SetSettings(const Value: THelpChatSettings);
 begin
   FSettings.Assign(Value);
+  // Assign brought the handler of the settings that were assigned, which are
+  // not ours: the component keeps the last word on who decrypts its secrets.
+  FSettings.SetSecretHandler(FOnDecryptSecret, Self);
+end;
+
+procedure TFmxHelpChatAI.SetOnDecryptSecret(const Value: THelpChatSecretEvent);
+begin
+  FOnDecryptSecret := Value;
+  FSettings.SetSecretHandler(Value, Self);
 end;
 
 procedure TFmxHelpChatAI.SetHostForm(const Value: TCommonCustomForm);
@@ -576,6 +634,8 @@ begin
       FEngine.Start;
     FTransport := CreateTransport(FEngine);
     FTransport.SetOnUiCommand(UiCommand);
+    FTransport.SetOnPdfRequest(PdfRequest);
+    RegisterPdfAction;
     try
       FTransport.Start;
     except
@@ -630,6 +690,10 @@ begin
     if Assigned(FTransport) then
     begin
       FTransport.SetOnUiCommand(nil);
+      FTransport.SetOnPdfRequest(nil);
+      // Ours, so ours to take away: what the application registered stays.
+      if Assigned(FActions) then
+        FActions.Remove(HELPCHAT_PDF_ACTION);
       FTransport.Stop;
       FTransport := nil;
     end;
@@ -1176,6 +1240,123 @@ begin
     AAllow := False;
 end;
 
+procedure TFmxHelpChatAI.RegisterPdfAction;
+begin
+  // The assistant may write a document and hand it over. Off by default: it
+  // is one more tool in every request, and an answer that becomes a file
+  // without anybody asking for one.
+  if not (FSettings.Pdf.Enabled and FSettings.Pdf.Action) then
+    Exit;
+  FActions.Add(HELPCHAT_PDF_ACTION,
+    'Saves a document you have written as a PDF file on the computer of the ' +
+    'user. Use it when the user asks for a document, a report, a summary or a ' +
+    'PDF - not for an ordinary answer. Write the whole document in Markdown: ' +
+    'headings, lists and tables are laid out. The user is asked where to save ' +
+    'it and may say no.',
+    [THelpChatActionParam.Create('title',
+       'Title of the document. It is also what the save dialog offers as the file name.'),
+     THelpChatActionParam.Create('markdown',
+       'The document itself, in Markdown, complete.')],
+    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+    var
+      LDoc: THelpChatPrintableDoc;
+    begin
+      LDoc := HelpChatMarkdownDocument(AArgs.AsString('title'),
+        AArgs.AsString('markdown'), '');
+      LDoc.LangCode := HelpChatLanguageCode(FSettings.Language);
+      // An action handler must return at once - a worker is waiting for it -
+      // and a save dialog waits for a human. So the model is answered now and
+      // the dialog opens next time round the message loop.
+      TThread.ForceQueue(nil,
+        procedure
+        begin
+          PdfRequest(LDoc);
+        end);
+      AResult := HelpChatMsg(hcmPdfHandedOver, FSettings.Language);
+    end);
+end;
+
+procedure TFmxHelpChatAI.PdfRequest(const ADoc: THelpChatPrintableDoc);
+var
+  LDoc: THelpChatPrintableDoc;
+  LPage: THelpChatPdfPage;
+  LInfo: THelpChatPdfInfo;
+  LDialog: TSaveDialog;
+  LExporter: THelpChatPdfExporter;
+  LFileName, LError: string;
+begin
+  // The same three steps as in the VCL - the stylesheet, where to put it,
+  // print - with the two differences FireMonkey always has: no browser of
+  // ours to borrow an environment from (the TWebBrowser keeps its WebView2 to
+  // itself) and a question that is answered in a callback.
+  if not FActive then
+    Exit;
+  if not THelpChatPdfExporter.IsAvailable then
+  begin
+    ShowMessage(HelpChatMsg(hcmPdfUnavailable, FSettings.Language));
+    Exit;
+  end;
+  LDoc := ADoc;
+  try
+    LDoc.Css := THelpChatPanel.PrintCss(FPdfStyleSheet);
+  except
+    on E: Exception do
+    begin
+      ShowMessage(HelpChatMsgFmt(hcmPdfFailed, [E.Message], FSettings.Language));
+      Exit;
+    end;
+  end;
+  LDialog := TSaveDialog.Create(nil);
+  try
+    LDialog.Filter := HelpChatMsg(hcmPdfFilter, FSettings.Language);
+    LDialog.DefaultExt := 'pdf';
+    LDialog.FileName := HelpChatPdfFileName(LDoc.Title);
+    LDialog.Options := LDialog.Options + [TOpenOption.ofOverwritePrompt,
+      TOpenOption.ofPathMustExist];
+    if not LDialog.Execute then
+      Exit;
+    LFileName := LDialog.FileName;
+  finally
+    LDialog.Free;
+  end;
+  // The bands, when they were asked for. They are built here and not in the
+  // engine because they say what the application is, and only the client
+  // knows that.
+  LPage := FSettings.Pdf.Page(LDoc.Title);
+  if FSettings.Pdf.HeaderFooter then
+  begin
+    LInfo := HelpChatPdfDefaultInfo;
+    LInfo.Title := LDoc.Title;
+    if Assigned(FOnPdfInfo) then
+      FOnPdfInfo(Self, LInfo);
+    LPage.HeaderHtml := HelpChatPdfExpand(THelpChatPanel.PrintHeader(FPdfHeaderFile), LInfo);
+    LPage.FooterHtml := HelpChatPdfExpand(THelpChatPanel.PrintFooter(FPdfFooterFile), LInfo);
+  end;
+  LExporter := THelpChatPdfExporter.Create;
+  try
+    if not LExporter.ExportHtml(LDoc.Render, LFileName, LPage, LError) then
+    begin
+      ShowMessage(HelpChatMsgFmt(hcmPdfFailed, [LError], FSettings.Language));
+      Exit;
+    end;
+    // The document is there and is right: only the bands are missing.
+    if LExporter.BandsDropped then
+      ShowMessage(HelpChatMsgFmt(hcmPdfNoBands, [ExtractFileName(LFileName)],
+        FSettings.Language));
+  finally
+    LExporter.Free;
+  end;
+  TDialogService.MessageDialog(
+    HelpChatMsgFmt(hcmPdfOpen, [ExtractFileName(LFileName)], FSettings.Language),
+    TMsgDlgType.mtConfirmation, [TMsgDlgBtn.mbYes, TMsgDlgBtn.mbNo],
+    TMsgDlgBtn.mbYes, 0,
+    procedure(const AResult: TModalResult)
+    begin
+      if AResult = mrYes then
+        HelpChatOpenDocument(LFileName);
+    end);
+end;
+
 procedure TFmxHelpChatAI.UiCommand(const ACommand: string);
 begin
   // What the page asked through the server (its ✕ button or Esc).
@@ -1498,5 +1679,10 @@ begin
   Result := Assigned(FView) and FView.Visible and Assigned(FActiveContainer) and
     ((FActiveContainer <> FOwnForm) or FOwnForm.Visible);
 end;
+
+initialization
+  // See the note in Vcl.HelpChatAI: without this the component would also be
+  // offered on a VCL form, where it cannot work.
+  GroupDescendentsWith(TFmxHelpChatAI, FMX.Types.TFmxObject);
 
 end.

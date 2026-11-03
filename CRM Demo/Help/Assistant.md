@@ -26,6 +26,22 @@ know rather than invent. **Read more** opens the whole page inside the assistant
 The conversation stays as you move around the application, and the ↻ button at the top
 clears it.
 
+## Keeping an answer
+
+An answer is not only to be read. Move the mouse over one and two small buttons appear
+beside it:
+
+| Button | What it does |
+| - | - |
+| Copy | Puts the answer in the clipboard **with its formatting**: paste it into Word, into an e-mail or into a note and the bold, the lists and the tables are still there. Paste it into a plain text editor and you get clean text |
+| Save as PDF | Asks where to put the file and writes it, with the name of the application at the top of every sheet and your name, the date and the page number at the foot |
+
+The same two buttons at the top of the assistant do it for the **whole conversation**,
+questions and answers; the ones in the bar of a documentation page do it for **that page**.
+
+You can also simply ask: *"write me a PDF with a summary of what we said"*. The assistant
+writes the document and the save dialog opens with it ready.
+
 ## Asking it to do things
 
 ![Three things done by asking](Images/assistant-actions.png)
@@ -65,15 +81,35 @@ the leads, the accounts, the proposals and the attached documents stay where the
 the assistant cannot read them. Ask it how many leads you have and it will tell you to look
 at the [Dashboard](Dashboard.md).
 
-It needs an API key, in `helpchatai.json` in the `HelpChatAI` folder of your user profile
-(`%APPDATA%\HelpChatAI`):
+It needs an API key, and without one the assistant still opens: it answers that the key is
+missing, and everything else in the application works as always — the assistant is help, not
+a requirement.
+
+## Where the key lives
+
+The first run without a key opens a **License activation** window. That is where a real
+application would ask its licensing service for the key and keep what comes back; this demo
+has no service, so it asks you for an Anthropic key (`sk-ant-...`).
+
+What you paste is not stored the way you typed it. It is encrypted with a secret of this
+application and written to `helpchatai.json` in the folder of the application inside your
+user profile — `%APPDATA%\VCL_CRMDemo` or `%APPDATA%\FMX_CRMDemo`:
 
 ```json
-{ "Claude": { "ApiKey": "sk-ant-..." } }
+{ "Claude": { "ApiKey": "enc:WMilAglKvAgz..." } }
 ```
 
-Without it the assistant opens and answers that the key is missing. Everything else in the
-application works as always — the assistant is help, not a requirement.
+The window only shows up when no key can be found at all. Before asking, the demo looks at
+`%APPDATA%\HelpChatAI\helpchatai.json` (shared by every HelpChatAI application), at a
+`helpchatai.json` next to the executable and at the `ANTHROPIC_API_KEY` environment
+variable — a key written in clear in any of them keeps working, nothing had to change.
+
+Encrypting it is worth something: the configuration file can be copied, backed up or shown
+on a screen without giving the key away. It is not a vault, and the demo says so in the
+first lines of `CRM Demo\common\uAppSecret.pas` — the passphrase travels inside the
+executable, so whoever owns the machine can get it out. An application that needs more asks
+its own server for the secret, or lets the key stay on a HelpChatAI server and never reach
+the client at all.
 
 ## When it does not know
 

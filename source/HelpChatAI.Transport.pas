@@ -41,12 +41,20 @@ uses
   System.SysUtils,
   HelpChatAI.Types,
   HelpChatAI.Theme,
+  HelpChatAI.Html,
   HelpChatAI.Engine;
 
 type
   /// <summary>A command the page sent to its host ('close'); delivered on the
   /// main thread.</summary>
   THelpChatUiCommandEvent = reference to procedure(const ACommand: string);
+
+  /// <summary>A document the page asked to be saved as PDF, delivered on the
+  /// main thread. It arrives without a stylesheet on purpose: what it looks
+  /// like is the client's business, exactly like the colours of the panel -
+  /// and so is where the file goes, which only the client can ask the
+  /// user.</summary>
+  THelpChatPdfRequestEvent = reference to procedure(const ADoc: THelpChatPrintableDoc);
 
   IHelpChatTransport = interface
     ['{E2B7C4D9-5A31-4F8E-9C06-7D1B3A2E8F54}']
@@ -86,6 +94,10 @@ type
     /// messages exist only in the VCL, FMX exposes none, a remote page has no
     /// native side at all. The server is the bridge everywhere.</summary>
     procedure SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
+    /// <summary>Receives what the page wants turned into a PDF, on the main
+    /// thread. Nothing is delivered when the engine is remote: the document
+    /// would be built on the server and there is no channel back yet.</summary>
+    procedure SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
   end;
 
 implementation

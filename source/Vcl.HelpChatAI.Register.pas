@@ -166,6 +166,7 @@ resourcestring
   SHelpChatAboutLicense = 'Apache 2.0 (Free/Opensource)';
   SHelpChatVerbTest = '&Test HelpChat...';
   SHelpChatVerbCheck = '&Check configuration...';
+  SHelpChatVerbIndex = '&Rebuild documentation index...';
   SHelpChatVerbAbout = 'Ver. %s - (c) Ethea S.r.l. - Open Web Help...';
   SHelpChatCheckOk = 'HelpChat is ready to run with this configuration.';
   SHelpChatCheckFailed = 'HelpChat cannot run with this configuration:';
@@ -334,7 +335,7 @@ end;
 
 function TVclHelpChatComponentEditor.GetVerbCount: Integer;
 begin
-  Result := 3;
+  Result := 4;
 end;
 
 function TVclHelpChatComponentEditor.GetVerb(Index: Integer): string;
@@ -342,7 +343,8 @@ begin
   case Index of
     0: Result := SHelpChatVerbTest;
     1: Result := SHelpChatVerbCheck;
-    2: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
+    2: Result := SHelpChatVerbIndex;
+    3: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
   else
     Result := '';
   end;
@@ -370,6 +372,9 @@ begin
             HelpChatIssuesToText(LIssues), mtInformation, [mbOK], 0);
       end;
     2:
+      if Assigned(LChat) then
+        HelpChatDesignRebuildIndex(TVclHelpChatAI(LChat));
+    3:
       ShellExecute(0, 'open', PChar(HELPCHAT_DOCS_URL), nil, nil, SW_SHOWNORMAL);
   end;
 end;

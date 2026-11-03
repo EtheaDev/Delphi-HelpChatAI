@@ -7,6 +7,19 @@ uses
   HelpChatAI.Settings;
 
 type
+  /// <summary>A secret handler of the kind an application writes: it answers
+  /// for the values it recognizes - here anything starting with <c>enc:</c>,
+  /// "decrypted" by reversing what follows - and leaves the others alone.
+  /// No cipher is involved on purpose: what is under test is the contract,
+  /// not someone's choice of algorithm.</summary>
+  TSecretHandlerSpy = class
+  public
+    Names: string;
+    Calls: Integer;
+    procedure Decrypt(Sender: TObject; const AName, AValue: string;
+      var AResult: string; var AHandled: Boolean);
+  end;
+
   [TestFixture]
   TSettingsTests = class
   public
@@ -26,6 +39,12 @@ type
     [Test] procedure File_Missing_ReturnsFalse_SaveAndLoad;
     [Test] procedure DefaultConfigFiles_Locations;
     [Test] procedure DocPaths_RelativeToTheExecutable;
+    [Test] procedure Secret_NoHandler_ValueStandsAsItIs;
+    [Test] procedure Secret_Handler_DecryptsTheApiKey;
+    [Test] procedure Secret_Handler_NotHandled_KeepsTheStoredValue;
+    [Test] procedure Secret_Handler_ReachesEverySecret;
+    [Test] procedure Secret_Handler_SurvivesAssign;
+    [Test] procedure Secret_Handler_AlsoReadsTheEnvironmentVariable;
   end;
 
 implementation
@@ -33,9 +52,26 @@ implementation
 uses
   System.SysUtils,
   System.IOUtils,
+  System.StrUtils,
+  Winapi.Windows,
   HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Tests.Helpers;
+
+{ TSecretHandlerSpy }
+
+procedure TSecretHandlerSpy.Decrypt(Sender: TObject; const AName, AValue: string;
+  var AResult: string; var AHandled: Boolean);
+begin
+  Inc(Calls);
+  if Names <> '' then
+    Names := Names + ',';
+  Names := Names + AName;
+  if not AValue.StartsWith('enc:') then
+    Exit;
+  AResult := ReverseString(AValue.Substring(Length('enc:')));
+  AHandled := True;
+end;
 
 procedure TSettingsTests.DocPaths_RelativeToTheExecutable;
 var
@@ -472,6 +508,144 @@ begin
   finally
     LSettings.Free;
     TFile.Delete(LFile);
+  end;
+end;
+
+procedure TSettingsTests.Secret_NoHandler_ValueStandsAsItIs;
+var
+  LSettings: THelpChatSettings;
+begin
+  // Nobody installed a handler: everything works as it always did.
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.Claude.ApiKey := 'sk-plain';
+    LSettings.Remote.AppKey := 'app-plain';
+    Assert.AreEqual('sk-plain', LSettings.Claude.ResolveApiKey);
+    Assert.AreEqual('app-plain', LSettings.Remote.ResolveAppKey);
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TSettingsTests.Secret_Handler_DecryptsTheApiKey;
+var
+  LSettings: THelpChatSettings;
+  LSpy: TSecretHandlerSpy;
+begin
+  LSpy := TSecretHandlerSpy.Create;
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
+    LSettings.Claude.ApiKey := 'enc:tset-ks';
+    Assert.AreEqual('sk-test', LSettings.Claude.ResolveApiKey);
+    // The name tells one secret from another, and carries the section.
+    Assert.AreEqual('Claude.ApiKey', LSpy.Names);
+    // What the configuration holds is still the encrypted value: the clear
+    // text exists for the request and nowhere else.
+    Assert.AreEqual('enc:tset-ks', LSettings.Claude.ApiKey);
+  finally
+    LSettings.Free;
+    LSpy.Free;
+  end;
+end;
+
+procedure TSettingsTests.Secret_Handler_NotHandled_KeepsTheStoredValue;
+var
+  LSettings: THelpChatSettings;
+  LSpy: TSecretHandlerSpy;
+begin
+  // A handler that answers for one secret and ignores the rest: what it did
+  // not handle must come out exactly as it went in, even if it wrote to
+  // AResult before changing its mind.
+  LSpy := TSecretHandlerSpy.Create;
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
+    LSettings.OpenAI.ApiKey := 'sk-openai';
+    Assert.AreEqual('sk-openai', LSettings.OpenAI.ResolveApiKey);
+    Assert.AreEqual(1, LSpy.Calls);
+    // And an empty secret is not worth a call.
+    Assert.AreEqual('', LSettings.RevealSecret('Remote.AppKey', ''));
+    Assert.AreEqual(1, LSpy.Calls);
+  finally
+    LSettings.Free;
+    LSpy.Free;
+  end;
+end;
+
+procedure TSettingsTests.Secret_Handler_ReachesEverySecret;
+var
+  LSettings: THelpChatSettings;
+  LSpy: TSecretHandlerSpy;
+begin
+  LSpy := TSecretHandlerSpy.Create;
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
+    LSettings.Claude.ApiKey := 'enc:1';
+    LSettings.OpenAI.ApiKey := 'enc:2';
+    LSettings.Gemini.ApiKey := 'enc:3';
+    LSettings.Remote.AppKey := 'enc:4';
+    LSettings.Remote.UserToken := 'enc:5';
+    Assert.AreEqual('1', LSettings.Claude.ResolveApiKey);
+    Assert.AreEqual('2', LSettings.OpenAI.ResolveApiKey);
+    Assert.AreEqual('3', LSettings.Gemini.ResolveApiKey);
+    Assert.AreEqual('4', LSettings.Remote.ResolveAppKey);
+    Assert.AreEqual('5', LSettings.Remote.ResolveUserToken);
+    Assert.AreEqual('Claude.ApiKey,OpenAI.ApiKey,Gemini.ApiKey,' +
+      'Remote.AppKey,Remote.UserToken', LSpy.Names);
+  finally
+    LSettings.Free;
+    LSpy.Free;
+  end;
+end;
+
+procedure TSettingsTests.Secret_Handler_SurvivesAssign;
+var
+  LSettings, LSnapshot: THelpChatSettings;
+  LSpy: TSecretHandlerSpy;
+begin
+  // This is the case that matters: what a request reads is a snapshot taken
+  // with Assign, on a worker thread, and it has to be able to decrypt too.
+  LSpy := TSecretHandlerSpy.Create;
+  LSettings := THelpChatSettings.Create;
+  LSnapshot := THelpChatSettings.Create;
+  try
+    LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
+    LSettings.Claude.ApiKey := 'enc:tohspans';
+    LSnapshot.Assign(LSettings);
+    Assert.AreEqual('snapshot', LSnapshot.Claude.ResolveApiKey);
+  finally
+    LSnapshot.Free;
+    LSettings.Free;
+    LSpy.Free;
+  end;
+end;
+
+procedure TSettingsTests.Secret_Handler_AlsoReadsTheEnvironmentVariable;
+var
+  LSettings: THelpChatSettings;
+  LSpy: TSecretHandlerSpy;
+  LSaved: string;
+begin
+  // The key may come from the environment, and that one deserves protecting
+  // as much as the one in the file. Whatever this machine has there is put
+  // back: another test reads it to decide whether to skip itself.
+  LSaved := GetEnvironmentVariable(HELPCHAT_CLAUDE_APIKEY_ENVVAR);
+  Assert.IsTrue(SetEnvironmentVariable(PChar(HELPCHAT_CLAUDE_APIKEY_ENVVAR),
+    PChar('enc:vne-ks')), 'cannot set the environment variable');
+  LSpy := TSecretHandlerSpy.Create;
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
+    Assert.AreEqual('sk-env', LSettings.Claude.ResolveApiKey);
+  finally
+    LSettings.Free;
+    LSpy.Free;
+    if LSaved = '' then
+      SetEnvironmentVariable(PChar(HELPCHAT_CLAUDE_APIKEY_ENVVAR), nil)
+    else
+      SetEnvironmentVariable(PChar(HELPCHAT_CLAUDE_APIKEY_ENVVAR), PChar(LSaved));
   end;
 end;
 

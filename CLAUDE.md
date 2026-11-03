@@ -20,7 +20,11 @@ source/                  engine units (pure RTL) — HelpChatAI.*.pas, HelpChatA
 Ext/MarkdownProcessor/    the Ethea MarkdownProcessor: two svn:externals (Packages and source)
                          of ^/../MarkdownProcessor/trunk, a package of its own that the engine
                          requires and every groupproj builds first
-resources/               panel.html / panel.css / panel.js / htmx.min.js, HelpChatAI.Assistant.rc and
+Ext/DCPcrypt/            svn:external of ^/../DCPcrypt/trunk, used by the CRM demo alone
+                         (uAppSecret) and by no package of the library: it is what the
+                         example of an encrypted API key is built with
+resources/               panel.html / panel.css / panel.js / htmx.min.js, print.css and the two
+                         bands print-header.html / print-footer.html, HelpChatAI.Assistant.rc and
                          HelpChatAI.Splash.rc -> Tools\BuildResources.cmd
 Redist/WebView2/         WebView2Loader.dll x86/x64 (Microsoft, NuGet 1.0.3296.44), copied next to demos
 packages/Delphi13/       HelpChatAI, HelpChatAIServer, HelpChatAIVcl, HelpChatAIFmx (runtime), dclHelpChatAIVcl,
@@ -47,16 +51,18 @@ Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
                          of Embarcadero with HelpChatAI in it, and one manual for both in
                          Help/*.md (plus Help/Images and the help-index.json the applications
                          read)
-"CRM Demo"/common/       uDataMod (the FireDAC data module, the database and every query)
-                         and uProposalReport (the invoice as HTML, and the parser of the
-                         line items the model writes), shared by the two demos.
+"CRM Demo"/common/       uDataMod (the FireDAC data module, the database and every query),
+                         uProposalReport (the invoice as HTML, and the parser of the
+                         line items the model writes) and uAppSecret (the API key
+                         encrypted with DCPcrypt), shared by the two demos.
                          Framework-neutral on purpose - the FireDAC wait cursor
                          (FireDAC.VCLUI.Wait / .FMXUI.Wait) is the one thing that is not,
                          so it lives in each .dpr instead
 "CRM Demo"/VCL/          VCL_CRMDemo: project/ and source/ (uMainForm, uLeads, uProposal,
-                         uDraftProposal). Delphi 10.4 to 13
+                         uDraftProposal, uLicenseActivation). Delphi 10.4 to 13
 "CRM Demo"/FMX/          FMX_CRMDemo: project/ and source/ (uMainFormFmx, uLeadsFmx,
-                         uProposalFmx, uDraftProposalFmx). Delphi 12 and 13 only, because
+                         uProposalFmx, uDraftProposalFmx, uLicenseActivationFmx).
+                         Delphi 12 and 13 only, because
                          TFmxHelpChatAI starts there
 "CRM Demo"/bin/<Platform>    both executables, next to the one WebView2Loader.dll they share
 "CRM Demo"/dcu/<Framework>/<Platform>   svn-ignored build output, one tree per framework so
@@ -467,6 +473,26 @@ the edit on every version, not on the one that happens to be open.
   error line instead of letting it out of a check. Reading it is a virtual method of the
   components, because the preview has already read it from the folder of the project and
   must not read it again from the folder of the IDE.
+- **The Tool Palette filters by class group, not by package.** A component that is a
+  plain `TComponent` belongs to no framework, so `TFmxHelpChatAI` was offered on VCL forms
+  and `TVclHelpChatAI` on FireMonkey ones: the designer of a module accepts a class when
+  `TClassFinder` finds it in the group of the module's own class
+  (`TCustomModule.ValidateComponentClass`), and neither the `requires` of the design
+  package nor `ComponentPlatformsAttribute` has anything to do with it. Each unit says so
+  in its `initialization`: `GroupDescendentsWith(TVclHelpChatAI, Vcl.Controls.TControl)`
+  and `GroupDescendentsWith(TFmxHelpChatAI, FMX.Types.TFmxObject)` - what
+  `TApplicationEvents` and the FireMonkey `TCommonDialog` do, for the same reason. It also
+  decides which class the DFM/FMX loader finds, so a change here is checked by opening the
+  demos, not only by compiling them.
+- **The index is built from the component, too.** `HelpChatPlanIndexBuild` /
+  `HelpChatRunIndexBuild` (`HelpChatAI.IndexBuilder`, RTL) turn the settings into a plan -
+  pages folder, output file, table of contents, link extension - that the design packages
+  show before building and that `Tools\HelpIndexBuilder` would produce by hand. The one
+  thing deduced is the extension: no `DocBaseUrl` means the pages are read inside the
+  panel, so links keep `.md`. The verb is in both component editors, and a double click on
+  a component whose index is missing offers it before the preview. The deduction is
+  printed in the confirmation on purpose: a design-time action that guesses in silence is
+  worse than one that asks.
 - **`ImageIndex` and `ImageName` need their own property editors.** The ones the IDE gives the
   standard controls are not offered to a component that is not one of them, so
   `Vcl.HelpChatAI.Register` registers `TVclHelpChatImageIndexProperty` and
@@ -568,6 +594,69 @@ the edit on every version, not on the one that happens to be open.
   with every question. The file-type glyphs are inline SVG in `panel.js` (Material Design
   Icons, Apache 2.0, generic glyphs and no brand logo): the panel is one self-contained
   page, so they cannot be PNGs in a `.res`.
+- **A PDF is written by the client, never by the engine.** The engine builds a
+  `THelpChatPrintableDoc` (`HelpChatAI.Html`: title, subtitle, language, body HTML) out of an
+  answer, a conversation or a documentation page and hands it over - `POST /api/pdf`,
+  `IHelpChatTransport.SetOnPdfRequest`, delivered with `TThread.Queue`; the component puts
+  the stylesheet on it, asks the user where it goes and prints it with
+  `THelpChatPdfExporter` (`HelpChatAI.Pdf`, engine package, WebView2 through interfaces we
+  declare ourselves). The window it needs is created at -32000 and never shown, and the
+  environment of the panel is borrowed so that no second browser process starts. **A remote
+  engine answers 501**, not 404: the document would be built where there is no screen to
+  save it from, and the page says so instead of doing nothing.
+- **The paper is not the stylesheet's to decide.** With no print settings the runtime prints
+  Letter and ignores `@page { size }`; and a margin written in CSS **wins over** the print
+  settings - `@page { margin: 0 }` in our own `print.css` cost every margin of every sheet
+  (measured: 0.0 mm where 16 had been asked for). So `THelpChatPdfPage` decides the sheet,
+  the margins and the orientation, `print.css` carries no `@page` rule at all, and neither
+  may the stylesheet an application names in `PdfStyleSheet`.
+- **A header and a footer need the DevTools call.** `PrintToPdf` takes no template, and
+  Chromium implements no `@page` margin boxes - `counter(page)` in a `position: fixed`
+  element prints 0 on every sheet, measured - so the only way to put a band of ours, page
+  number included, on every sheet is `CallDevToolsProtocolMethod('Page.printToPDF')` with
+  `headerTemplate` and `footerTemplate`. It is the same printer underneath, reached by a
+  protocol Microsoft does not version with the API, so it is taken **only when a band was
+  asked for**: on refusal the file is written with `PrintToPdf` and `BandsDropped` tells the
+  component to say the bands are missing. A band is laid out inside the margin, so the
+  margin grows by `BandMm` instead of eating into the text, and the template is a little
+  document of its own - its own `<style>`, `print.css` does not reach it - whose
+  placeholders `HelpChatPdfExpand` replaces, HTML-escaped. `{page}` and `{pages}` become the
+  two spans the runtime knows by class name.
+- **The clipboard is the page's own.** Copying an answer, the conversation or a documentation
+  page is `panel.js` alone: both flavours at once (`text/html` keeps the bold, the lists and
+  the tables, `text/plain` is what the browser lays out), through `ClipboardItem` and, if
+  that is refused, through a hidden selection and `execCommand`, which puts both there too.
+  Nothing of it reaches the engine or the host, which is why it works with a remote engine,
+  where saving a file does not.
+- **The model has no calendar.** The system prompt carries today's date
+  (`HELPCHAT_MODEL_DEF_DATE_RULE`, written out with `TFormatSettings.Invariant` so the month
+  is November and the model translates it): without it a document it writes is dated
+  "today", which is what it did.
+- **The library never decrypts a secret: it asks.** `OnDecryptSecret`
+  (`THelpChatSecretEvent`, published on both components, public on
+  `THelpChatSettings` because the console server has no component to put it on) is called
+  just before a secret is used - `Claude.ApiKey`, `OpenAI.ApiKey`, `Gemini.ApiKey`,
+  `Remote.AppKey`, `Remote.UserToken`, told apart by `AName` - on the value of the property
+  *and* on the one of the environment variable. No format is imposed and no cipher is
+  registered: an application that installs no handler sees no change, and a value the
+  handler left alone comes out as it went in. Three things that are not obvious: the
+  handler lives on the **settings** and `Assign` copies it, because what reads the key is
+  the snapshot a request works on, not the component; the calls are serialized by a
+  critical section because they arrive on a worker thread, and nothing is cached, so the
+  clear text lives as long as the request; and the virtual method is `RawApiKey`, not
+  `ResolveApiKey`, so that the one place where a secret is revealed stays one place
+  (gemini overrides it for `GOOGLE_API_KEY`). Inside the IDE no handler runs: the
+  configuration check still passes, because it only asks whether a key is there, but the
+  design-time preview of a component with an encrypted key is refused by the service.
+  **The example is the demo's, and so is DCPcrypt**: `CRM Demo/common/uAppSecret.pas`
+  (AES-256 CBC, random IV, PKCS#7, the passphrase in two XORed halves) and the
+  `License activation` window of each demo, which is where a real application would ask
+  its licensing service for the key. Its header says what it is - obfuscation, not
+  secrecy - and that is the honest claim: it is worth something against a configuration
+  file that travels, nothing against whoever owns the machine. `DCPcrypt.EncryptString` is
+  not used, and a second example should not use it either: it treats the string as
+  AnsiString and encrypts in CFB8bit with a zero IV, so the same key encrypted twice comes
+  out the same.
 - **Defaults live once** in `HelpChatAI.Settings` constants (`HELPCHAT_DEF_*`). Settings also
   load/save as JSON (`helpchatai.json`: app file next to the exe, then per-user file in
   `%APPDATA%\<Exe>`); a new property must be added to `Assign`, `LoadFromJSON`, `SaveToJSON`
@@ -584,3 +673,23 @@ the edit on every version, not on the one that happens to be open.
 - `Ext/` and `Setup/InnoSetupScripts` are other repositories (svn:externals), not files of
   this one: a change belongs there, as its own commit, and reaches every Ethea project that
   uses them — so it is made generic and, where it changes behaviour, kept behind a define.
+
+## DPM package (delphi.dev)
+
+The library is also published as a DPM package (Delphi Package Manager, https://delphi.dev,
+organization EtheaDev): spec `EtheaDev.HelpChatAI.dspec` in the root (id `EtheaDev.HelpChatAI`). It is packed from the GitHub
+clone and pushed by `D:\ETHEA\GitHub_EtheaDev\_sync\sync_project.py Delphi-HelpChatAI --release`; `version`
+is aligned to the README release notes automatically and `repositoryCommit: '#HASH#'` is replaced
+at pack time: don't edit them by hand.
+
+**Keep the dspec aligned with the packages and the Setup**: when a package folder is added or
+removed (new Delphi version), a `.dpk` is added/renamed, a new kind of file is needed by the
+packages (`.dfm`, `.res`, `.dcr`, ...), or a platform is enabled/disabled in a runtime `.dproj`,
+update `targetPlatforms` / `templates` (`source`, `build`, `design`) in the same commit. Check
+with `python D:\ETHEA\GitHub_EtheaDev\_sync\dpm_tools.py Delphi-HelpChatAI`: the publishing script refuses
+to commit/release while the check fails.
+
+- Delphi 10.4 and 11: VCL packages; 12 and 13: VCL + FMX (template `vclfmx`).
+- Dependencies: `EtheaDev.MarkdownProcessor` (range `[2.1.2,)`: raise it when a newer
+  MarkdownProcessor is required) and Indy as `bundled` (the IDE's copy).
+- `copyLocal` copies `Redist\WebView2\x86|x64\WebView2Loader.dll` next to the executable.

@@ -3947,10 +3947,13 @@ object MainFormFmx: TMainFormFmx
     ImageName = 'AIAssistant_Female'
     Settings.Provider = 'claude'
     Settings.Attachments.Enabled = True
+    Settings.Pdf.Action = True
+    Settings.Pdf.HeaderFooter = True
     Settings.DocIndexFile = '..\..\Help\help-index.json'
     Settings.DocFolder = '..\..\Help'
     Settings.Language = hclEnglish
     OnGetContext = HelpChatGetContext
+    OnDecryptSecret = HelpChatDecryptSecret
     Left = 540
     Top = 60
   end

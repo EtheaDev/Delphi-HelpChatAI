@@ -110,9 +110,14 @@ type
     /// uses, one key per session, sharing store, index and worker pool.</summary>
     function Send(const AKey, AText: string; const AContext: THelpChatContext): THelpChatSendResult; overload;
     /// <summary>Copy of the message AId, if it exists in this conversation.</summary>
-    function TryGetMessage(const AId: string; out AMessage: THelpChatMessage): Boolean;
+    function TryGetMessage(const AId: string; out AMessage: THelpChatMessage): Boolean; overload;
+    /// <summary>The same, in the conversation AKey (a server with many).</summary>
+    function TryGetMessage(const AKey, AId: string;
+      out AMessage: THelpChatMessage): Boolean; overload;
     /// <summary>The whole conversation, in order.</summary>
-    function Messages: TArray<THelpChatMessage>;
+    function Messages: TArray<THelpChatMessage>; overload;
+    /// <summary>The whole conversation AKey, in order.</summary>
+    function Messages(const AKey: string): TArray<THelpChatMessage>; overload;
     /// <summary>True while at least one assistant reply is being produced.</summary>
     function IsBusy: Boolean;
     /// <summary>Cancels the reply AId; True if it was running or queued.</summary>
@@ -329,10 +334,21 @@ begin
   Result := Assigned(FStore) and FStore.TryGetMessage(FConversationKey, AId, AMessage);
 end;
 
+function THelpChatEngine.TryGetMessage(const AKey, AId: string;
+  out AMessage: THelpChatMessage): Boolean;
+begin
+  Result := Assigned(FStore) and FStore.TryGetMessage(AKey, AId, AMessage);
+end;
+
 function THelpChatEngine.Messages: TArray<THelpChatMessage>;
 begin
+  Result := Messages(FConversationKey);
+end;
+
+function THelpChatEngine.Messages(const AKey: string): TArray<THelpChatMessage>;
+begin
   if Assigned(FStore) then
-    Result := FStore.GetMessages(FConversationKey)
+    Result := FStore.GetMessages(AKey)
   else
     Result := nil;
 end;

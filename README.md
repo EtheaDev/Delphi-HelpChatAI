@@ -42,10 +42,15 @@ help system, so the `HelpKeyword` you already wrote keeps working.
    takes a PDF, an image or a text file. Together with an action, that is a PDF filling a
    form without anybody retyping it. Off until you turn it on, because an attachment leaves
    the machine.
+7. What it answered does not stay in the panel. Every answer, the whole conversation and
+   every page of the manual can be **copied** — as text and as HTML, so a table pasted into
+   Word is still a table — or **saved as a PDF**, laid out by a stylesheet of yours and
+   headed with the name of your application, the user and the page number.
 
 The engine knows nothing about the UI: it runs inside your application or on a **HelpChatAI
 server**, chosen in a configuration file, so the model API key never has to reach the user's
-machine.
+machine. When it has to, `OnDecryptSecret` lets you keep it encrypted in the configuration
+and decrypt it the way your application sees fit.
 
 ### Providers
 
@@ -97,6 +102,7 @@ assistant to your Delphi application, and how to make its answers good.
 | [The documentation index](https://ethea.it/docs/helpchatai/Documentation-Index) | Building `help-index.json`, and the pages shown inside the panel |
 | [Actions](https://ethea.it/docs/helpchatai/Actions) | An assistant that does things, safely |
 | [Attaching documents](https://ethea.it/docs/helpchatai/Attachments) | Handing the assistant a PDF, an image or a text file |
+| [Saving and copying](https://ethea.it/docs/helpchatai/Saving-and-Copying) | The PDF of an answer, its header and footer, and the clipboard |
 | [Running the engine on a server](https://ethea.it/docs/helpchatai/Server) | When the API key must not be on the user's machine |
 | [Configuration](https://ethea.it/docs/helpchatai/Configuration) | `helpchatai.json`, and checking a configuration |
 | [Security and privacy](https://ethea.it/docs/helpchatai/Security-and-Privacy) | What travels, where, and what never does |
@@ -138,19 +144,97 @@ It comes **in both frameworks**, sharing one data module, one database and one m
 | VCL | `CRM Demo\VCL\project\VCL_CRMDemo.dproj` | 10.4 → 13 | The whole application: seven pages, the lead and proposal windows, and all three actions |
 | FMX | `CRM Demo\FMX\project\FMX_CRMDemo.dproj` | 12 → 13 | The same application: the seven pages, the lead, proposal and draft windows, and the same three actions |
 
+Neither of them keeps the API key in clear: `CRM Demo\common\uAppSecret.pas` encrypts it
+with DCPcrypt (an svn:external of the demo, no package of the library requires it) and the
+**License activation** window asks for it the first time, when no key is found anywhere.
+`Tools\ResetDemoKey.ps1` puts that back to "no key", to show it again.
+
 `CRM Demo\BuildAllDemos.ps1` builds both with every Delphi it finds, Win32 and Win64: twelve
 builds, and the FireMonkey ones are reported `N/A` below Delphi 12 rather than failed.
 
-`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **271 tests** that runs without
+`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **305 tests** that runs without
 network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
-HTTP, and the actions from a real worker thread.
+HTTP, the actions from a real worker thread, the secrets of the settings and the printable
+document - the last two of which write a real PDF with the WebView2 runtime of the machine,
+and skip themselves where there is none.
 
 ```
 Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+2 Nov 2026: ver. 1.3.0
+
+An answer that cannot leave the panel is a note nobody keeps. This release takes it out, in
+the two ways people actually ask for: the clipboard and a PDF - of one answer, of the whole
+conversation, or of a page of the manual.
+
+- **Save as PDF** (`HelpChatAI.Pdf`, engine package): the document is laid out by the
+  WebView2 runtime the panel already needs, on a window that is never shown, and written
+  where the user says. A4 or Letter, margins, orientation and backgrounds live in
+  `Settings.Pdf`; the look is `resources/print.css` - no bubbles, no dark theme, tables that
+  repeat their header row on every sheet - or the stylesheet of your application, named in
+  the new `PdfStyleSheet`. Measured on this machine: half a second for the first sheet, a
+  quarter for the next, with no second browser process, because the exporter borrows the
+  environment of the panel
+- **A header and a footer of your own**, with the page number: `Settings.Pdf.HeaderFooter`
+  prints a band at the top and at the foot of every sheet, out of two HTML templates
+  (`resources/print-header.html` and `print-footer.html`, or the files named in
+  `PdfHeaderFile` and `PdfFooterFile`) whose placeholders - `{app} {version} {user} {title}
+  {date} {time} {extra} {page} {pages}` - the library fills. The name and the version come
+  from the version information of your executable and the user from Windows, and the new
+  `OnPdfInfo` corrects any of it, because the user of an application is rarely the user of
+  the machine. The band grows the margin by `BandMm` instead of eating into the text
+- **Copy, as text *and* as HTML**: a button beside the one that saves, on every answer, on
+  the header of the panel and on a page of the manual. The clipboard gets both flavours, so
+  the bold, the lists and the tables survive a paste into Word while an editor still gets
+  clean text. It needs neither the host nor the engine, so it is there with a remote engine
+  too, where saving a file is not
+- **The assistant can write a document and hand it over**: with
+  `Settings.Pdf.Action := True` it gets the `export_pdf` tool - *"write me a PDF summary of
+  the open leads"* - and the save dialog opens with what it wrote. Off by default: it is one
+  more tool in every request, and an answer that becomes a file without being asked
+- **The API key does not have to sit in clear in the configuration.** The new
+  `OnDecryptSecret` is asked for every secret just before it is used - the key of the
+  provider and the credentials of a remote engine, told apart by name, from the property
+  *and* from the environment variable - and your handler turns it into the value to use.
+  The library imposes no format and registers no cipher: without a handler nothing changes.
+  It runs on the worker thread, and what a request reads is a snapshot of the settings, so
+  the handler travels with it. The CRM demo shows one way of doing it, DCPcrypt and all:
+  a **License activation** window - where a real application would ask its licensing
+  service for the key - writes it AES-256 encrypted into the per-user `helpchatai.json`,
+  with a passphrase that is not a string in the executable. It is obfuscation and the demo
+  says so: it is worth something against a configuration file that travels, nothing against
+  whoever owns the machine
+- **The documentation index can be rebuilt from the IDE.** *Rebuild documentation
+  index...*, on the component editor of both components, builds `help-index.json` out of
+  the folder the settings already name, showing what it is about to do before doing it; a
+  double click on a component whose index is not there offers to build it before opening
+  the preview. The plan and the build are RTL (`HelpChatPlanIndexBuild`,
+  `HelpChatRunIndexBuild`), so an application or a build step can do the same without
+  `Tools\HelpIndexBuilder`
+- **Each component is offered in its own Tool Palette only**: a plain `TComponent` belongs
+  to no framework, so the FireMonkey one could be dropped on a VCL form and the other way
+  round. Both now declare their class group, the way `TApplicationEvents` and the
+  FireMonkey dialogs do
+- **The model now knows what day it is.** The system prompt carries the date, so a document
+  it writes is dated instead of saying "today" - which is what it used to do
+- The save dialog is the one of Windows (`IFileSaveDialog`), not the box of Windows 95
+- Fixed: the sheet came out with no margins at all. `@page { margin: 0 }` in our own print
+  stylesheet beat the margins of the print settings - measured, four sheets, 0.0 mm against
+  the 16 that had been asked for. The rule is gone, the default margin is 10 mm, and a
+  stylesheet of an application must leave `@page` alone for the same reason
+- With a **remote engine** the PDF buttons answer "not available in this application"
+  (HTTP 501): the document would be built where there is no screen to save it from. Copying
+  works there, because it never leaves the browser
+- 305 tests, 34 of them new, two of which write a real PDF with the runtime of the machine -
+  one of them through `Page.printToPDF`, the DevTools call that is the only way to put our
+  own header and footer on the sheet: `PrintToPdf` takes no template, and Chromium
+  implements no `@page` margin boxes, so a CSS counter prints 0 on every page. If that call
+  is ever refused, the PDF is written the ordinary way and the component says the bands are
+  missing
 
 30 Oct 2026: ver. 1.2.0
 

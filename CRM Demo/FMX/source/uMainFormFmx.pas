@@ -201,6 +201,8 @@ type
     procedure ThemeComboChange(Sender: TObject);
     procedure MenuButtonClick(Sender: TObject);
     procedure HelpChatGetContext(Sender: TObject; var AContext: THelpChatContext);
+    procedure HelpChatDecryptSecret(Sender: TObject; const AName, AValue: string;
+      var AResult: string; var AHandled: Boolean);
     procedure UserComboChange(Sender: TObject);
     procedure LeadsNewGridCellDblClick(const Column: TColumn; const Row: Integer);
     procedure LeadsActiveGridCellDblClick(const Column: TColumn; const Row: Integer);
@@ -213,6 +215,11 @@ type
     procedure AppIdle(Sender: TObject; var Done: Boolean);
     procedure StartUp;
     procedure RegisterHelpActions;
+    /// <summary>Last resort: the Claude key is nowhere to be found, neither
+    /// in the configuration files nor in ANTHROPIC_API_KEY. It is asked for
+    /// once, encrypted with the secret of this application and written to
+    /// the per-user file, where the next run reads it back encrypted.</summary>
+    procedure AskForApiKeyIfMissing;
     function FindTab(const AName: string): TTabItem;
     /// <summary>The lead called by name, or by company when the name is not
     /// enough: the model names a lead the way a user would.</summary>
@@ -235,6 +242,11 @@ implementation
 
 uses
   uDataMod, uLeadsFmx, uProposalFmx, uDraftProposalFmx,
+  HelpChatAI.Settings,
+  // The API key is not in clear in the configuration: uAppSecret encrypts it
+  // and reads it back, and HelpChatDecryptSecret is the hook the component
+  // calls. DCPcrypt belongs to this demo, not to the library.
+  uAppSecret, uLicenseActivationFmx,
   // A provider exists only if its unit is linked: it registers itself in
   // the initialization. Same rule as in the VCL demo.
   HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude;
@@ -321,6 +333,7 @@ begin
   // path in the form is relative to the executable.
   RegisterHelpActions;
   HelpChat.Active := True;
+  AskForApiKeyIfMissing;
 end;
 
 procedure TMainFormFmx.FormKeyDown(Sender: TObject; var Key: Word;
@@ -621,6 +634,38 @@ begin
     if Tabs.ActiveTab.HelpKeyword <> '' then
       AContext.HelpKeyword := Tabs.ActiveTab.HelpKeyword;
   end;
+end;
+
+procedure TMainFormFmx.HelpChatDecryptSecret(Sender: TObject;
+  const AName, AValue: string; var AResult: string; var AHandled: Boolean);
+begin
+  // This runs on the worker thread that is about to call the service:
+  // compute and return, no window and no waiting. AName would say which
+  // secret it is (Claude.ApiKey, Remote.AppKey...); here every value
+  // carrying the prefix is answered for, whoever asked.
+  AHandled := AppSecretIsProtected(AValue);
+  if AHandled then
+    AResult := AppSecretReveal(AValue);
+end;
+
+procedure TMainFormFmx.AskForApiKeyIfMissing;
+begin
+  // ResolveApiKey looks at the property, at the configuration files already
+  // loaded and at the environment variable, and goes through the handler
+  // above: an answer means the key is there and can be read.
+  if HelpChat.Settings.Claude.ResolveApiKey <> '' then
+    Exit;
+  TLicenseActivationFormFmx.Execute(THelpChatSettings.UserConfigFile,
+    procedure(AKey: string)
+    var
+      LProtected: string;
+    begin
+      LProtected := AppSecretProtect(AKey);
+      AppSecretStoreApiKey('Claude', LProtected);
+      // What stays in memory is the encrypted one, as if it had just been
+      // read from the file: the clear text lives as long as the request.
+      HelpChat.Settings.Claude.ApiKey := LProtected;
+    end);
 end;
 
 initialization

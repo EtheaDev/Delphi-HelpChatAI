@@ -71,8 +71,14 @@ function HelpChatDesignBaseFolder: string;
 function HelpChatDesignCheck(const AChat: TVclHelpChatAI): THelpChatIssues;
 
 /// <summary>Shows the findings and, unless one of them is an error, the live
-/// chat in a modal window.</summary>
+/// chat in a modal window. Offers to build the documentation index when it is
+/// not there: without it there is nothing to preview an answer from.</summary>
 procedure HelpChatDesignPreview(const AChat: TVclHelpChatAI);
+
+/// <summary>Rebuilds the documentation index of the application being
+/// designed, from the folder and to the file the settings name. Shows what it
+/// is about to do, and how it went. True when the index was written.</summary>
+function HelpChatDesignRebuildIndex(const AChat: TVclHelpChatAI): Boolean;
 
 implementation
 
@@ -91,6 +97,7 @@ uses
   Vcl.Dialogs,
   ToolsAPI,
   HelpChatAI.Types,
+  HelpChatAI.IndexBuilder,
   HelpChatAI.Provider,
   // A provider exists only where its unit is linked, and the IDE is no
   // exception: without these four the registry inside bds.exe holds the stub
@@ -407,6 +414,100 @@ begin
   AContext.ScreenType := 'Preview';
 end;
 
+/// <summary>The plan of a rebuild for the application being designed, with
+/// its paths resolved the way the built application resolves them. False with
+/// AError set when there is nothing to plan.</summary>
+function DesignIndexPlan(const AChat: TVclHelpChatAI; out APlan: THelpChatIndexPlan;
+  out AError: string): Boolean;
+var
+  LSettings: THelpChatSettings;
+  LConfigFiles: TArray<string>;
+  LBaseFolder: string;
+begin
+  APlan := Default(THelpChatIndexPlan);
+  AError := '';
+  LBaseFolder := HelpChatDesignBaseFolder;
+  if LBaseFolder = '' then
+  begin
+    AError := 'No project is open: there is no folder to resolve the ' +
+      'documentation folder and the index against.';
+    Exit(False);
+  end;
+  try
+    LSettings := DesignSettings(AChat, LBaseFolder, LConfigFiles);
+  except
+    on E: Exception do
+    begin
+      AError := E.Message;
+      Exit(False);
+    end;
+  end;
+  try
+    APlan := HelpChatPlanIndexBuild(LSettings);
+  finally
+    LSettings.Free;
+  end;
+  AError := APlan.Problem;
+  Result := APlan.CanBuild;
+end;
+
+/// <summary>Builds the index of APlan and says how it went.</summary>
+function RunAndReport(var APlan: THelpChatIndexPlan): Boolean;
+var
+  LText: string;
+begin
+  Result := HelpChatRunIndexBuild(APlan);
+  if not Result then
+  begin
+    MessageDlg('The documentation index could not be built:' + sLineBreak +
+      sLineBreak + APlan.Problem, mtError, [mbOK], 0);
+    Exit;
+  end;
+  LText := Format('%d pages indexed into'#13#10'%s', [APlan.PageCount, APlan.OutputFile]);
+  if Trim(APlan.Warnings) <> '' then
+    LText := LText + sLineBreak + sLineBreak + APlan.Warnings;
+  MessageDlg(LText, mtInformation, [mbOK], 0);
+end;
+
+function HelpChatDesignRebuildIndex(const AChat: TVclHelpChatAI): Boolean;
+var
+  LPlan: THelpChatIndexPlan;
+  LError: string;
+begin
+  Result := False;
+  if not DesignIndexPlan(AChat, LPlan, LError) then
+  begin
+    MessageDlg('The documentation index cannot be built:' + sLineBreak +
+      sLineBreak + LError, mtWarning, [mbOK], 0);
+    Exit;
+  end;
+  if MessageDlg('Rebuild the documentation index?' + sLineBreak + sLineBreak +
+    LPlan.Describe, mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+  Result := RunAndReport(LPlan);
+end;
+
+/// <summary>Before a preview: an index that is not there means an assistant
+/// with nothing to answer from, and the developer usually wants it built
+/// rather than explained. Says nothing when the index is there, or when there
+/// is no folder to build it from - the check reports that one.</summary>
+procedure OfferIndexBeforePreview(const AChat: TVclHelpChatAI);
+var
+  LPlan: THelpChatIndexPlan;
+  LError: string;
+begin
+  if not DesignIndexPlan(AChat, LPlan, LError) then
+    Exit;
+  if LPlan.OutputExists then
+    Exit;
+  if MessageDlg('The documentation index is not there yet, so the assistant ' +
+    'has nothing to ground its answers on.' + sLineBreak + sLineBreak +
+    'Build it now?' + sLineBreak + sLineBreak + LPlan.Describe,
+    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+  RunAndReport(LPlan);
+end;
+
 procedure HelpChatDesignPreview(const AChat: TVclHelpChatAI);
 var
   LIssues: THelpChatIssues;
@@ -417,6 +518,7 @@ var
   LContext: THelpChatPreviewContext;
   LBaseFolder: string;
 begin
+  OfferIndexBeforePreview(AChat);
   LIssues := HelpChatDesignCheck(AChat);
   if HelpChatHasErrors(LIssues) then
   begin

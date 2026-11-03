@@ -59,7 +59,7 @@
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
-        <DCC_UnitSearchPath>..\..\..\source;..\..\..\Ext\MarkdownProcessor\source;..\source;..\..\common;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..\..\source;..\..\..\Ext\MarkdownProcessor\source;..\..\..\Ext\DCPcrypt;..\..\..\Ext\DCPcrypt\Ciphers;..\..\..\Ext\DCPcrypt\Hashes;..\source;..\..\common;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_DcuOutput>..\..\dcu\FMX\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>..\..\bin\$(Platform)\</DCC_ExeOutput>
         <DCC_E>false</DCC_E>
@@ -132,6 +132,11 @@
             <DesignClass>TDataModule</DesignClass>
         </DCCReference>
         <DCCReference Include="..\..\common\uProposalReport.pas"/>
+        <DCCReference Include="..\..\common\uAppSecret.pas"/>
+        <DCCReference Include="..\source\uLicenseActivationFmx.pas">
+            <Form>LicenseActivationFormFmx</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
         <DCCReference Include="..\source\uMainFormFmx.pas">
             <Form>MainFormFmx</Form>
             <FormType>fmx</FormType>

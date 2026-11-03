@@ -1,0 +1,189 @@
+/* HelpChat printable document.
+
+   Not the panel: a PDF is a document, so this stylesheet knows nothing about
+   bubbles, about the header of the chat or about the theme of the host
+   application - a dark theme printed is a black rectangle. The paper, the
+   margins and the background colours are not decided here either: with no
+   print settings the runtime prints Letter and ignores @page, so the sheet
+   comes from THelpChatPdfPage and this file only lays out what is on it.
+
+   An application that wants its own look points PdfStyleSheet at a file of
+   its own, which replaces this one entirely.
+
+   There is deliberately no @page rule here: a margin written in CSS wins over
+   the one in the print settings, measured - with @page{margin:0} the sheet
+   came out edge to edge whatever THelpChatPdfPage said. The margins belong to
+   Settings.Pdf.MarginMm, so a stylesheet of an application must leave them
+   alone too. */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+  color: #1a1a1a;
+}
+
+body {
+  font-family: "Segoe UI", "Segoe UI Variable", system-ui, -apple-system, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.55;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.hc-doc { max-width: none; }
+
+/* --- the title block, when the caller asks for one --------------------- */
+
+.hc-doc-head {
+  border-bottom: 1.5pt solid #3d6b4a;
+  padding-bottom: 6pt;
+  margin-bottom: 14pt;
+}
+
+.hc-doc-head h1 {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  font-size: 19pt;
+  line-height: 1.25;
+}
+
+.hc-doc-meta {
+  margin-top: 3pt;
+  font-size: 8.5pt;
+  color: #5c6660;
+}
+
+/* --- headings ---------------------------------------------------------- */
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 16pt 0 6pt;
+  /* A heading alone at the foot of a page is the classic ugly break. */
+  break-after: avoid;
+  page-break-after: avoid;
+  break-inside: avoid;
+}
+
+h1 { font-size: 17pt; }
+h2 { font-size: 14pt; }
+h3 { font-size: 12pt; }
+h4, h5, h6 { font-size: 11pt; }
+
+h1:first-child, h2:first-child { margin-top: 0; }
+
+/* --- text -------------------------------------------------------------- */
+
+p, ul, ol, blockquote, table, pre { margin: 0 0 8pt; }
+
+ul, ol { padding-left: 18pt; }
+li { margin-bottom: 2pt; }
+li > ul, li > ol { margin: 2pt 0 2pt; }
+
+blockquote {
+  border-left: 2.5pt solid #c8d4cc;
+  padding: 1pt 0 1pt 10pt;
+  color: #44504a;
+}
+
+a { color: #1f5c8b; text-decoration: none; }
+
+strong { font-weight: 600; }
+
+hr {
+  border: 0;
+  border-top: 0.75pt solid #d4dad6;
+  margin: 12pt 0;
+}
+
+/* --- code -------------------------------------------------------------- */
+
+code, kbd, samp {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 9pt;
+  background: #f3f5f4;
+  border-radius: 2pt;
+  padding: 0.5pt 2.5pt;
+}
+
+pre {
+  background: #f3f5f4;
+  border: 0.5pt solid #dfe4e1;
+  border-radius: 3pt;
+  padding: 7pt 9pt;
+  /* A line of code wider than the sheet is lost, not scrollable. */
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 8.5pt;
+}
+
+/* --- tables ------------------------------------------------------------ */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 9.5pt;
+}
+
+/* On a table that spans pages, the header row comes back at the top. */
+thead { display: table-header-group; }
+tr { break-inside: avoid; page-break-inside: avoid; }
+
+th, td {
+  border: 0.5pt solid #c8d0cb;
+  padding: 3.5pt 6pt;
+  text-align: left;
+  vertical-align: top;
+}
+
+th { background: #eef2ef; font-weight: 600; }
+
+/* --- images ------------------------------------------------------------ */
+
+img, svg {
+  max-width: 100%;
+  height: auto;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* --- the conversation, when the whole chat is printed ------------------ */
+
+.hc-doc-turn {
+  margin-bottom: 11pt;
+  break-inside: avoid-page;
+}
+
+.hc-doc-who {
+  font-size: 8pt;
+  font-weight: 600;
+  letter-spacing: 0.4pt;
+  text-transform: uppercase;
+  color: #5c6660;
+  margin-bottom: 2.5pt;
+}
+
+.hc-doc-turn-user .hc-doc-body {
+  background: #f1f5f2;
+  border-left: 2.5pt solid #3d6b4a;
+  padding: 5pt 9pt;
+  border-radius: 0 3pt 3pt 0;
+}
+
+.hc-doc-turn-user .hc-doc-body p:last-child,
+.hc-doc-body > :last-child { margin-bottom: 0; }
+
+.hc-doc-note {
+  font-size: 8.5pt;
+  color: #5c6660;
+  font-style: italic;
+}

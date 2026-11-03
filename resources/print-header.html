@@ -1,0 +1,35 @@
+<!-- HelpChat printable document: the band at the top of every sheet.
+
+     This is not part of the document: the runtime lays it out on its own,
+     inside the top margin, as a little page of its own - so print.css does
+     not reach it and the style has to live here. Keep it to one line: the
+     band is HELPCHAT_PDF_DEF_BANDMM tall and whatever does not fit is cut.
+
+     The placeholders are replaced before printing: {app} {version} {user}
+     {date} {time} {title} {page} {pages} {extra}. The last two of the first
+     row are the only ones the engine fills by itself, because only it knows
+     how many sheets there will be.
+
+     An application that wants its own band points PdfHeaderFile at a file
+     of its own, which replaces this one entirely. -->
+
+<style>
+  .hc-band {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 8pt;
+    color: #5c6660;
+    width: 100%;
+    padding: 0 10mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 0.5pt solid #d4dad6;
+    padding-bottom: 2pt;
+  }
+  .hc-band-app { font-weight: 600; color: #3d6b4a; }
+</style>
+
+<div class="hc-band">
+  <span><span class="hc-band-app">{app}</span> {version}</span>
+  <span>{title}</span>
+</div>

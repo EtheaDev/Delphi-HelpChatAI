@@ -1,0 +1,112 @@
+# DPM package spec file (https://delphi.dev)
+# The version and the commit are written by _sync\sync_project.py at every release.
+min dpm client version: 1.0.0
+metadata:
+  id: EtheaDev.HelpChatAI
+  version: 1.3.0
+  description: 'In-app AI help assistant for VCL and FireMonkey applications: F1 opens a chat that answers from your own documentation, knows the screen the user is on and can run the actions of the application (Claude, OpenAI, Gemini or the offline docsearch provider).'
+  authors:
+    - Carlo Barazzetta
+  projectUrl: https://www.ethea.it/docs/helpchatai/
+  repositoryUrl: https://github.com/EtheaDev/Delphi-HelpChatAI
+  repositoryCommit: '#HASH#'
+  license: Apache-2.0
+  copyright: Ethea S.r.l.
+  tags:
+    - ai
+    - help
+    - chat
+    - assistant
+    - webview2
+  frameworks:
+    - VCL
+    - FMX
+  readme: README.md
+variables:
+  packagesource: /packages/Delphi$compilermajornoprefix$
+targetPlatforms:
+  - compiler: delphi10.4
+    platforms:
+      - win32
+      - win64
+    variables:
+      packagesource: /packages/Delphi10.4
+  - compiler: delphi11.0
+    platforms:
+      - win32
+      - win64
+  # TFmxHelpChatAI needs Delphi 12 or later
+  - compiler from: delphi12.0
+    compiler to: delphi13.0
+    platforms:
+      - win32
+      - win64
+    template: vclfmx
+templates:
+  - name: default
+    dependencies:
+      - id: EtheaDev.MarkdownProcessor
+        version: '[2.1.2,)'
+      - id: Indy.System
+        version: bundled
+      - id: Indy.Core
+        version: bundled
+      - id: Indy.Protocols
+        version: bundled
+    source:
+      - src: /source/*.pas
+      - src: /source/*.inc
+      - src: /source/*.res
+        copyToLib: true
+      - src: /packages/*.dcr
+      - src: /packages/*.rc
+      - src: /packages/*.bmp
+      - src: $packageSource$/*.dpk
+      - src: $packageSource$/*.dproj
+      - src: /Redist/WebView2/**
+    build:
+      - project: $packageSource$/HelpChatAI.dproj
+      - project: $packageSource$/HelpChatAIServer.dproj
+      - project: $packageSource$/HelpChatAIVcl.dproj
+    design:
+      - project: $packageSource$/dclHelpChatAIVcl.dproj
+    # TEdgeBrowser needs WebView2Loader.dll next to the executable
+    copyLocal:
+      - src: Redist/WebView2/x86/WebView2Loader.dll
+        platforms: [Win32]
+      - src: Redist/WebView2/x64/WebView2Loader.dll
+        platforms: [Win64]
+  - name: vclfmx
+    dependencies:
+      - id: EtheaDev.MarkdownProcessor
+        version: '[2.1.2,)'
+      - id: Indy.System
+        version: bundled
+      - id: Indy.Core
+        version: bundled
+      - id: Indy.Protocols
+        version: bundled
+    source:
+      - src: /source/*.pas
+      - src: /source/*.inc
+      - src: /source/*.res
+        copyToLib: true
+      - src: /packages/*.dcr
+      - src: /packages/*.rc
+      - src: /packages/*.bmp
+      - src: $packageSource$/*.dpk
+      - src: $packageSource$/*.dproj
+      - src: /Redist/WebView2/**
+    build:
+      - project: $packageSource$/HelpChatAI.dproj
+      - project: $packageSource$/HelpChatAIServer.dproj
+      - project: $packageSource$/HelpChatAIVcl.dproj
+      - project: $packageSource$/HelpChatAIFmx.dproj
+    design:
+      - project: $packageSource$/dclHelpChatAIVcl.dproj
+      - project: $packageSource$/dclHelpChatAIFmx.dproj
+    copyLocal:
+      - src: Redist/WebView2/x86/WebView2Loader.dll
+        platforms: [Win32]
+      - src: Redist/WebView2/x64/WebView2Loader.dll
+        platforms: [Win64]

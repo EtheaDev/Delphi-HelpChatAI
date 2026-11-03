@@ -213,7 +213,8 @@ begin
   else
     Add(AIssues, hikWarning, 'Documentation index',
       Format('"%s" does not exist: the answers have no documentation to ground ' +
-        'on. Build it with Tools\HelpIndexBuilder.', [LIndexFile]));
+        'on. Build it with Tools\HelpIndexBuilder, or with "Rebuild ' +
+        'documentation index..." on the component.', [LIndexFile]));
 
   LFolder := ASettings.ResolveDocFolder;
   if LFolder = '' then

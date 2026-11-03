@@ -59,6 +59,7 @@ uses
   HelpChatAI.Messages,
   HelpChatAI.Theme,
   HelpChatAI.Engine,
+  HelpChatAI.Html,
   HelpChatAI.DocPages,
   HelpChatAI.Transport,
   HelpChatAI.Panel,
@@ -168,6 +169,19 @@ type
     /// Only a host that lives in this process can answer it.</summary>
     function HandleUiCommand(const ASession: THelpChatServerSession;
       const ACommand: string): Boolean; virtual;
+    /// <summary>The document behind a /api/pdf request: one answer, the whole
+    /// conversation or a page of the documentation folder. Without a
+    /// stylesheet - the client puts its own on.</summary>
+    function BuildPdfDoc(const AKey, AKind, AId: string;
+      out ADoc: THelpChatPrintableDoc): Boolean;
+    /// <summary>Hands that document to the host: True when there is one to
+    /// hand it to. Like a UI command, only a host in this process can
+    /// answer.</summary>
+    function HandlePdfRequest(const ASession: THelpChatServerSession;
+      const AKind, AId: string): Boolean; virtual;
+    /// <summary>True when there is a host in this process that can print a
+    /// document and ask the user where to put it.</summary>
+    function HasPdfHost: Boolean; virtual;
     property Server: TIdHTTPServer read FServer;
   public
     /// <summary>The engine is started on Start if needed; owned when AOwnsEngine.</summary>
@@ -210,10 +224,14 @@ type
     FAssistantName: string;
     FAssistantIcon: string;
     FOnUiCommand: THelpChatUiCommandEvent;
+    FOnPdfRequest: THelpChatPdfRequestEvent;
   strict protected
     function SessionByToken(const AToken: string): THelpChatServerSession; override;
     function HandleUiCommand(const ASession: THelpChatServerSession;
       const ACommand: string): Boolean; override;
+    function HandlePdfRequest(const ASession: THelpChatServerSession;
+      const AKind, AId: string): Boolean; override;
+    function HasPdfHost: Boolean; override;
   public
     constructor Create(const AEngine: THelpChatEngine; const AOwnsEngine: Boolean = False); override;
     destructor Destroy; override;
@@ -231,6 +249,7 @@ type
     function GetAssistantIcon: string;
     function GetEngine: THelpChatEngine;
     procedure SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
+    procedure SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
 
     /// <summary>Secret required in the token header (generated at Start).</summary>
     function Token: string;
@@ -248,8 +267,7 @@ uses
   System.StrUtils,
   System.JSON,
   IdSocketHandle,
-  IdGlobal,
-  HelpChatAI.Html;
+  IdGlobal;
 
 function HelpChatBindServer(const AServer: TIdHTTPServer; const AIP: string;
   const APort: Integer): Integer;
@@ -629,6 +647,7 @@ begin
     THelpChatProviderRegistry.SupportsDocuments(FEngine.Settings.Provider);
   Result.AttachMaxKB := FEngine.Settings.Attachments.MaxSizeKB;
   Result.AttachAccept := HelpChatAcceptedExtensions;
+  Result.PdfEnabled := FEngine.Settings.Pdf.Enabled;
 end;
 
 function THelpChatHttpServerBase.HandleRoute(const ADocument: string;
@@ -689,6 +708,60 @@ begin
       WriteHtml(AResponseInfo, HelpChatTextToHtml(E.Message));
     end;
   end;
+end;
+
+function THelpChatHttpServerBase.BuildPdfDoc(const AKey, AKind, AId: string;
+  out ADoc: THelpChatPrintableDoc): Boolean;
+var
+  LLanguage: THelpChatLanguage;
+  LMessage: THelpChatMessage;
+  LPage: THelpChatRenderedDoc;
+begin
+  ADoc := Default(THelpChatPrintableDoc);
+  LLanguage := FEngine.Settings.Language;
+  ADoc.LangCode := HelpChatLanguageCode(LLanguage);
+  if SameText(AKind, HELPCHAT_PDF_KIND_ANSWER) then
+  begin
+    if not FEngine.TryGetMessage(AKey, AId, LMessage) or not LMessage.IsCompleted or
+       (LMessage.Content.Trim = '') then
+      Exit(False);
+    ADoc := HelpChatMarkdownDocument(HelpChatMsg(hcmPdfAnswerTitle, LLanguage),
+      LMessage.Content, '');
+  end
+  else if SameText(AKind, HELPCHAT_PDF_KIND_CONVERSATION) then
+  begin
+    ADoc := HelpChatConversationDocument(
+      HelpChatMsg(hcmPdfConversationTitle, LLanguage), FEngine.Messages(AKey), '',
+      HelpChatMsg(hcmPdfUser, LLanguage), HelpChatMsg(hcmPdfAssistant, LLanguage));
+    if ADoc.BodyHtml.Trim = '' then
+      Exit(False);
+  end
+  else if SameText(AKind, HELPCHAT_PDF_KIND_PAGE) then
+  begin
+    if not FEngine.RenderDocPage(AId, LPage) then
+      Exit(False);
+    // Already HTML, and with its images inlined: a documentation page is
+    // rendered the same way for the panel and for the sheet of paper.
+    ADoc.Title := LPage.Title;
+    ADoc.BodyHtml := LPage.Html;
+    ADoc.ShowTitle := False;
+  end
+  else
+    Exit(False);
+  ADoc.LangCode := HelpChatLanguageCode(LLanguage);
+  Result := True;
+end;
+
+function THelpChatHttpServerBase.HandlePdfRequest(
+  const ASession: THelpChatServerSession; const AKind, AId: string): Boolean;
+begin
+  // No host in this process: nobody to print it and nowhere to put it.
+  Result := False;
+end;
+
+function THelpChatHttpServerBase.HasPdfHost: Boolean;
+begin
+  Result := False;
 end;
 
 procedure THelpChatHttpServerBase.HandleApi(const ADocument: string;
@@ -817,6 +890,21 @@ begin
   begin
     FEngine.RemoveAttachment(LKey, FormField(LBody, HELPCHAT_FIELD_ATTACH_ID));
     WriteHtml(AResponseInfo, '');
+  end
+
+  else if (ADocument = HELPCHAT_API_PDF) and LIsPost then
+  begin
+    if not FEngine.Settings.Pdf.Enabled then
+      WriteStatus(AResponseInfo, 403)
+    else if not HasPdfHost then
+      // Not "there is nothing to print" but "nobody here can print": the page
+      // says so instead of looking broken.
+      WriteStatus(AResponseInfo, 501)
+    else if HandlePdfRequest(ASession, FormField(LBody, HELPCHAT_FIELD_PDF_KIND),
+              FormField(LBody, HELPCHAT_FIELD_PDF_ID)) then
+      WriteHtml(AResponseInfo, '')
+    else
+      WriteStatus(AResponseInfo, 404);
   end
 
   else if ADocument.StartsWith(HELPCHAT_API_UI) and LIsPost then
@@ -976,6 +1064,16 @@ begin
   Result := Engine;
 end;
 
+procedure THelpChatLocalServer.SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
+begin
+  FLock.Enter;
+  try
+    FOnPdfRequest := AHandler;
+  finally
+    FLock.Leave;
+  end;
+end;
+
 procedure THelpChatLocalServer.SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
 begin
   FLock.Enter;
@@ -984,6 +1082,41 @@ begin
   finally
     FLock.Leave;
   end;
+end;
+
+function THelpChatLocalServer.HasPdfHost: Boolean;
+begin
+  FLock.Enter;
+  try
+    Result := Assigned(FOnPdfRequest);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatLocalServer.HandlePdfRequest(
+  const ASession: THelpChatServerSession; const AKind, AId: string): Boolean;
+var
+  LHandler: THelpChatPdfRequestEvent;
+  LDoc: THelpChatPrintableDoc;
+begin
+  FLock.Enter;
+  try
+    LHandler := FOnPdfRequest;
+  finally
+    FLock.Leave;
+  end;
+  Result := Assigned(LHandler) and
+    BuildPdfDoc(ASession.ConversationKey, AKind, AId, LDoc);
+  if not Result then
+    Exit;
+  // The document is built here, on the HTTP thread, and printed there, on the
+  // main one: the WebView2 that writes the PDF belongs to the UI thread.
+  TThread.Queue(nil,
+    procedure
+    begin
+      LHandler(LDoc);
+    end);
 end;
 
 function THelpChatLocalServer.HandleUiCommand(const ASession: THelpChatServerSession;

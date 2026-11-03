@@ -99,6 +99,7 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Settings,
   HelpChatAI.Diagnostics,
+  HelpChatAI.IndexBuilder,
   HelpChatAI.Assistant,
   HelpChatAI.Provider,
   // A provider exists only where its unit is linked, and the IDE is no
@@ -118,6 +119,7 @@ const
 
 resourcestring
   SHelpChatVerbCheck = '&Check configuration...';
+  SHelpChatVerbIndex = '&Rebuild documentation index...';
   SHelpChatVerbAbout = 'Ver. %s - (c) Ethea S.r.l. - Open Web Help...';
   SHelpChatCheckOk = 'HelpChat is ready to run with this configuration.';
   SHelpChatCheckFailed = 'HelpChat cannot run with this configuration:';
@@ -208,6 +210,102 @@ begin
   end;
 end;
 
+/// <summary>The plan of an index rebuild for the application being designed,
+/// with its paths resolved the way the built application resolves them. The
+/// VCL design package has the same twenty lines, and for the same reason as
+/// the ones above: sharing them would mean requiring that package, and with
+/// it the whole VCL runtime of the library.</summary>
+function DesignIndexPlan(const AChat: TFmxHelpChatAI; out APlan: THelpChatIndexPlan;
+  out AError: string): Boolean;
+var
+  LSettings: THelpChatSettings;
+  LConfigFiles: TArray<string>;
+  LBaseFolder: string;
+begin
+  APlan := Default(THelpChatIndexPlan);
+  AError := '';
+  LBaseFolder := DesignBaseFolder;
+  if LBaseFolder = '' then
+  begin
+    AError := 'No project is open: there is no folder to resolve the ' +
+      'documentation folder and the index against.';
+    Exit(False);
+  end;
+  try
+    LSettings := HelpChatSettingsForFolder(AChat.Settings, LBaseFolder,
+      AChat.ConfigFileName, LConfigFiles);
+  except
+    on E: Exception do
+    begin
+      AError := E.Message;
+      Exit(False);
+    end;
+  end;
+  try
+    APlan := HelpChatPlanIndexBuild(LSettings);
+  finally
+    LSettings.Free;
+  end;
+  AError := APlan.Problem;
+  Result := APlan.CanBuild;
+end;
+
+function RunAndReport(var APlan: THelpChatIndexPlan): Boolean;
+var
+  LText: string;
+begin
+  Result := HelpChatRunIndexBuild(APlan);
+  if not Result then
+  begin
+    MessageDlg('The documentation index could not be built:' + sLineBreak +
+      sLineBreak + APlan.Problem, mtError, [mbOK], 0);
+    Exit;
+  end;
+  LText := Format('%d pages indexed into'#13#10'%s', [APlan.PageCount, APlan.OutputFile]);
+  if Trim(APlan.Warnings) <> '' then
+    LText := LText + sLineBreak + sLineBreak + APlan.Warnings;
+  MessageDlg(LText, mtInformation, [mbOK], 0);
+end;
+
+function DesignRebuildIndex(const AChat: TFmxHelpChatAI): Boolean;
+var
+  LPlan: THelpChatIndexPlan;
+  LError: string;
+begin
+  Result := False;
+  if not DesignIndexPlan(AChat, LPlan, LError) then
+  begin
+    MessageDlg('The documentation index cannot be built:' + sLineBreak +
+      sLineBreak + LError, mtWarning, [mbOK], 0);
+    Exit;
+  end;
+  if MessageDlg('Rebuild the documentation index?' + sLineBreak + sLineBreak +
+    LPlan.Describe, mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+  Result := RunAndReport(LPlan);
+end;
+
+/// <summary>An index that is not there means an assistant with nothing to
+/// answer from, and the developer usually wants it built rather than
+/// explained. Says nothing when it is there, or when there is no folder to
+/// build it from - the check reports that one.</summary>
+procedure OfferIndexBeforeCheck(const AChat: TFmxHelpChatAI);
+var
+  LPlan: THelpChatIndexPlan;
+  LError: string;
+begin
+  if not DesignIndexPlan(AChat, LPlan, LError) then
+    Exit;
+  if LPlan.OutputExists then
+    Exit;
+  if MessageDlg('The documentation index is not there yet, so the assistant ' +
+    'has nothing to ground its answers on.' + sLineBreak + sLineBreak +
+    'Build it now?' + sLineBreak + sLineBreak + LPlan.Describe,
+    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+  RunAndReport(LPlan);
+end;
+
 { TFmxHelpChatComponentEditor }
 
 function TFmxHelpChatComponentEditor.GetChat: TComponent;
@@ -219,14 +317,15 @@ end;
 
 function TFmxHelpChatComponentEditor.GetVerbCount: Integer;
 begin
-  Result := 2;
+  Result := 3;
 end;
 
 function TFmxHelpChatComponentEditor.GetVerb(Index: Integer): string;
 begin
   case Index of
     0: Result := SHelpChatVerbCheck;
-    1: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
+    1: Result := SHelpChatVerbIndex;
+    2: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
   else
     Result := '';
   end;
@@ -242,6 +341,9 @@ begin
     0:
       if Assigned(LChat) then
       begin
+        // The double click lands here: an index that is missing is worth
+        // offering to build before reporting it as a finding.
+        OfferIndexBeforeCheck(TFmxHelpChatAI(LChat));
         LIssues := DesignCheck(TFmxHelpChatAI(LChat));
         if HelpChatHasErrors(LIssues) then
           MessageDlg(SHelpChatCheckFailed + sLineBreak + sLineBreak +
@@ -251,6 +353,9 @@ begin
             HelpChatIssuesToText(LIssues), mtInformation, [mbOK], 0);
       end;
     1:
+      if Assigned(LChat) then
+        DesignRebuildIndex(TFmxHelpChatAI(LChat));
+    2:
       ShellExecute(0, 'open', PChar(HELPCHAT_DOCS_URL), nil, nil, SW_SHOWNORMAL);
   end;
 end;

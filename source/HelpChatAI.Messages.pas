@@ -117,7 +117,49 @@ type
     /// <summary>Heading of the attached documents in the system prompt.</summary>
     hcmAttachedDocuments,
     /// <summary>What a text attachment is introduced with: %s is its name.</summary>
-    hcmAttachedTextFile);
+    hcmAttachedTextFile,
+    /// <summary>Button that saves an answer as PDF.</summary>
+    hcmUiPdfAnswer,
+    /// <summary>Button that saves the whole conversation as PDF.</summary>
+    hcmUiPdfConversation,
+    /// <summary>Title of the button that copies one answer.</summary>
+    hcmUiCopyAnswer,
+    /// <summary>Title of the button that copies the whole conversation.</summary>
+    hcmUiCopyConversation,
+    /// <summary>Title of the button that copies a documentation page.</summary>
+    hcmUiCopyPage,
+    /// <summary>Said on the button itself once the clipboard has it.</summary>
+    hcmUiCopied,
+    /// <summary>Said when the browser would not take it.</summary>
+    hcmUiCopyFailed,
+    /// <summary>Button that saves the documentation page being read.</summary>
+    hcmUiPdfPage,
+    /// <summary>Title of a document made of one answer.</summary>
+    hcmPdfAnswerTitle,
+    /// <summary>Title of a document made of the whole conversation.</summary>
+    hcmPdfConversationTitle,
+    /// <summary>Who asked, above a question in the printed conversation.</summary>
+    hcmPdfUser,
+    /// <summary>Who answered, above a reply in the printed conversation.</summary>
+    hcmPdfAssistant,
+    /// <summary>Filter of the save dialog.</summary>
+    hcmPdfFilter,
+    /// <summary>Asked once the file is written: %s is its name.</summary>
+    hcmPdfOpen,
+    /// <summary>The PDF was not written: %s is the reason.</summary>
+    hcmPdfFailed,
+    /// <summary>The PDF was written, but the runtime would not take the
+    /// header and the footer: %s is the name of the file.</summary>
+    hcmPdfNoBands,
+    /// <summary>Said in the conversation when there is nothing to print.</summary>
+    hcmPdfNothing,
+    /// <summary>Said when nobody on this side can write a PDF: a remote
+    /// engine builds the document where there is no screen to save it
+    /// from.</summary>
+    hcmPdfUnavailable,
+    /// <summary>What the assistant is told after it asked for a document:
+    /// the work is done, the user is choosing where to put it.</summary>
+    hcmPdfHandedOver);
 
 /// <summary>Returns the string <c>AId</c> in <c>ALanguage</c> (<c>hclAuto</c> =
 /// <see cref="HelpChatDefaultLanguage" />, resolved against the OS locale).</summary>
@@ -195,6 +237,26 @@ resourcestring
   SEnAttachEmpty = 'There is nothing in "%s".';
   SEnAttachFailed = 'The document could not be attached.';
   SEnAttachNotSupported = 'The attached documents were not sent: the %s provider cannot read them.';
+  SEnUiPdfAnswer = 'Save this answer as PDF';
+  SEnUiPdfConversation = 'Save the conversation as PDF';
+  SEnUiCopyAnswer = 'Copy this answer';
+  SEnUiCopyConversation = 'Copy the conversation';
+  SEnUiCopyPage = 'Copy this page';
+  SEnUiCopied = 'Copied';
+  SEnUiCopyFailed = 'The text could not be copied to the clipboard.';
+  SEnUiPdfPage = 'Save this page as PDF';
+  SEnPdfAnswerTitle = 'Answer';
+  SEnPdfConversationTitle = 'Conversation';
+  SEnPdfUser = 'Question';
+  SEnPdfAssistant = 'Answer';
+  SEnPdfFilter = 'PDF document (*.pdf)|*.pdf';
+  SEnPdfOpen = 'The PDF has been saved as "%s". Open it now?';
+  SEnPdfFailed = 'The PDF could not be created: %s';
+  SEnPdfNoBands = '"%s" has been saved, but this version of the browser engine ' +
+    'would not print the header and the footer of the document.';
+  SEnPdfNothing = 'There is nothing to save yet.';
+  SEnPdfUnavailable = 'Saving as PDF is not available in this application.';
+  SEnPdfHandedOver = 'The document is ready: the user is choosing where to save it.';
   SEnAttachedDocuments = 'Documents the user attached to the question';
   SEnAttachedTextFile = 'Content of the attached file "%s"';
 
@@ -245,7 +307,27 @@ resourcestring
   SItAttachTooMuch = 'Gli allegati di una conversazione non possono superare %s in tutto.';
   SItAttachEmpty = 'Il file "%s" è vuoto.';
   SItAttachFailed = 'Non è stato possibile allegare il documento.';
-  SItAttachNotSupported = 'I documenti allegati non sono stati inviati: il provider %s non li sa leggere.';
+  SItAttachNotSupported = 'I documenti allegati non sono stati inviati: il provider %s non li sa leggere.';
+  SItUiPdfAnswer = 'Salva questa risposta in PDF';
+  SItUiPdfConversation = 'Salva la conversazione in PDF';
+  SItUiCopyAnswer = 'Copia questa risposta';
+  SItUiCopyConversation = 'Copia la conversazione';
+  SItUiCopyPage = 'Copia questa pagina';
+  SItUiCopied = 'Copiato';
+  SItUiCopyFailed = 'Non è stato possibile copiare il testo negli appunti.';
+  SItUiPdfPage = 'Salva questa pagina in PDF';
+  SItPdfAnswerTitle = 'Risposta';
+  SItPdfConversationTitle = 'Conversazione';
+  SItPdfUser = 'Domanda';
+  SItPdfAssistant = 'Risposta';
+  SItPdfFilter = 'Documento PDF (*.pdf)|*.pdf';
+  SItPdfOpen = 'Il PDF è stato salvato come "%s". Vuoi aprirlo?';
+  SItPdfFailed = 'Non è stato possibile creare il PDF: %s';
+  SItPdfNoBands = '"%s" è stato salvato, ma questa versione del motore del ' +
+    'browser non ha accettato l''intestazione e il piè di pagina del documento.';
+  SItPdfNothing = 'Non c''è ancora niente da salvare.';
+  SItPdfUnavailable = 'Il salvataggio in PDF non è disponibile in questa applicazione.';
+  SItPdfHandedOver = 'Il documento è pronto: l''utente sta scegliendo dove salvarlo.';
   SItAttachedDocuments = 'Documenti allegati dall''utente alla domanda';
   SItAttachedTextFile = 'Contenuto del file allegato "%s"';
 
@@ -328,6 +410,25 @@ begin
     hcmAttachNotSupported: Result := SEnAttachNotSupported;
     hcmAttachedDocuments: Result := SEnAttachedDocuments;
     hcmAttachedTextFile: Result := SEnAttachedTextFile;
+    hcmUiPdfAnswer: Result := SEnUiPdfAnswer;
+    hcmUiPdfConversation: Result := SEnUiPdfConversation;
+    hcmUiCopyAnswer: Result := SEnUiCopyAnswer;
+    hcmUiCopyConversation: Result := SEnUiCopyConversation;
+    hcmUiCopyPage: Result := SEnUiCopyPage;
+    hcmUiCopied: Result := SEnUiCopied;
+    hcmUiCopyFailed: Result := SEnUiCopyFailed;
+    hcmUiPdfPage: Result := SEnUiPdfPage;
+    hcmPdfAnswerTitle: Result := SEnPdfAnswerTitle;
+    hcmPdfConversationTitle: Result := SEnPdfConversationTitle;
+    hcmPdfUser: Result := SEnPdfUser;
+    hcmPdfAssistant: Result := SEnPdfAssistant;
+    hcmPdfFilter: Result := SEnPdfFilter;
+    hcmPdfOpen: Result := SEnPdfOpen;
+    hcmPdfFailed: Result := SEnPdfFailed;
+    hcmPdfNoBands: Result := SEnPdfNoBands;
+    hcmPdfNothing: Result := SEnPdfNothing;
+    hcmPdfUnavailable: Result := SEnPdfUnavailable;
+    hcmPdfHandedOver: Result := SEnPdfHandedOver;
   else
     Result := '';
   end;
@@ -379,6 +480,25 @@ begin
     hcmAttachNotSupported: Result := SItAttachNotSupported;
     hcmAttachedDocuments: Result := SItAttachedDocuments;
     hcmAttachedTextFile: Result := SItAttachedTextFile;
+    hcmUiPdfAnswer: Result := SItUiPdfAnswer;
+    hcmUiPdfConversation: Result := SItUiPdfConversation;
+    hcmUiCopyAnswer: Result := SItUiCopyAnswer;
+    hcmUiCopyConversation: Result := SItUiCopyConversation;
+    hcmUiCopyPage: Result := SItUiCopyPage;
+    hcmUiCopied: Result := SItUiCopied;
+    hcmUiCopyFailed: Result := SItUiCopyFailed;
+    hcmUiPdfPage: Result := SItUiPdfPage;
+    hcmPdfAnswerTitle: Result := SItPdfAnswerTitle;
+    hcmPdfConversationTitle: Result := SItPdfConversationTitle;
+    hcmPdfUser: Result := SItPdfUser;
+    hcmPdfAssistant: Result := SItPdfAssistant;
+    hcmPdfFilter: Result := SItPdfFilter;
+    hcmPdfOpen: Result := SItPdfOpen;
+    hcmPdfFailed: Result := SItPdfFailed;
+    hcmPdfNoBands: Result := SItPdfNoBands;
+    hcmPdfNothing: Result := SItPdfNothing;
+    hcmPdfUnavailable: Result := SItPdfUnavailable;
+    hcmPdfHandedOver: Result := SItPdfHandedOver;
   else
     Result := '';
   end;

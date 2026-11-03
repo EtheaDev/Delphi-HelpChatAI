@@ -112,10 +112,27 @@ const
   /// (900 x 800 ms = 12 minutes: bounded, unlike the KittoX original).</summary>
   HELPCHAT_DEF_MAX_POLLS = 900;
 
+  /// <summary>POST /api/pdf: the page asks for a document to be saved as
+  /// PDF. The engine builds it, the client prints it - only the client has a
+  /// browser engine and a place to put the file.</summary>
+  HELPCHAT_API_PDF = '/api/pdf';
+  /// <summary>What to print: answer, conversation or page.</summary>
+  HELPCHAT_FIELD_PDF_KIND = 'kind';
+  /// <summary>The message id, or the documentation page.</summary>
+  HELPCHAT_FIELD_PDF_ID = 'id';
+  HELPCHAT_PDF_KIND_ANSWER = 'answer';
+  HELPCHAT_PDF_KIND_CONVERSATION = 'conversation';
+  HELPCHAT_PDF_KIND_PAGE = 'page';
+
   HELPCHAT_RES_HTML = 'HELPCHAT_PANEL_HTML';
   HELPCHAT_RES_CSS = 'HELPCHAT_PANEL_CSS';
   HELPCHAT_RES_JS = 'HELPCHAT_PANEL_JS';
   HELPCHAT_RES_HTMX = 'HELPCHAT_HTMX_JS';
+  /// <summary>The stylesheet of a printable document - not of the panel:
+  /// a PDF has no bubbles and no theme.</summary>
+  HELPCHAT_RES_PRINTCSS = 'HELPCHAT_PRINT_CSS';
+  HELPCHAT_RES_PRINTHEADER = 'HELPCHAT_PRINT_HEADER';
+  HELPCHAT_RES_PRINTFOOTER = 'HELPCHAT_PRINT_FOOTER';
 
 type
   THelpChatPanelOptions = record
@@ -161,6 +178,9 @@ type
     AttachMaxKB: Integer;
     /// <summary>What the file dialog of the page offers (".pdf,.png,...").</summary>
     AttachAccept: string;
+    /// <summary>Show the buttons that save an answer, a documentation page or
+    /// the conversation as PDF.</summary>
+    PdfEnabled: Boolean;
     /// <summary>Icon drawn left of the name, as a <c>data:image/...</c> URI -
     /// the only kind the page may load, since its CSP allows images from
     /// <c>'self'</c> and <c>data:</c> alone. Empty = no icon.</summary>
@@ -194,14 +214,33 @@ type
     class function ConfigJson(const AOptions: THelpChatPanelOptions): string; static;
     /// <summary>The complete panel page.</summary>
     class function RenderPage(const AOptions: THelpChatPanelOptions): string; static;
+    /// <summary>The stylesheet a printable document is built with: the file
+    /// the application named in <c>PdfStyleSheet</c>, or the built-in one when
+    /// it did not. A named file that is not there raises, exactly like a named
+    /// configuration file: an application that asked for its own look and
+    /// prints with ours is an application shipped with the wrong files. A
+    /// relative path resolves against the executable.</summary>
+    class function PrintCss(const AStyleSheetFile: string = ''): string; static;
+    /// <summary>The band printed at the top of every sheet, as HTML: the file
+    /// the application named in <c>PdfHeaderFile</c>, or the built-in one. It
+    /// is a little document of its own - the stylesheet of the page does not
+    /// reach it - and it still carries its placeholders, which
+    /// <see cref="HelpChatPdfExpand" /> replaces. Same rule as
+    /// <see cref="PrintCss" /> for a named file that is not there.</summary>
+    class function PrintHeader(const AHeaderFile: string = ''): string; static;
+    /// <summary>The band printed at the foot of every sheet. See
+    /// <see cref="PrintHeader" />.</summary>
+    class function PrintFooter(const AFooterFile: string = ''): string; static;
   end;
 
 implementation
 
 uses
+  System.IOUtils,
   System.JSON,
   System.NetEncoding,
-  System.Types;
+  System.Types,
+  HelpChatAI.Types;
 
 { THelpChatPanelOptions }
 
@@ -284,6 +323,20 @@ begin
     LRoot.AddPair('attach', HelpChatMsg(hcmUiAttach, ALanguage));
     LRoot.AddPair('attachRemove', HelpChatMsg(hcmUiAttachRemove, ALanguage));
     LRoot.AddPair('attachFailed', HelpChatMsg(hcmAttachFailed, ALanguage));
+    LRoot.AddPair('pdfAnswer', HelpChatMsg(hcmUiPdfAnswer, ALanguage));
+    LRoot.AddPair('pdfConversation', HelpChatMsg(hcmUiPdfConversation, ALanguage));
+    LRoot.AddPair('pdfPage', HelpChatMsg(hcmUiPdfPage, ALanguage));
+    LRoot.AddPair('copyAnswer', HelpChatMsg(hcmUiCopyAnswer, ALanguage));
+    LRoot.AddPair('copyConversation', HelpChatMsg(hcmUiCopyConversation, ALanguage));
+    LRoot.AddPair('copyPage', HelpChatMsg(hcmUiCopyPage, ALanguage));
+    LRoot.AddPair('copied', HelpChatMsg(hcmUiCopied, ALanguage));
+    LRoot.AddPair('copyFailed', HelpChatMsg(hcmUiCopyFailed, ALanguage));
+    // The two sides of a conversation: the same words the printed
+    // document uses, because the clipboard carries the same thing.
+    LRoot.AddPair('roleUser', HelpChatMsg(hcmPdfUser, ALanguage));
+    LRoot.AddPair('roleAssistant', HelpChatMsg(hcmPdfAssistant, ALanguage));
+    LRoot.AddPair('pdfNothing', HelpChatMsg(hcmPdfNothing, ALanguage));
+    LRoot.AddPair('pdfUnavailable', HelpChatMsg(hcmPdfUnavailable, ALanguage));
     Result := LRoot.ToJSON;
   finally
     LRoot.Free;
@@ -310,6 +363,7 @@ begin
     LRoot.AddPair('attach', TJSONBool.Create(AOptions.AttachmentsEnabled));
     LRoot.AddPair('attachMaxKB', TJSONNumber.Create(AOptions.AttachMaxKB));
     LRoot.AddPair('attachAccept', AOptions.AttachAccept);
+    LRoot.AddPair('pdf', TJSONBool.Create(AOptions.PdfEnabled));
     // Already carrying the limit, so the page can refuse an oversized file
     // without transferring it: what is left for it to fill in is the name.
     if AOptions.AttachMaxKB > 0 then
@@ -359,6 +413,39 @@ begin
     Result := Result.Replace('{{THEME_CSS}}', AOptions.Theme.ToCss);
   Result := Result.Replace('{{HTMX}}', LoadResourceText(HELPCHAT_RES_HTMX));
   Result := Result.Replace('{{JS}}', LoadResourceText(HELPCHAT_RES_JS));
+end;
+
+/// <summary>A file of the application or the resource behind it. The three
+/// pieces a printed document is made of follow the same rule, so the rule is
+/// written once.</summary>
+function PrintPart(const AFileName, AResource, AWhat: string): string;
+var
+  LFileName: string;
+begin
+  LFileName := AFileName.Trim;
+  if LFileName = '' then
+    Exit(THelpChatPanel.LoadResourceText(AResource));
+  if not TPath.IsPathRooted(LFileName) then
+    LFileName := TPath.Combine(ExtractFilePath(ParamStr(0)), LFileName);
+  if not TFile.Exists(LFileName) then
+    raise EHelpChatConfigError.CreateFmt('The PDF %s "%s" was not found',
+      [AWhat, LFileName]);
+  Result := TFile.ReadAllText(LFileName, TEncoding.UTF8);
+end;
+
+class function THelpChatPanel.PrintCss(const AStyleSheetFile: string): string;
+begin
+  Result := PrintPart(AStyleSheetFile, HELPCHAT_RES_PRINTCSS, 'stylesheet');
+end;
+
+class function THelpChatPanel.PrintHeader(const AHeaderFile: string): string;
+begin
+  Result := PrintPart(AHeaderFile, HELPCHAT_RES_PRINTHEADER, 'header');
+end;
+
+class function THelpChatPanel.PrintFooter(const AFooterFile: string): string;
+begin
+  Result := PrintPart(AFooterFile, HELPCHAT_RES_PRINTFOOTER, 'footer');
 end;
 
 end.

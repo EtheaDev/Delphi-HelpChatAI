@@ -43,7 +43,8 @@ uses
   System.Classes,
   System.JSON,
   HelpChatAI.Messages,
-  HelpChatAI.Attachments;
+  HelpChatAI.Attachments,
+  HelpChatAI.Pdf;
 
 const
   HELPCHAT_DEF_PROVIDER = 'stub';
@@ -95,6 +96,10 @@ const
   HELPCHAT_MODEL_DEF_LANGUAGE_RULE =
     'The user interface of the application is in %0:s. Reply in %0:s, unless the user ' +
     'clearly writes in another language: in that case reply in the language of the user.';
+  /// <summary>Appended to the system prompt with the date of today,
+  /// written out in English: a model has no calendar, and one asked for a
+  /// document dates it "today" unless it is told what today is.</summary>
+  HELPCHAT_MODEL_DEF_DATE_RULE = 'Today is %s.';
   /// <summary>Added to the system prompt when the application registered
   /// actions: the model has to know that the tools change the application the
   /// user is looking at, not some sandbox.</summary>
@@ -139,7 +144,37 @@ const
   /// <summary>Read when GEMINI_API_KEY is empty: the name Google Cloud uses.</summary>
   HELPCHAT_GEMINI_APIKEY_ENVVAR_ALT = 'GOOGLE_API_KEY';
 
+  // Names passed to OnDecryptSecret, so that one handler can tell the secrets
+  // apart. The key of a model section is prefixed with the section name:
+  // 'Claude.ApiKey', 'OpenAI.ApiKey', 'Gemini.ApiKey'.
+  HELPCHAT_SECRET_APIKEY = 'ApiKey';
+  HELPCHAT_SECRET_APPKEY = 'Remote.AppKey';
+  HELPCHAT_SECRET_USERTOKEN = 'Remote.UserToken';
+
 type
+  THelpChatSettings = class;
+
+  /// <summary>
+  ///  Called just before a secret stored in the settings is used, so that an
+  ///  application may keep it encrypted in <c>helpchatai.json</c> and in the
+  ///  form file. <c>AName</c> says which secret it is
+  ///  (<c>Claude.ApiKey</c>, <c>Remote.AppKey</c>...), <c>AValue</c> is what
+  ///  the configuration holds, and <c>AResult</c> is what will be used.
+  ///  Leaving <c>AHandled</c> False keeps the value as it is, so a handler may
+  ///  answer for one secret and ignore the others.
+  ///
+  ///  The library imposes no format: whoever writes the handler decides how an
+  ///  encrypted value is recognized (the demo prefixes it with <c>enc:</c>).
+  ///
+  ///  <b>It runs on the worker thread</b> that is about to call the service,
+  ///  never on the main one: it must not touch the user interface nor wait for
+  ///  a dialog. Calls are serialized, so a handler is never entered twice at
+  ///  the same time. Nothing is cached: the clear text lives as long as the
+  ///  request that needs it.
+  /// </summary>
+  THelpChatSecretEvent = procedure(Sender: TObject; const AName, AValue: string;
+    var AResult: string; var AHandled: Boolean) of object;
+
   /// <summary>
   ///  What every model provider needs, and in practice the only thing that
   ///  differs between them: a key, a model, an endpoint, how much to ask for
@@ -163,6 +198,16 @@ type
     FConnectTimeoutMs: Integer;
     FResponseTimeoutMs: Integer;
     FMaxToolRounds: Integer;
+    // The settings this section belongs to, set by THelpChatSettings.Create
+    // and never copied by Assign: it is who holds OnDecryptSecret. Nil for a
+    // section created on its own, which then has no handler to ask.
+    FOwnerSettings: THelpChatSettings;
+  protected
+    /// <summary>The key as the configuration holds it: <c>ApiKey</c> when set,
+    /// else the environment variable of this provider. This is what
+    /// <see cref="ResolveApiKey" /> hands to the secret handler, and what a
+    /// provider with more than one environment variable overrides.</summary>
+    function RawApiKey: string; virtual;
   public
     /// <summary>Model used when <c>Model</c> is empty.</summary>
     class function DefaultModel: string; virtual; abstract;
@@ -177,8 +222,10 @@ type
     /// name of the property on <c>THelpChatSettings</c>.</summary>
     class function SectionName: string; virtual; abstract;
     /// <summary>The API key to use: <c>ApiKey</c> when set, else the
-    /// environment variable of this provider, else empty.</summary>
-    function ResolveApiKey: string; virtual;
+    /// environment variable of this provider, else empty - passed through
+    /// <see cref="THelpChatSettings.OnDecryptSecret" />, so a configuration
+    /// may keep it encrypted.</summary>
+    function ResolveApiKey: string;
     /// <summary>Base URL without trailing slash; the default when empty.</summary>
     function NormalizedBaseUrl: string;
     /// <summary>Model when set, else the default of this provider.</summary>
@@ -273,13 +320,14 @@ type
 
   /// <summary>Settings of the <c>gemini</c> provider (Google generateContent).</summary>
   THelpChatGeminiSettings = class(THelpChatModelSettings)
+  protected
+    /// <summary>GEMINI_API_KEY, else GOOGLE_API_KEY.</summary>
+    function RawApiKey: string; override;
   public
     class function DefaultModel: string; override;
     class function DefaultBaseUrl: string; override;
     class function ApiKeyEnvVar: string; override;
     class function SectionName: string; override;
-    /// <summary>GEMINI_API_KEY, else GOOGLE_API_KEY.</summary>
-    function ResolveApiKey: string; override;
   end;
 
   /// <summary>
@@ -298,6 +346,8 @@ type
     FUserToken: string;
     FUseHostChannel: Boolean;
     FTimeoutMs: Integer;
+    // See THelpChatModelSettings.FOwnerSettings.
+    FOwnerSettings: THelpChatSettings;
   public
     constructor Create;
     procedure Assign(Source: TPersistent); override;
@@ -305,6 +355,12 @@ type
     function IsConfigured: Boolean;
     /// <summary>BaseUrl without trailing slash.</summary>
     function NormalizedBaseUrl: string;
+    /// <summary>The application key to send, through
+    /// <see cref="THelpChatSettings.OnDecryptSecret" />.</summary>
+    function ResolveAppKey: string;
+    /// <summary>The user credential to send, through
+    /// <see cref="THelpChatSettings.OnDecryptSecret" />.</summary>
+    function ResolveUserToken: string;
     /// <summary>The user id to send: <c>UserId</c> when set, else empty (the
     /// server then keeps the conversation per session, not per user).</summary>
     function ResolveUserId: string;
@@ -361,6 +417,63 @@ type
     property MaxTotalKB: Integer read FMaxTotalKB write FMaxTotalKB default HELPCHAT_DEF_ATTACH_MAXTOTALKB;
   end;
 
+  /// <summary>
+  ///  Turning an answer, a page of the manual or the conversation into a PDF.
+  ///  On by default: it happens on the machine, with the browser engine the
+  ///  panel already needs, and nothing leaves. What is off by default is
+  ///  <see cref="Action" />, because a tool the model can call is a change in
+  ///  what the assistant does, not one more button.
+  /// </summary>
+  THelpChatPdfSettings = class(TPersistent)
+  private
+    FEnabled: Boolean;
+    FAction: Boolean;
+    FPaper: THelpChatPdfPaper;
+    FOrientation: THelpChatPdfOrientation;
+    FMarginMm: Integer;
+    FPrintBackgrounds: Boolean;
+    FHeaderFooter: Boolean;
+    FBandMm: Integer;
+  public
+    constructor Create;
+    procedure Assign(Source: TPersistent); override;
+    /// <summary>The sheet as the exporter wants it. The bands themselves are
+    /// not here: they are HTML, and the component builds them from its
+    /// templates and from what it knows about the application.</summary>
+    function Page(const ATitle: string = ''): THelpChatPdfPage;
+    procedure LoadFromJSONObject(const AObject: TJSONObject);
+    procedure SaveToJSONObject(const AObject: TJSONObject);
+  published
+    /// <summary>Offer to save an answer, a documentation page or the
+    /// conversation as PDF.</summary>
+    property Enabled: Boolean read FEnabled write FEnabled default HELPCHAT_PDF_DEF_ENABLED;
+    /// <summary>Register the <c>export_pdf</c> action, so that the assistant
+    /// can write a document and hand it over without being asked.</summary>
+    property Action: Boolean read FAction write FAction default HELPCHAT_PDF_DEF_ACTION;
+    /// <summary>The sheet: A4 or Letter.</summary>
+    property Paper: THelpChatPdfPaper read FPaper write FPaper default HELPCHAT_PDF_DEF_PAPER;
+    /// <summary>Upright or on its side.</summary>
+    property Orientation: THelpChatPdfOrientation read FOrientation write FOrientation
+      default HELPCHAT_PDF_DEF_ORIENTATION;
+    /// <summary>All four margins, in millimetres.</summary>
+    property MarginMm: Integer read FMarginMm write FMarginMm default HELPCHAT_PDF_DEF_MARGINMM;
+    /// <summary>Print the background colours of the stylesheet. Off, the
+    /// header row of a table comes out white.</summary>
+    property PrintBackgrounds: Boolean read FPrintBackgrounds write FPrintBackgrounds
+      default HELPCHAT_PDF_DEF_BACKGROUNDS;
+    /// <summary>Print a band at the top and at the foot of every sheet: the
+    /// application and the document above, who printed it, when, and the page
+    /// number below. What they say is in the two templates - the built-in
+    /// ones, or the files named in <c>PdfHeaderFile</c> and
+    /// <c>PdfFooterFile</c>.</summary>
+    property HeaderFooter: Boolean read FHeaderFooter write FHeaderFooter
+      default HELPCHAT_PDF_DEF_HEADERFOOTER;
+    /// <summary>How tall a band is, in millimetres. It is added to the margin,
+    /// so the text keeps the room <see cref="MarginMm" /> gives it; a template
+    /// of two lines needs more than the default.</summary>
+    property BandMm: Integer read FBandMm write FBandMm default HELPCHAT_PDF_DEF_BANDMM;
+  end;
+
   /// <summary>Settings of the whole engine.</summary>
   THelpChatSettings = class(TPersistent)
   private
@@ -382,15 +495,39 @@ type
     FGemini: THelpChatGeminiSettings;
     FRemote: THelpChatRemoteSettings;
     FAttachments: THelpChatAttachmentSettings;
+    FPdf: THelpChatPdfSettings;
+    FOnDecryptSecret: THelpChatSecretEvent;
+    FSecretSender: TObject;
     procedure SetClaude(const Value: THelpChatClaudeSettings);
     procedure SetOpenAI(const Value: THelpChatOpenAISettings);
     procedure SetGemini(const Value: THelpChatGeminiSettings);
     procedure SetRemote(const Value: THelpChatRemoteSettings);
     procedure SetAttachments(const Value: THelpChatAttachmentSettings);
+    procedure SetPdf(const Value: THelpChatPdfSettings);
   public
     constructor Create;
     destructor Destroy; override;
     procedure Assign(Source: TPersistent); override;
+
+    /// <summary>Installs the handler that turns a stored secret into the value
+    /// to use, and the object the handler will see as <c>Sender</c> (the
+    /// component, so that a handler shared by two of them can tell which one
+    /// is asking). Both are copied by <c>Assign</c>, because what a request
+    /// reads is a snapshot of these settings, taken on a worker thread.</summary>
+    procedure SetSecretHandler(const AHandler: THelpChatSecretEvent;
+      const ASender: TObject = nil);
+    /// <summary>The value to use for the named secret: what
+    /// <see cref="OnDecryptSecret" /> answers, or <c>AValue</c> itself when no
+    /// handler is installed or the handler left it alone. Thread-safe: calls
+    /// to the handler are serialized.</summary>
+    function RevealSecret(const AName, AValue: string): string;
+    /// <summary>Called before a secret of these settings is used. See
+    /// <see cref="THelpChatSecretEvent" />: it runs on a worker thread.
+    /// The components publish it, so in the Object Inspector it is written
+    /// once and reaches every section.</summary>
+    property OnDecryptSecret: THelpChatSecretEvent read FOnDecryptSecret
+      write FOnDecryptSecret;
+
     /// <summary>The greeting to show: <c>Greeting</c> when set, else the localized default.</summary>
     function ResolveGreeting: string;
     /// <summary>The conversation file: <c>ConversationFile</c> when set, else
@@ -487,6 +624,8 @@ type
     property Remote: THelpChatRemoteSettings read FRemote write SetRemote;
     /// <summary>What the user may attach to a question (off by default).</summary>
     property Attachments: THelpChatAttachmentSettings read FAttachments write SetAttachments;
+    /// <summary>Saving a document as PDF.</summary>
+    property Pdf: THelpChatPdfSettings read FPdf write SetPdf;
   end;
 
 /// <summary>Per-user writable data folder of the running application
@@ -497,7 +636,25 @@ implementation
 
 uses
   System.IOUtils,
+  System.SyncObjs,
   HelpChatAI.Types;
+
+var
+  // The secret handler belongs to the application and is called from the
+  // worker that is about to build the request: one at a time, so that a
+  // handler written without a thought for threads still behaves.
+  FSecretLock: TCriticalSection;
+
+/// <summary>Asks the settings that own ASection for the value of the named
+/// secret. A section created on its own has no owner, and the value stands.</summary>
+function RevealSecretOf(const AOwner: THelpChatSettings;
+  const AName, AValue: string): string;
+begin
+  if AOwner = nil then
+    Result := AValue
+  else
+    Result := AOwner.RevealSecret(AName, AValue);
+end;
 
 // ---- JSON helpers: tolerant, case-insensitive readers (missing key = keep value)
 
@@ -630,11 +787,17 @@ begin
     inherited Assign(Source);
 end;
 
-function THelpChatModelSettings.ResolveApiKey: string;
+function THelpChatModelSettings.RawApiKey: string;
 begin
   Result := Trim(FApiKey);
   if Result = '' then
     Result := Trim(GetEnvironmentVariable(ApiKeyEnvVar));
+end;
+
+function THelpChatModelSettings.ResolveApiKey: string;
+begin
+  Result := RevealSecretOf(FOwnerSettings,
+    SectionName + '.' + HELPCHAT_SECRET_APIKEY, RawApiKey);
 end;
 
 function THelpChatModelSettings.NormalizedBaseUrl: string;
@@ -838,9 +1001,9 @@ begin
   Result := 'Gemini';
 end;
 
-function THelpChatGeminiSettings.ResolveApiKey: string;
+function THelpChatGeminiSettings.RawApiKey: string;
 begin
-  Result := inherited ResolveApiKey;
+  Result := inherited RawApiKey;
   if Result = '' then
     Result := Trim(GetEnvironmentVariable(HELPCHAT_GEMINI_APIKEY_ENVVAR_ALT));
 end;
@@ -882,6 +1045,16 @@ begin
   Result := Trim(FBaseUrl);
   while Result.EndsWith('/') do
     Result := Result.Substring(0, Result.Length - 1);
+end;
+
+function THelpChatRemoteSettings.ResolveAppKey: string;
+begin
+  Result := RevealSecretOf(FOwnerSettings, HELPCHAT_SECRET_APPKEY, Trim(FAppKey));
+end;
+
+function THelpChatRemoteSettings.ResolveUserToken: string;
+begin
+  Result := RevealSecretOf(FOwnerSettings, HELPCHAT_SECRET_USERTOKEN, Trim(FUserToken));
 end;
 
 function THelpChatRemoteSettings.ResolveUserId: string;
@@ -963,6 +1136,90 @@ begin
   AObject.AddPair('MaxTotalKB', TJSONNumber.Create(FMaxTotalKB));
 end;
 
+{ THelpChatPdfSettings }
+
+constructor THelpChatPdfSettings.Create;
+begin
+  inherited Create;
+  FEnabled := HELPCHAT_PDF_DEF_ENABLED;
+  FAction := HELPCHAT_PDF_DEF_ACTION;
+  FPaper := HELPCHAT_PDF_DEF_PAPER;
+  FOrientation := HELPCHAT_PDF_DEF_ORIENTATION;
+  FMarginMm := HELPCHAT_PDF_DEF_MARGINMM;
+  FPrintBackgrounds := HELPCHAT_PDF_DEF_BACKGROUNDS;
+  FHeaderFooter := HELPCHAT_PDF_DEF_HEADERFOOTER;
+  FBandMm := HELPCHAT_PDF_DEF_BANDMM;
+end;
+
+procedure THelpChatPdfSettings.Assign(Source: TPersistent);
+var
+  LSource: THelpChatPdfSettings;
+begin
+  if Source is THelpChatPdfSettings then
+  begin
+    LSource := THelpChatPdfSettings(Source);
+    FEnabled := LSource.FEnabled;
+    FAction := LSource.FAction;
+    FPaper := LSource.FPaper;
+    FOrientation := LSource.FOrientation;
+    FMarginMm := LSource.FMarginMm;
+    FPrintBackgrounds := LSource.FPrintBackgrounds;
+    FHeaderFooter := LSource.FHeaderFooter;
+    FBandMm := LSource.FBandMm;
+  end
+  else
+    inherited Assign(Source);
+end;
+
+function THelpChatPdfSettings.Page(const ATitle: string): THelpChatPdfPage;
+begin
+  Result := THelpChatPdfPage.FromPaper(FPaper);
+  Result.Orientation := FOrientation;
+  Result.SetMargins(FMarginMm);
+  Result.PrintBackgrounds := FPrintBackgrounds;
+  Result.BandMm := FBandMm;
+  Result.Title := ATitle;
+end;
+
+procedure THelpChatPdfSettings.LoadFromJSONObject(const AObject: TJSONObject);
+var
+  LValue: string;
+begin
+  if AObject = nil then
+    Exit;
+  FEnabled := JsonBool(AObject, 'Enabled', FEnabled);
+  FAction := JsonBool(AObject, 'Action', FAction);
+  LValue := JsonStr(AObject, 'Paper', '');
+  if SameText(LValue, 'letter') then
+    FPaper := hcppLetter
+  else if SameText(LValue, 'a4') then
+    FPaper := hcppA4;
+  LValue := JsonStr(AObject, 'Orientation', '');
+  if SameText(LValue, 'landscape') then
+    FOrientation := hcpoLandscape
+  else if SameText(LValue, 'portrait') then
+    FOrientation := hcpoPortrait;
+  FMarginMm := JsonInt(AObject, 'MarginMm', FMarginMm);
+  FPrintBackgrounds := JsonBool(AObject, 'PrintBackgrounds', FPrintBackgrounds);
+  FHeaderFooter := JsonBool(AObject, 'HeaderFooter', FHeaderFooter);
+  FBandMm := JsonInt(AObject, 'BandMm', FBandMm);
+end;
+
+procedure THelpChatPdfSettings.SaveToJSONObject(const AObject: TJSONObject);
+const
+  PAPER: array[THelpChatPdfPaper] of string = ('A4', 'Letter');
+  ORIENTATION: array[THelpChatPdfOrientation] of string = ('Portrait', 'Landscape');
+begin
+  AObject.AddPair('Enabled', TJSONBool.Create(FEnabled));
+  AObject.AddPair('Action', TJSONBool.Create(FAction));
+  AObject.AddPair('Paper', PAPER[FPaper]);
+  AObject.AddPair('Orientation', ORIENTATION[FOrientation]);
+  AObject.AddPair('MarginMm', TJSONNumber.Create(FMarginMm));
+  AObject.AddPair('PrintBackgrounds', TJSONBool.Create(FPrintBackgrounds));
+  AObject.AddPair('HeaderFooter', TJSONBool.Create(FHeaderFooter));
+  AObject.AddPair('BandMm', TJSONNumber.Create(FBandMm));
+end;
+
 { THelpChatSettings }
 
 constructor THelpChatSettings.Create;
@@ -973,6 +1230,7 @@ begin
   FGemini := THelpChatGeminiSettings.Create;
   FRemote := THelpChatRemoteSettings.Create;
   FAttachments := THelpChatAttachmentSettings.Create;
+  FPdf := THelpChatPdfSettings.Create;
   FProvider := HELPCHAT_DEF_PROVIDER;
   FPoolSize := HELPCHAT_DEF_POOLSIZE;
   FMessageMaxLength := HELPCHAT_DEF_MSGMAXLEN;
@@ -981,11 +1239,18 @@ begin
   FLanguage := hclAuto;
   FPersistConversation := HELPCHAT_DEF_PERSIST;
   FConversationMaxAgeDays := HELPCHAT_DEF_CONVERSATION_MAXAGE_DAYS;
+  // The sections are created here and never replaced (the setters Assign into
+  // them), so each may keep the way back to the handler for its secrets.
+  FClaude.FOwnerSettings := Self;
+  FOpenAI.FOwnerSettings := Self;
+  FGemini.FOwnerSettings := Self;
+  FRemote.FOwnerSettings := Self;
 end;
 
 destructor THelpChatSettings.Destroy;
 begin
   FRemote.Free;
+  FPdf.Free;
   FAttachments.Free;
   FGemini.Free;
   FOpenAI.Free;
@@ -1038,6 +1303,11 @@ begin
   FAttachments.Assign(Value);
 end;
 
+procedure THelpChatSettings.SetPdf(const Value: THelpChatPdfSettings);
+begin
+  FPdf.Assign(Value);
+end;
+
 procedure THelpChatSettings.SetRemote(const Value: THelpChatRemoteSettings);
 begin
   FRemote.Assign(Value);
@@ -1068,9 +1338,43 @@ begin
     FGemini.Assign(LSource.FGemini);
     FRemote.Assign(LSource.FRemote);
     FAttachments.Assign(LSource.FAttachments);
+    FPdf.Assign(LSource.FPdf);
+    // The snapshot a request works on must be able to decrypt what it carries.
+    FOnDecryptSecret := LSource.FOnDecryptSecret;
+    FSecretSender := LSource.FSecretSender;
   end
   else
     inherited Assign(Source);
+end;
+
+procedure THelpChatSettings.SetSecretHandler(const AHandler: THelpChatSecretEvent;
+  const ASender: TObject);
+begin
+  FOnDecryptSecret := AHandler;
+  FSecretSender := ASender;
+end;
+
+function THelpChatSettings.RevealSecret(const AName, AValue: string): string;
+var
+  LHandled: Boolean;
+  LSender: TObject;
+begin
+  Result := AValue;
+  if (AValue = '') or not Assigned(FOnDecryptSecret) then
+    Exit;
+  LSender := FSecretSender;
+  if LSender = nil then
+    LSender := Self;
+  LHandled := False;
+  FSecretLock.Enter;
+  try
+    FOnDecryptSecret(LSender, AName, AValue, Result, LHandled);
+  finally
+    FSecretLock.Leave;
+  end;
+  // A handler that answered for another secret left ours alone.
+  if not LHandled then
+    Result := AValue;
 end;
 
 function THelpChatSettings.ResolveGreeting: string;
@@ -1148,6 +1452,8 @@ begin
       FRemote.LoadFromJSONObject(TJSONObject(JsonFind(LRoot, 'Remote')));
     if JsonFind(LRoot, 'Attachments') is TJSONObject then
       FAttachments.LoadFromJSONObject(TJSONObject(JsonFind(LRoot, 'Attachments')));
+    if JsonFind(LRoot, 'Pdf') is TJSONObject then
+      FPdf.LoadFromJSONObject(TJSONObject(JsonFind(LRoot, 'Pdf')));
   finally
     LRoot.Free;
   end;
@@ -1155,7 +1461,7 @@ end;
 
 function THelpChatSettings.SaveToJSON: string;
 var
-  LRoot, LClaude, LSection, LRemote, LAttachments: TJSONObject;
+  LRoot, LClaude, LSection, LRemote, LAttachments, LPdf: TJSONObject;
 begin
   LRoot := TJSONObject.Create;
   try
@@ -1187,6 +1493,9 @@ begin
     LAttachments := TJSONObject.Create;
     LRoot.AddPair('Attachments', LAttachments);
     FAttachments.SaveToJSONObject(LAttachments);
+    LPdf := TJSONObject.Create;
+    LRoot.AddPair('Pdf', LPdf);
+    FPdf.SaveToJSONObject(LPdf);
     Result := LRoot.Format(2);
   finally
     LRoot.Free;
@@ -1259,5 +1568,11 @@ begin
     if LoadFromFile(LFile) then
       Result := Result + [LFile];
 end;
+
+initialization
+  FSecretLock := TCriticalSection.Create;
+
+finalization
+  FreeAndNil(FSecretLock);
 
 end.
