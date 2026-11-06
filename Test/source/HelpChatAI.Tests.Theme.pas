@@ -17,6 +17,10 @@ type
     [Test] procedure ToJson_KeysAreCssVariables;
     [Test] procedure Empty_RendersNothing;
     [Test] procedure BuiltIn_LightAndDark;
+    [Test] procedure ColorDistance;
+    [Test] procedure Bubbles_OfTheSameColour_AreSeparated;
+    [Test] procedure Bubbles_SetByTheProducer_AreLeftAlone;
+    [Test] procedure Shadow_FollowsTheMode;
   end;
 
 implementation
@@ -107,7 +111,7 @@ begin
     Assert.AreEqual('#f6f7f9', LJson.GetValue<string>('--hc-bg'));
     Assert.AreEqual('#2563eb', LJson.GetValue<string>('--hc-accent'));
     Assert.AreEqual('light', LJson.GetValue<string>('color-scheme'));
-    Assert.AreEqual(18, LJson.Count, '17 variables + color-scheme');
+    Assert.AreEqual(19, LJson.Count, '18 variables + color-scheme');
   finally
     LJson.Free;
   end;
@@ -130,6 +134,76 @@ begin
   Assert.IsFalse(THelpChatTheme.Light.IsEmpty);
   Assert.AreEqual('#ffffff', THelpChatTheme.Light.AssistantBubble);
   Assert.AreEqual('#22252b', THelpChatTheme.Dark.AssistantBubble);
+end;
+
+procedure TThemeTests.ColorDistance;
+begin
+  Assert.AreEqual(Double(0), HelpChatColorDistance('#cccccc', '#CCCCCC'), 0.001);
+  Assert.AreEqual(Double(1), HelpChatColorDistance('#000000', '#ffffff'), 0.001);
+  // The largest difference of the components, not their average: two colours
+  // that share two of them are still far apart.
+  Assert.AreEqual(Double(1), HelpChatColorDistance('#ff0000', '#000000'), 0.001);
+  Assert.AreEqual(Double(1), HelpChatColorDistance('nope', '#000000'), 0.001, 'unparsable = as far as it gets');
+end;
+
+procedure TThemeTests.Bubbles_OfTheSameColour_AreSeparated;
+var
+  LTheme: THelpChatTheme;
+begin
+  // Windows10: the style answers #cccccc for its surface and for its accent.
+  LTheme := Default(THelpChatTheme);
+  LTheme.Background := '#ffffff';
+  LTheme.Surface := '#cccccc';
+  LTheme.Accent := '#cccccc';
+  LTheme.Text := '#000000';
+  LTheme.Complete;
+  Assert.IsTrue(HelpChatColorDistance(LTheme.UserBubble, LTheme.AssistantBubble) >= 0.12,
+    'the two bubbles are told apart');
+  Assert.IsTrue(HelpChatLuminance(LTheme.UserBubble) < HelpChatLuminance('#cccccc'),
+    'under a light theme the user bubble is the darker one');
+  Assert.IsTrue(HelpChatLuminance(LTheme.AssistantBubble) > HelpChatLuminance('#cccccc'));
+
+  // Windows10 Dark: #262626 for both, and the other way round.
+  LTheme := Default(THelpChatTheme);
+  LTheme.IsDark := True;
+  LTheme.Background := '#000000';
+  LTheme.Surface := '#262626';
+  LTheme.Accent := '#262626';
+  LTheme.Text := '#ffffff';
+  LTheme.Complete;
+  Assert.IsTrue(HelpChatColorDistance(LTheme.UserBubble, LTheme.AssistantBubble) >= 0.12);
+  Assert.IsTrue(HelpChatLuminance(LTheme.UserBubble) > HelpChatLuminance('#262626'),
+    'under a dark theme the user bubble is the lighter one');
+  Assert.IsTrue(HelpChatLuminance(LTheme.AssistantBubble) < HelpChatLuminance('#262626'));
+
+  // Two colours that can be told apart are not touched.
+  LTheme := Default(THelpChatTheme);
+  LTheme.Surface := '#ffffff';
+  LTheme.Accent := '#2563eb';
+  LTheme.Complete;
+  Assert.AreEqual('#2563eb', LTheme.UserBubble);
+  Assert.AreEqual('#ffffff', LTheme.AssistantBubble);
+end;
+
+procedure TThemeTests.Bubbles_SetByTheProducer_AreLeftAlone;
+var
+  LTheme: THelpChatTheme;
+begin
+  LTheme := Default(THelpChatTheme);
+  LTheme.Surface := '#cccccc';
+  LTheme.Accent := '#cccccc';
+  LTheme.UserBubble := '#cccccc';
+  LTheme.AssistantBubble := '#cccccc';
+  LTheme.Complete;
+  Assert.AreEqual('#cccccc', LTheme.UserBubble, 'what the producer wrote is kept');
+  Assert.AreEqual('#cccccc', LTheme.AssistantBubble);
+end;
+
+procedure TThemeTests.Shadow_FollowsTheMode;
+begin
+  Assert.AreEqual('rgba(0,0,0,0.16)', THelpChatTheme.Light.Shadow);
+  Assert.AreEqual('rgba(0,0,0,0.55)', THelpChatTheme.Dark.Shadow);
+  Assert.Contains(THelpChatTheme.Light.ToCss, '--hc-shadow:rgba(0,0,0,0.16);');
 end;
 
 end.

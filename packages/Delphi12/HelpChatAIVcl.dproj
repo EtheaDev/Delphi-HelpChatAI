@@ -82,6 +82,9 @@
         <DCCReference Include="HelpChatAI.dcp"/>
         <DCCReference Include="HelpChatAIServer.dcp"/>
                 <DCCReference Include="..\..\source\Vcl.HelpChatAI.Bubble.pas"/>
+                <DCCReference Include="..\..\source\Vcl.HelpChatAI.ConfirmDialog.pas">
+                    <Form>VclHelpChatConfirmDialog</Form>
+                </DCCReference>
                 <DCCReference Include="..\..\source\Vcl.HelpChatAI.Voice.pas"/>
 <DCCReference Include="..\..\source\Vcl.HelpChatAI.Panel.pas"/>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.pas"/>

@@ -6465,6 +6465,9 @@ object MainForm: TMainForm
   end
   object HelpChat: TVclHelpChatAI
     Settings.Provider = 'claude'
+    Settings.Claude.MaxToolRounds = 6
+    Settings.OpenAI.MaxToolRounds = 6
+    Settings.Gemini.MaxToolRounds = 6
     Settings.Attachments.Enabled = True
     Settings.Pdf.Action = True
     Settings.Pdf.HeaderFooter = True

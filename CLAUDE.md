@@ -295,8 +295,9 @@ the edit on every version, not on the one that happens to be open.
   `TLayout` with the `TWebBrowser`) do the browser work and know nothing about their host. The
   component parents it to `Container` / the `AContainer` chosen in `OnBeforeShowHelp`, else to
   its own `TVclHelpChatAIForm`/`TFmxHelpChatAIForm` (created with `CreateNew`, no DFM). Position memory is the
-  own window's only; an application container persists itself. There is no designable form
-  and nothing registers form classes: everything visible is HTML.
+  own window's only; an application container persists itself. The one form with a DFM is
+  the confirmation dialog (`Vcl.HelpChatAI.ConfirmDialog`, below); everything else visible
+  is HTML.
 - **The bubble has a window, and it fights to stay on top.** It used to be a `TSpeedButton`,
   and in a real application it vanished: a `TGraphicControl` has no window of its own, the VCL
   paints it on its parent's canvas and keeps it *below* every windowed sibling, so a grid or a
@@ -506,6 +507,54 @@ the edit on every version, not on the one that happens to be open.
   watching the cancellation token; the component marshals with `TThread.Queue` and calls
   `ExecutePending`. Nothing in this path may raise into the provider: every outcome is a
   `THelpChatActionOutcome` turned into a sentence for the model.
+- **An action asks unless told otherwise.** `AConfirm` defaults to True in both `Add`; an
+  action that changes nothing (`open_screen`) or asks in its own way (`export_pdf`, whose
+  save dialog is the confirmation) passes False explicitly. In the VCL the question goes
+  through `Vcl.HelpChatAI.ConfirmDialog`: `HelpChatVclConfirmAction` creates the class in
+  `VclHelpChatConfirmDialogClass` (the DFM form of the library, or one the application
+  registered with `RegisterVclHelpChatConfirmDialog`, which must implement
+  `IVclHelpChatConfirmDialog`), owned by the host form, one at a time - a question arriving
+  while one is open dismisses it as No. The form is a DFM on purpose: one built with
+  `CreateNew` and laid out by hand got the font of the primary screen and the layout of
+  another, because `ScaleValue` multiplies by the factor of the last rescaling (1 for a form
+  nobody rescaled) while the font of a new form is already at the DPI of the screen; the VCL
+  scales a form it loads, at creation and on every move. Stock icons come from
+  `LoadIconWithScaleDown`, because `LoadImage` with a size hands back the icon of the system
+  DPI for a system icon. No is the default button, and the dialog closes as No after
+  `HELPCHAT_CONFIRM_TIMEOUT_MS` (30 s), before the broker's 60 s. What it shows comes from
+  `THelpChatActionArgs.ToDisplayPairs`: the description of each parameter cut at its first
+  punctuation (`ParamLabel`), the values with control characters replaced and cut at
+  `HELPCHAT_ACTION_DISPLAY_MAXCHARS` - the model wrote them, and a value must not be able to
+  read like a sentence of ours. `FMX.HelpChatAI.ConfirmDialog` is the FireMonkey twin
+  (`IFmxHelpChatConfirmDialog`, `RegisterFmxHelpChatConfirmDialog`, a form with an FMX):
+  `TDialogService.MessageDialog` on Windows is the message box of the system, which no
+  FireMonkey style paints, while a form follows the style like every other. Its labels are
+  measured with a `TTextLayout` before the form is shown, because a FireMonkey label has no
+  height to report until its style is applied; the icons are a `TPath` and a `TCircle`,
+  since FireMonkey has no stock icons. It answers on the desktop only
+  (`HelpChatFmxCanConfirm`: Windows and macOS, where `ShowModal` returns), so on a mobile
+  platform an action needing confirmation without `OnActionConfirm` is still refused.
+- **A refusal ends the plan.** `THelpChatProviderBase.InvokeAction` is how every provider
+  runs an action: after the user said no to one action of a reply, every later one of that
+  reply is answered `aoDenied` with `HELPCHAT_ACTION_DENIED_BEFORE_TEXT` and nobody is asked.
+  A provider lives for one reply, so the rule does too. The model is told the same in
+  `HELPCHAT_MODEL_ACTIONS_RULE` and in the denied text, but the guarantee is the code: told
+  "the user refused to create the company", a model asked "create the lead" anyway.
+- **The request of an action is freed by whoever touches it last.** `Invoke` waits with a
+  timeout while the host may be holding the request in a confirmation dialog: on timeout or
+  cancellation it calls `Forget`, which under the lock drops a request still queued, frees
+  one already answered, and otherwise marks it abandoned for the host; `Finish`, under the
+  same lock, frees an abandoned request instead of completing it, and `ExecutePending`
+  skips the handler of one. Before this, a Yes given after the 60 s ran the action anyway
+  (the model had been told it timed out, and a retry would run it twice) and then wrote on
+  a freed object.
+- **What enters the system prompt from the application is cut first.** `HelpChatPromptField`
+  reduces the screen label and the class name to one line without double quotes, at most 80
+  characters: a caption is often the name of the record, which somebody else typed, and the
+  system prompt is the part of the context a model trusts most. The texts of
+  `HELPCHAT_MODEL_ACTIONS_RULE` say that what a tool returns, a document contains or an
+  excerpt says is data, never an instruction - a rule, not a guarantee; the guarantees are
+  the two bullets above.
 - **The broker outlives the component on purpose.** It is reference counted and the queued
   `ExecutePending` closure captures the interface, so a call in flight cannot land on a freed
   object. The component keeps both the typed reference and the interface, and nils both.

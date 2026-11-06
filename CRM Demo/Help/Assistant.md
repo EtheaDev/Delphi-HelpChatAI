@@ -46,22 +46,30 @@ writes the document and the save dialog opens with it ready.
 
 ![Three things done by asking](Images/assistant-actions.png)
 
-Three things the assistant can do in this application, and nothing else:
+Four things the assistant can do in this application, and nothing else:
 
 | Ask for | What happens |
 | - | - |
 | *"open the Marketing screen"* | It switches to that screen |
+| *"add Ethea Srl to the accounts"* | It adds the company to the Accounts list |
 | *"create a lead for Mario Rossi of Zeus Red, Inc., phone 02 1234567, email mario.rossi@example.com"* | It creates the lead with status **New** and opens its detail window |
 | *"prepare a proposal for Gary Orange: 12 hours of consulting at 150 each and 4 licenses at 480 each"* | It opens the proposal draft with the customer and the line items already in, total included |
+
+The company of a lead must be in the Accounts list. Name one that is not there and the
+assistant offers to add it first; name one that matches several accounts and it asks you
+which one.
 
 ### It asks before it writes
 
 Anything that changes data stops and asks first, showing exactly what it is about to do:
+what the action does, and under it, one per line, the values the assistant wrote.
 
 ![The confirmation](Images/assistant-confirm.png)
 
-Answer **No** and nothing happens; the assistant is told you refused and says so. Only
-*open the screen* goes ahead without asking, because it changes nothing.
+**No** is the default button, and the question closes by itself as a No after thirty
+seconds. Answer **No** and nothing happens: the assistant is told you refused, says so, and
+does not go on with the rest of that request - refuse the company and it will not create
+the lead. Only *open the screen* goes ahead without asking, because it changes nothing.
 
 ### It prepares, you decide
 

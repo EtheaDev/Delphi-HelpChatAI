@@ -745,7 +745,8 @@
     if (style) style.textContent = '';
     var names = ['--hc-bg', '--hc-surface', '--hc-text', '--hc-muted', '--hc-border', '--hc-accent',
       '--hc-accent-text', '--hc-user-bg', '--hc-user-text', '--hc-assistant-bg', '--hc-assistant-text',
-      '--hc-system-bg', '--hc-system-text', '--hc-error-bg', '--hc-error-text', '--hc-code-bg', '--hc-font'];
+      '--hc-system-bg', '--hc-system-text', '--hc-error-bg', '--hc-error-text', '--hc-code-bg',
+      '--hc-shadow', '--hc-font'];
     names.forEach(function (n) { root.style.removeProperty(n); });
     root.style.removeProperty('color-scheme');
     if (!vars) return;

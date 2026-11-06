@@ -6,7 +6,7 @@
 {       Author: Carlo Barazzetta                                               }
 {       Contributors:                                                          }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {******************************************************************************}
 {                                                                              }
@@ -450,10 +450,12 @@ implementation
 uses
   System.IOUtils,
   System.JSON,
+  System.Generics.Collections,
   Vcl.Graphics,
   Vcl.Dialogs,
   Vcl.ComCtrls,
   Vcl.HelpChatAI.Theme,
+  Vcl.HelpChatAI.ConfirmDialog,
   HelpChatAI.Panel,            // the page contract: it decides the default name
   HelpChatAI.Server,
   HelpChatAI.Transport.Remote;
@@ -1213,16 +1215,36 @@ end;
 
 procedure TVclHelpChatAI.ActionConfirm(Sender: TObject; const AName: string;
   const AArgs: THelpChatActionArgs; var AAllow: Boolean);
+var
+  LRequest: TVclHelpChatConfirmRequest;
 begin
   if Assigned(FOnActionConfirm) then
   begin
     FOnActionConfirm(Self, AName, AArgs, AAllow);
     Exit;
   end;
-  // No handler: ask plainly rather than deciding for the user. An application
-  // that wants its own wording assigns OnActionConfirm.
-  AAllow := MessageDlg(HelpChatMsgFmt(hcmActionConfirm, [AName, AArgs.ToDisplayString],
-    FSettings.Language), mtConfirmation, [mbYes, mbNo], 0) = mrYes;
+  // No handler: ask plainly rather than deciding for the user, with the
+  // dialog registered in Vcl.HelpChatAI.ConfirmDialog (the one of the
+  // library unless the application registered its own): the name of the
+  // action as the instruction, what the application wrote (the description),
+  // what the model wrote (the values, labelled with the description of their
+  // parameter, cut short) and a footer saying who wrote them. An application
+  // that wants its own wording assigns OnActionConfirm, or registers a form.
+  LRequest := Default(TVclHelpChatConfirmRequest);
+  LRequest.Host := ResolveHostForm;
+  LRequest.Language := FSettings.Language;
+  LRequest.ActionName := AName;
+  LRequest.Action := FActions.Find(AName);
+  LRequest.Args := AArgs;
+  LRequest.Caption := ResolvedAssistantName;
+  LRequest.Title := HelpChatMsgFmt(hcmActionConfirmTitle, [AName], LRequest.Language);
+  if Assigned(LRequest.Action) then
+    LRequest.Description := LRequest.Action.Description;
+  LRequest.Values := AArgs.ToDisplayPairs(LRequest.Action);
+  if Length(LRequest.Values) > 0 then
+    LRequest.Footer := HelpChatMsg(hcmActionValuesFooter, LRequest.Language);
+  LRequest.TimeoutMs := HELPCHAT_CONFIRM_TIMEOUT_MS;
+  AAllow := HelpChatVclConfirmAction(LRequest);
 end;
 
 procedure TVclHelpChatAI.RegisterPdfAction;
@@ -1258,7 +1280,7 @@ begin
           PdfRequest(LDoc);
         end);
       AResult := HelpChatMsg(hcmPdfHandedOver, FSettings.Language);
-    end);
+    end, False); // the save dialog is the confirmation, and the user may cancel it
 end;
 
 /// <summary>Fills the file types of a Vista dialog from the classic

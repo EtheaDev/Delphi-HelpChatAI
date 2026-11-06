@@ -6,7 +6,7 @@
 {       Author: Carlo Barazzetta                                               }
 {       Contributors:                                                          }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {******************************************************************************}
 {                                                                              }
@@ -559,7 +559,7 @@ begin
     begin
       CheckCancelled(ACancel);
       // Invoke never raises: whatever happened is told to the model as text.
-      LOutcome := Actions.Invoke(ACalls[I].Name, ACalls[I].InputJson, ACancel, LResult);
+      LOutcome := InvokeAction(ACalls[I].Name, ACalls[I].InputJson, ACancel, LResult);
       if LOutcome = aoCancelled then
         raise EHelpChatCancelled.Create(Msg(hcmCancelled));
       LMsg := TJSONObject.Create;

@@ -6,7 +6,7 @@
 {       Author: Carlo Barazzetta                                               }
 {       Contributors:                                                          }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {******************************************************************************}
 {                                                                              }
@@ -44,8 +44,10 @@
 ///  (<see cref="THelpChatActionBroker" />). The same queue is what will carry
 ///  actions to a client of a remote server, where the model is on one machine
 ///  and the window to fill on another.</item>
-///  <item>Anything that changes data asks first: an action marked
-///  <c>Confirm</c> is executed only after the host says yes.</item>
+///  <item>Anything asks first unless told otherwise: an action is registered
+///  with <c>Confirm</c> on, and is executed only after the host says yes.
+///  Switching it off is for an action that changes nothing (bringing a
+///  screen to the front) or that asks in its own way (a save dialog).</item>
 ///  </list>
 /// </summary>
 unit HelpChatAI.Actions;
@@ -59,14 +61,33 @@ uses
   System.Classes,
   System.SyncObjs,
   System.Generics.Collections,
-  HelpChatAI.Types;
+  HelpChatAI.Types,
+  HelpChatAI.Messages;
 
 const
   /// <summary>How long a model call waits for an action to run, confirmation
-  /// included. Beyond it the model is told the action timed out.</summary>
+  /// included. Beyond it the model is told the action timed out - and the
+  /// action is not run any more, even if the user confirms it afterwards.</summary>
   HELPCHAT_DEF_ACTION_TIMEOUT_MS = 60000;
   /// <summary>Characters of an action result handed back to the model.</summary>
   HELPCHAT_DEF_ACTION_RESULT_MAXCHARS = 2000;
+  /// <summary>Characters of one parameter value shown to the user when an
+  /// action asks for confirmation. The model writes the values, and a model
+  /// under the influence of a hostile text would gladly write a paragraph
+  /// that reads like an approval: the user sees a line per value, and the
+  /// line is short.</summary>
+  HELPCHAT_ACTION_DISPLAY_MAXCHARS = 120;
+  /// <summary>What the model reads when the user said no: the plan stops
+  /// there, and the model is told not to look for another way.</summary>
+  HELPCHAT_ACTION_DENIED_TEXT =
+    'The user did not allow the action "%s". Do not try it again or in another way, ' +
+    'and do not go on with the steps that depended on it: tell the user what was not ' +
+    'done and stop.';
+  /// <summary>What the model reads for an action asked after the user said
+  /// no to another one of the same reply: it was not run, and nobody was asked.</summary>
+  HELPCHAT_ACTION_DENIED_BEFORE_TEXT =
+    'The action "%s" was not run: the user refused an action of this request, which ' +
+    'ends it. Tell the user what was not done and stop.';
 
 type
   /// <summary>Type of a parameter, as declared to the model.</summary>
@@ -81,6 +102,8 @@ type
       const AKind: THelpChatActionParamKind = apkString;
       const ARequired: Boolean = True): THelpChatActionParam; static;
   end;
+
+  THelpChatAction = class;
 
   /// <summary>What the model passed, by parameter name. Reading a parameter
   /// that was not sent gives the default, never an exception: a model may omit
@@ -99,8 +122,28 @@ type
     function AsBoolean(const AName: string; const ADefault: Boolean = False): Boolean;
     /// <summary>Names actually received.</summary>
     function Names: TArray<string>;
-    /// <summary>"name=value, name=value": what a confirmation dialog shows.</summary>
+    /// <summary>"name=value, name=value", on one line, for a log or a status
+    /// bar. Each value is made safe for display: control characters become
+    /// spaces and a long one is cut at
+    /// <see cref="HELPCHAT_ACTION_DISPLAY_MAXCHARS" />. The model wrote these
+    /// values, so the text must not be able to pass for anything else.</summary>
     function ToDisplayString: string;
+    /// <summary>The same values, one per line ("  name = value"), made safe
+    /// the same way: what a plain confirmation message shows. Empty when
+    /// there are no values.</summary>
+    function ToDisplayLines: string; overload;
+    /// <summary>One line per value ("Label: value"), the label being the
+    /// short form of the description the action declared for that parameter
+    /// (its name when it declared none), in the order of the declaration;
+    /// values the model sent under a name the action did not declare follow,
+    /// under their name. What a dialog with room for it shows.</summary>
+    function ToDisplayLines(const AAction: THelpChatAction): string; overload;
+    /// <summary>The same labelled values as pairs (label, safe value), in the
+    /// same order: for a dialog that lays them out itself.</summary>
+    function ToDisplayPairs(const AAction: THelpChatAction): TArray<TPair<string, string>>;
+    /// <summary>One value as it can be shown: no control characters, no more
+    /// than <see cref="HELPCHAT_ACTION_DISPLAY_MAXCHARS" /> characters.</summary>
+    class function DisplayValue(const AValue: string): string; static;
     /// <summary>The JSON object as the model sent it.</summary>
     property RawJson: string read FRawJson;
   end;
@@ -123,10 +166,16 @@ type
       const AConfirm: Boolean);
     /// <summary>The JSON schema of this action as an Anthropic tool.</summary>
     function ToToolJson: string;
+    /// <summary>The label a dialog gives the value of a parameter: the
+    /// description up to its first punctuation ("Company name, as in the
+    /// Accounts list" reads "Company name"), cut short; the name of the
+    /// parameter when there is no description, or no such parameter.</summary>
+    function ParamLabel(const AName: string): string;
     property Name: string read FName;
     property Description: string read FDescription;
     property Params: TArray<THelpChatActionParam> read FParams;
-    /// <summary>The host asks the user before running it.</summary>
+    /// <summary>The host asks the user before running it. On unless the
+    /// registration said otherwise.</summary>
     property Confirm: Boolean read FConfirm;
     property Handler: THelpChatActionProc read FHandler;
   end;
@@ -173,16 +222,22 @@ type
     FDone: TEvent;
     FResult: string;
     FOutcome: THelpChatActionOutcome;
+    FAbandoned: Boolean;
   public
     constructor Create(const AName, AArgsJson: string);
     destructor Destroy; override;
     procedure Complete(const AOutcome: THelpChatActionOutcome; const AResult: string);
+    /// <summary>Nobody is waiting for the answer any more: the model call
+    /// timed out or was cancelled while the host held the request. The host
+    /// must not run the action, and owns the object from now on.</summary>
+    procedure Abandon;
     property Id: string read FId;
     property Name: string read FName;
     property ArgsJson: string read FArgsJson;
     property Done: TEvent read FDone;
     property Result: string read FResult;
     property Outcome: THelpChatActionOutcome read FOutcome;
+    property Abandoned: Boolean read FAbandoned;
   end;
 
   /// <summary>Asks the host whether an action may run (it is about to change
@@ -212,17 +267,25 @@ type
     FOnConfirm: THelpChatActionConfirmEvent;
     FOnExecuted: THelpChatActionExecutedEvent;
     function TakePending: TArray<THelpChatActionRequest>;
+    /// <summary>The waiter gives up on a request: it is dropped if still
+    /// queued, freed if already answered, abandoned to the host otherwise.</summary>
+    procedure Forget(const ARequest: THelpChatActionRequest);
+    /// <summary>The host answers a request - or frees it, if the waiter is gone.</summary>
+    procedure Finish(const ARequest: THelpChatActionRequest;
+      const AOutcome: THelpChatActionOutcome; const AResult: string);
   public
     constructor Create;
     destructor Destroy; override;
 
-    /// <summary>Declares an action the assistant may call.</summary>
+    /// <summary>Declares an action the assistant may call. It asks the user
+    /// before running unless <c>AConfirm</c> is False: that is for an action
+    /// that changes nothing, or that asks in its own way.</summary>
     procedure Add(const AName, ADescription: string;
       const AParams: array of THelpChatActionParam;
-      const AHandler: THelpChatActionProc; const AConfirm: Boolean = False); overload;
+      const AHandler: THelpChatActionProc; const AConfirm: Boolean = True); overload;
     /// <summary>An action without parameters.</summary>
     procedure Add(const AName, ADescription: string;
-      const AHandler: THelpChatActionProc; const AConfirm: Boolean = False); overload;
+      const AHandler: THelpChatActionProc; const AConfirm: Boolean = True); overload;
     procedure Remove(const AName: string);
     procedure Clear;
     function Find(const AName: string): THelpChatAction;
@@ -260,12 +323,27 @@ type
 function HelpChatActionOutcomeText(const AOutcome: THelpChatActionOutcome;
   const AName, AResult: string): string;
 
+/// <summary>What the user is asked before an action runs: the name and the
+/// description of the action (which the application wrote), then the values
+/// the model wants to pass, one per line and cut short, under a label saying
+/// who wrote them. The question comes last. Used by the default dialog of the
+/// VCL component; an application with its own <c>OnActionConfirm</c> may use
+/// it too.</summary>
+function HelpChatActionConfirmText(const AName, ADescription: string;
+  const AArgs: THelpChatActionArgs; const ALanguage: THelpChatLanguage): string; overload;
+/// <summary>The same for a registered action: the values are labelled with
+/// the descriptions of its parameters (<see cref="THelpChatAction.ParamLabel" />).</summary>
+function HelpChatActionConfirmText(const AAction: THelpChatAction;
+  const AArgs: THelpChatActionArgs; const ALanguage: THelpChatLanguage): string; overload;
+/// <summary>The short form of a parameter description, for a label: up to
+/// the first punctuation, at most <c>AMaxChars</c> characters.</summary>
+function HelpChatShortLabel(const ADescription: string; const AMaxChars: Integer = 40): string;
+
 implementation
 
 uses
   System.JSON,
-  System.DateUtils,
-  HelpChatAI.Messages;
+  System.DateUtils;
 
 function HelpChatActionOutcomeText(const AOutcome: THelpChatActionOutcome;
   const AName, AResult: string): string;
@@ -276,7 +354,11 @@ begin
         Result := AResult
       else
         Result := Format('The action "%s" was executed.', [AName]);
-    aoDenied:    Result := Format('The user did not allow the action "%s".', [AName]);
+    aoDenied:
+      if Trim(AResult) <> '' then
+        Result := AResult
+      else
+        Result := Format(HELPCHAT_ACTION_DENIED_TEXT, [AName]);
     aoUnknown:   Result := Format('There is no action named "%s" in this application.', [AName]);
     aoFailed:    Result := Format('The action "%s" failed: %s', [AName, AResult]);
     aoTimeout:   Result := Format('The action "%s" did not answer in time.', [AName]);
@@ -284,6 +366,57 @@ begin
   else
     Result := AResult;
   end;
+end;
+
+function ConfirmTextOf(const AName, ADescription, ALines: string;
+  const ALanguage: THelpChatLanguage): string;
+var
+  LLines: string;
+begin
+  LLines := ALines;
+  if LLines <> '' then
+    LLines := HelpChatMsg(hcmActionValues, ALanguage) + sLineBreak + LLines + sLineBreak + sLineBreak;
+  Result := Format(HelpChatMsg(hcmActionConfirm, ALanguage),
+    [AName, Trim(ADescription), LLines]);
+end;
+
+function HelpChatActionConfirmText(const AName, ADescription: string;
+  const AArgs: THelpChatActionArgs; const ALanguage: THelpChatLanguage): string;
+var
+  LLines: string;
+begin
+  if Assigned(AArgs) then
+    LLines := AArgs.ToDisplayLines
+  else
+    LLines := '';
+  Result := ConfirmTextOf(AName, ADescription, LLines, ALanguage);
+end;
+
+function HelpChatActionConfirmText(const AAction: THelpChatAction;
+  const AArgs: THelpChatActionArgs; const ALanguage: THelpChatLanguage): string;
+var
+  LLines: string;
+begin
+  if Assigned(AArgs) then
+    LLines := AArgs.ToDisplayLines(AAction)
+  else
+    LLines := '';
+  Result := ConfirmTextOf(AAction.Name, AAction.Description, LLines, ALanguage);
+end;
+
+function HelpChatShortLabel(const ADescription: string; const AMaxChars: Integer): string;
+var
+  I: Integer;
+begin
+  Result := Trim(ADescription);
+  for I := 1 to Length(Result) do
+    if CharInSet(Result[I], ['.', ':', ',', ';', '(']) then
+    begin
+      Result := TrimRight(Copy(Result, 1, I - 1));
+      Break;
+    end;
+  if (AMaxChars > 0) and (Length(Result) > AMaxChars) then
+    Result := TrimRight(Copy(Result, 1, AMaxChars - 3)) + '...';
 end;
 
 function ParamKindName(const AKind: THelpChatActionParamKind): string;
@@ -386,6 +519,21 @@ begin
   Result := FValues.Keys.ToArray;
 end;
 
+class function THelpChatActionArgs.DisplayValue(const AValue: string): string;
+var
+  I: Integer;
+begin
+  Result := AValue;
+  // A line break or a tab inside a value is how a value pretends to be a
+  // second line of the dialog: none of them survives.
+  for I := 1 to Length(Result) do
+    if Result[I] < ' ' then
+      Result[I] := ' ';
+  Result := Trim(Result);
+  if Length(Result) > HELPCHAT_ACTION_DISPLAY_MAXCHARS then
+    Result := Copy(Result, 1, HELPCHAT_ACTION_DISPLAY_MAXCHARS - 3) + '...';
+end;
+
 function THelpChatActionArgs.ToDisplayString: string;
 var
   LPair: TPair<string, string>;
@@ -395,7 +543,69 @@ begin
   begin
     if Result <> '' then
       Result := Result + ', ';
-    Result := Result + LPair.Key + '=' + LPair.Value;
+    Result := Result + LPair.Key + '=' + DisplayValue(LPair.Value);
+  end;
+end;
+
+function THelpChatActionArgs.ToDisplayLines: string;
+var
+  LPair: TPair<string, string>;
+begin
+  Result := '';
+  for LPair in FValues do
+  begin
+    if Result <> '' then
+      Result := Result + sLineBreak;
+    Result := Result + '  ' + LPair.Key + ' = ' + DisplayValue(LPair.Value);
+  end;
+end;
+
+function THelpChatActionArgs.ToDisplayPairs(const AAction: THelpChatAction): TArray<TPair<string, string>>;
+var
+  LList: TList<TPair<string, string>>;
+  LSeen: TList<string>;
+  LKey, LValue: string;
+  I: Integer;
+begin
+  LList := TList<TPair<string, string>>.Create;
+  LSeen := TList<string>.Create;
+  try
+    if Assigned(AAction) then
+      // The declared parameters first, in the order the application wrote
+      // them: that is the order the user expects to read them in.
+      for I := Low(AAction.Params) to High(AAction.Params) do
+      begin
+        LKey := AAction.Params[I].Name.ToLower;
+        if FValues.TryGetValue(LKey, LValue) then
+        begin
+          LList.Add(TPair<string, string>.Create(
+            AAction.ParamLabel(AAction.Params[I].Name), DisplayValue(LValue)));
+          LSeen.Add(LKey);
+        end;
+      end;
+    // Then whatever the model sent under a name nobody declared.
+    for LKey in FValues.Keys do
+      if not LSeen.Contains(LKey) then
+        LList.Add(TPair<string, string>.Create(LKey, DisplayValue(FValues[LKey])));
+    Result := LList.ToArray;
+  finally
+    LSeen.Free;
+    LList.Free;
+  end;
+end;
+
+function THelpChatActionArgs.ToDisplayLines(const AAction: THelpChatAction): string;
+var
+  LPair: TPair<string, string>;
+begin
+  Result := '';
+  if AAction = nil then
+    Exit(ToDisplayLines);
+  for LPair in ToDisplayPairs(AAction) do
+  begin
+    if Result <> '' then
+      Result := Result + sLineBreak;
+    Result := Result + LPair.Key + ': ' + LPair.Value;
   end;
 end;
 
@@ -411,6 +621,21 @@ begin
   FParams := AParams;
   FHandler := AHandler;
   FConfirm := AConfirm;
+end;
+
+function THelpChatAction.ParamLabel(const AName: string): string;
+var
+  I: Integer;
+begin
+  for I := Low(FParams) to High(FParams) do
+    if SameText(FParams[I].Name, AName) then
+    begin
+      Result := HelpChatShortLabel(FParams[I].Description);
+      if Result <> '' then
+        Exit;
+      Break;
+    end;
+  Result := AName;
 end;
 
 function THelpChatAction.ToToolJson: string;
@@ -476,6 +701,11 @@ begin
   FOutcome := AOutcome;
   FResult := AResult;
   FDone.SetEvent;
+end;
+
+procedure THelpChatActionRequest.Abandon;
+begin
+  FAbandoned := True;
 end;
 
 { THelpChatActionBroker }
@@ -659,6 +889,23 @@ begin
   end;
 end;
 
+procedure THelpChatActionBroker.Finish(const ARequest: THelpChatActionRequest;
+  const AOutcome: THelpChatActionOutcome; const AResult: string);
+begin
+  FLock.Enter;
+  try
+    // Under the same lock as Forget: either the waiter is still there and
+    // reads the answer (and frees the request afterwards), or it has gone
+    // and the request is ours to free. Never both.
+    if ARequest.Abandoned then
+      ARequest.Free
+    else
+      ARequest.Complete(AOutcome, AResult);
+  finally
+    FLock.Leave;
+  end;
+end;
+
 procedure THelpChatActionBroker.ExecutePending;
 var
   LRequest: THelpChatActionRequest;
@@ -673,7 +920,7 @@ begin
     LAction := Find(LRequest.Name);
     if (LAction = nil) or not FEnabled then
     begin
-      LRequest.Complete(aoUnknown, '');
+      Finish(LRequest, aoUnknown, '');
       Continue;
     end;
     LResult := '';
@@ -681,11 +928,18 @@ begin
     LArgs := THelpChatActionArgs.Create(LRequest.ArgsJson);
     try
       LAllow := True;
-      // Anything that changes something asks first.
-      if LAction.Confirm and Assigned(FOnConfirm) then
+      // Anything that changes something asks first - unless nobody is
+      // waiting for the answer any more, in which case there is nothing to ask.
+      if LAction.Confirm and Assigned(FOnConfirm) and not LRequest.Abandoned then
         FOnConfirm(Self, LAction.Name, LArgs, LAllow);
       if not LAllow then
         LOutcome := aoDenied
+      else if LRequest.Abandoned then
+        // The user took longer than the model call could wait (or the reply
+        // was cancelled meanwhile): the model has already been told the
+        // action did not answer, so running it now would act behind its
+        // back - and a retry would run it twice.
+        LOutcome := aoTimeout
       else
         try
           LAction.Handler(LArgs, LResult);
@@ -704,8 +958,28 @@ begin
     finally
       LArgs.Free;
     end;
-    LRequest.Complete(LOutcome, LResult);
+    Finish(LRequest, LOutcome, LResult);
   end;
+end;
+
+procedure THelpChatActionBroker.Forget(const ARequest: THelpChatActionRequest);
+var
+  LOwn: Boolean;
+begin
+  FLock.Enter;
+  try
+    // Still queued: nobody has seen it. Already answered: the host is done
+    // with it. Otherwise the host holds it - running the handler, or waiting
+    // for the user to confirm - and will find it abandoned when it comes
+    // back to Finish.
+    LOwn := (FPending.Remove(ARequest) >= 0) or (ARequest.Done.WaitFor(0) = wrSignaled);
+    if not LOwn then
+      ARequest.Abandon;
+  finally
+    FLock.Leave;
+  end;
+  if LOwn then
+    ARequest.Free;
 end;
 
 function THelpChatActionBroker.Invoke(const AName, AArgsJson: string;
@@ -742,30 +1016,25 @@ begin
         Break;
       if Assigned(ACancel) and ACancel.IsCancelled then
       begin
-        FLock.Enter;
-        try
-          FPending.Remove(LRequest);
-        finally
-          FLock.Leave;
-        end;
+        Forget(LRequest);
         Exit(aoCancelled);
       end;
     until Now > LDeadline;
 
+    // The request is freed by whoever touches it last: by this thread when
+    // the host answered, by the host (Finish) when it still holds it. A
+    // confirmation dialog that outlives the timeout is the common case.
     if LWait <> wrSignaled then
     begin
-      FLock.Enter;
-      try
-        FPending.Remove(LRequest);
-      finally
-        FLock.Leave;
-      end;
+      Forget(LRequest);
       Exit(aoTimeout);
     end;
     AResult := LRequest.Result;
     Result := LRequest.Outcome;
-  finally
     LRequest.Free;
+  except
+    Forget(LRequest);
+    raise;
   end;
 end;
 

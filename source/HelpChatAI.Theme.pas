@@ -6,7 +6,7 @@
 {       Author: Carlo Barazzetta                                               }
 {       Contributors:                                                          }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {******************************************************************************}
 {                                                                              }
@@ -69,6 +69,10 @@ type
     ErrorBubble: string;
     ErrorText: string;
     CodeBackground: string;
+    /// <summary>Colour of the shadow the header and the footer cast on the
+    /// conversation, so that the bars read as the frame and not as a bubble
+    /// that touched the edge.</summary>
+    Shadow: string;
     /// <summary>CSS font-family list.</summary>
     FontFamily: string;
 
@@ -102,6 +106,9 @@ function HelpChatIsDarkColor(const AColor: string): Boolean;
 function HelpChatContrastText(const AColor: string): string;
 /// <summary>Saturation 0..1 (max - min of the components).</summary>
 function HelpChatSaturation(const AColor: string): Double;
+/// <summary>How far apart two colours are, 0..1: the largest difference of
+/// their components. 1 when either of them cannot be parsed.</summary>
+function HelpChatColorDistance(const AColorA, AColorB: string): Double;
 
 implementation
 
@@ -111,6 +118,11 @@ uses
 
 const
   HELPCHAT_DEF_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  /// Below this, the bubble of the user and the one of the assistant read as
+  /// one colour (0..1, the scale of HelpChatColorDistance).
+  HELPCHAT_BUBBLE_MIN_DISTANCE = 0.12;
+  HELPCHAT_DEF_SHADOW_LIGHT = 'rgba(0,0,0,0.16)';
+  HELPCHAT_DEF_SHADOW_DARK = 'rgba(0,0,0,0.55)';
 
 function HelpChatNormalizeColor(const AColor: string): string;
 var
@@ -198,6 +210,20 @@ begin
     Result := '#000000';
 end;
 
+function HelpChatColorDistance(const AColorA, AColorB: string): Double;
+var
+  R1, G1, B1, R2, G2, B2, LMax: Integer;
+begin
+  if not HelpChatHexToRgb(AColorA, R1, G1, B1) or not HelpChatHexToRgb(AColorB, R2, G2, B2) then
+    Exit(1);
+  LMax := Abs(R1 - R2);
+  if Abs(G1 - G2) > LMax then
+    LMax := Abs(G1 - G2);
+  if Abs(B1 - B2) > LMax then
+    LMax := Abs(B1 - B2);
+  Result := LMax / 255;
+end;
+
 function HelpChatSaturation(const AColor: string): Double;
 var
   R, G, B, LMax, LMin: Integer;
@@ -217,6 +243,8 @@ begin
 end;
 
 procedure THelpChatTheme.Complete;
+var
+  LUserDerived, LAssistantDerived: Boolean;
 begin
   Background := HelpChatNormalizeColor(Background);
   Surface := HelpChatNormalizeColor(Surface);
@@ -237,12 +265,32 @@ begin
     AccentText := HelpChatContrastText(Accent);
   if Muted = '' then
     Muted := HelpChatBlend(Text, Background, 0.45);
+  LUserDerived := UserBubble = '';
   if UserBubble = '' then
     UserBubble := Accent;
-  if UserText = '' then
-    UserText := HelpChatContrastText(UserBubble);
+  LAssistantDerived := AssistantBubble = '';
   if AssistantBubble = '' then
     AssistantBubble := Surface;
+  // Two bubbles of the same colour are one bubble. What a style gives for the
+  // user (its accent) and for the assistant (its surface) is now and then the
+  // same colour - Windows10 answers #cccccc for both, Windows10 Dark #262626 -
+  // so when they read as one, the user's takes a step away from the page and
+  // the assistant's one towards it. Only colours derived here are moved: a
+  // theme that sets both on purpose is left as it is.
+  if LUserDerived and LAssistantDerived and
+     (HelpChatColorDistance(UserBubble, AssistantBubble) < HELPCHAT_BUBBLE_MIN_DISTANCE) then
+    if IsDark then
+    begin
+      UserBubble := HelpChatBlend(UserBubble, '#ffffff', 0.22);
+      AssistantBubble := HelpChatBlend(AssistantBubble, '#000000', 0.22);
+    end
+    else
+    begin
+      UserBubble := HelpChatBlend(UserBubble, '#000000', 0.18);
+      AssistantBubble := HelpChatBlend(AssistantBubble, '#ffffff', 0.35);
+    end;
+  if UserText = '' then
+    UserText := HelpChatContrastText(UserBubble);
   if AssistantText = '' then
     AssistantText := Text;
   if CodeBackground = '' then
@@ -261,6 +309,11 @@ begin
     if ErrorBubble = '' then ErrorBubble := '#fef2f2';
     if ErrorText = '' then ErrorText := '#991b1b';
   end;
+  if Shadow = '' then
+    if IsDark then
+      Shadow := HELPCHAT_DEF_SHADOW_DARK
+    else
+      Shadow := HELPCHAT_DEF_SHADOW_LIGHT;
   if FontFamily = '' then
     FontFamily := HELPCHAT_DEF_FONT;
 end;
@@ -285,6 +338,7 @@ begin
   AProc('--hc-error-bg', ATheme.ErrorBubble);
   AProc('--hc-error-text', ATheme.ErrorText);
   AProc('--hc-code-bg', ATheme.CodeBackground);
+  AProc('--hc-shadow', ATheme.Shadow);
   AProc('--hc-font', ATheme.FontFamily);
 end;
 

@@ -6,7 +6,7 @@
 {       Author: Carlo Barazzetta                                               }
 {       Contributors:                                                          }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {******************************************************************************}
 {                                                                              }
@@ -114,6 +114,7 @@ type
     FRetriever: IHelpChatRetriever;
     FActions: IHelpChatActionInvoker;
     FAttachments: TArray<THelpChatAttachment>;
+    FActionDenied: Boolean;
   protected
     /// <summary>Settings snapshot of the request (not owned).</summary>
     property Settings: THelpChatSettings read FSettings;
@@ -121,6 +122,14 @@ type
     property Retriever: IHelpChatRetriever read FRetriever;
     /// <summary>What the application lets the assistant do, may be nil.</summary>
     property Actions: IHelpChatActionInvoker read FActions;
+    /// <summary>How a provider runs an action: through the broker, with one
+    /// rule of its own - once the user has said no to an action of this
+    /// reply, every later one is answered "not run" without asking. A
+    /// refusal ends the plan, whatever the model makes of it: it is not
+    /// told "create the company" and then asked "create the lead" anyway.
+    /// A provider lives for one reply, so the rule does too.</summary>
+    function InvokeAction(const AName, AArgsJson: string;
+      const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
     /// <summary>The attachments of the conversation; empty when there are none.</summary>
     property Attachments: TArray<THelpChatAttachment> read FAttachments;
     /// <summary>The question with the text attachments in front of it, which
@@ -170,6 +179,15 @@ type
 
   THelpChatProviderClass = class of THelpChatProviderBase;
 
+/// <summary>A value of the application as it may enter the system prompt:
+/// one line, no control characters, no double quotes (the prompt quotes it),
+/// at most <c>AMaxChars</c> characters. The screen label is the caption of a
+/// form or of a tab, and a caption often carries the name of the record on
+/// it - a name somebody else typed, which must not be able to read like a
+/// line of the instruction.</summary>
+function HelpChatPromptField(const AValue: string; const AMaxChars: Integer = 80): string;
+
+type
   /// <summary>
   ///  Process-global registry of providers, keyed by (case-insensitive) name.
   ///  An empty name is <c>stub</c>. A name nobody registered (a typo, or a
@@ -238,6 +256,40 @@ implementation
 uses
   System.Generics.Defaults;
 
+function HelpChatPromptField(const AValue: string; const AMaxChars: Integer): string;
+var
+  LSb: TStringBuilder;
+  LChar: Char;
+  LSpace: Boolean;
+begin
+  LSb := TStringBuilder.Create;
+  try
+    LSpace := True; // so that leading blanks are dropped
+    for LChar in AValue do
+    begin
+      if (LChar < ' ') or (LChar = ' ') then
+      begin
+        if not LSpace then
+          LSb.Append(' ');
+        LSpace := True;
+      end
+      else
+      begin
+        if LChar = '"' then
+          LSb.Append('''')
+        else
+          LSb.Append(LChar);
+        LSpace := False;
+      end;
+    end;
+    Result := TrimRight(LSb.ToString);
+  finally
+    LSb.Free;
+  end;
+  if (AMaxChars > 0) and (Length(Result) > AMaxChars) then
+    Result := Copy(Result, 1, AMaxChars - 3) + '...';
+end;
+
 class function THelpChatProviderRegistry.SupportsDocuments(const AName: string): Boolean;
 var
   LClass: THelpChatProviderClass;
@@ -285,6 +337,24 @@ begin
   else
     LLanguage := hclAuto;
   Result := HelpChatQuestionWithText(AQuestion, FAttachments, LLanguage);
+end;
+
+function THelpChatProviderBase.InvokeAction(const AName, AArgsJson: string;
+  const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
+begin
+  if FActionDenied then
+  begin
+    AResult := Format(HELPCHAT_ACTION_DENIED_BEFORE_TEXT, [AName]);
+    Exit(aoDenied);
+  end;
+  if not Assigned(FActions) then
+  begin
+    AResult := '';
+    Exit(aoUnknown);
+  end;
+  Result := FActions.Invoke(AName, AArgsJson, ACancel, AResult);
+  if Result = aoDenied then
+    FActionDenied := True;
 end;
 
 function THelpChatProviderBase.UnreadDocumentsNotice: string;
@@ -340,7 +410,10 @@ begin
     if not AContext.IsEmpty then
     begin
       LSb.Append(#10#10);
-      LSb.Append(HelpChatMsgFmt(hcmScreenContext, [AContext.DisplayName, AContext.ScreenType], LLang));
+      // The label is a caption, the type a class name: data of the
+      // application, cut to one short line each before entering the prompt.
+      LSb.Append(HelpChatMsgFmt(hcmScreenContext, [HelpChatPromptField(AContext.DisplayName),
+        HelpChatPromptField(AContext.ScreenType)], LLang));
     end;
 
     if Assigned(ASettings) then

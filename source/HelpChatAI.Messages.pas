@@ -6,7 +6,7 @@
 {       Author: Carlo Barazzetta                                               }
 {       Contributors:                                                          }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {******************************************************************************}
 {                                                                              }
@@ -94,6 +94,14 @@ type
     /// <summary>Asked before the assistant runs an action that changes
     /// something: %s is the action, %s its parameters.</summary>
     hcmActionConfirm,
+    /// <summary>Label over the parameter values in that question: they were
+    /// written by the model, and the user is told so.</summary>
+    hcmActionValues,
+    /// <summary>Main instruction of the confirmation dialog, with the name
+    /// of the action.</summary>
+    hcmActionConfirmTitle,
+    /// <summary>Footer of the confirmation dialog, under the values.</summary>
+    hcmActionValuesFooter,
     /// <summary>Paper-clip button, left of the question box.</summary>
     hcmUiAttach,
     /// <summary>Title of the button that takes an attachment away.</summary>
@@ -227,7 +235,12 @@ resourcestring
   SEnVoiceConsentNeeded = 'Dictation goes through the online speech recognition of Windows, which is not enabled on this computer.' + sLineBreak + sLineBreak + 'The Windows settings will now open: turn on Online speech recognition, then press the microphone again.';
   SEnVoiceUnavailable = 'Speech recognition is not available on this computer. Check Settings, Privacy, Speech, and that the language pack is installed.';
   SEnDocNotFound = 'The page "%s" is not available.';
-  SEnActionConfirm = 'The assistant wants to run "%s" (%s).' + sLineBreak + 'Do you allow it?';
+  SEnActionConfirm = 'The assistant wants to run "%s": %s' + sLineBreak + sLineBreak +
+    '%s' + 'Do you allow it?';
+  SEnActionValues = 'Values written by the assistant:';
+  SEnActionConfirmTitle = 'The assistant wants to run "%s"';
+  SEnActionValuesFooter = 'The values above were written by the assistant, not by you: ' +
+    'check them before allowing.';
   SEnUiAttach = 'Attach a document';
   SEnUiAttachRemove = 'Remove this attachment';
   SEnAttachTypeRefused = 'A %s file is not one the assistant can read. Accepted: %s.';
@@ -298,7 +311,12 @@ resourcestring
   SItVoiceConsentNeeded = 'La dettatura passa dal riconoscimento vocale online di Windows, che su questo computer non è abilitato.' + sLineBreak + sLineBreak + 'Verrà aperta la pagina delle impostazioni di Windows: attiva Riconoscimento vocale online, poi premi di nuovo il microfono.';
   SItVoiceUnavailable = 'Il riconoscimento vocale non è disponibile su questo computer. Controlla Impostazioni, Privacy, Riconoscimento vocale, e che il pacchetto della lingua sia installato.';
   SItDocNotFound = 'La pagina "%s" non è disponibile.';
-  SItActionConfirm = 'L''assistente vuole eseguire "%s" (%s).' + sLineBreak + 'Consenti?';
+  SItActionConfirm = 'L''assistente vuole eseguire "%s": %s' + sLineBreak + sLineBreak +
+    '%s' + 'Consenti?';
+  SItActionValues = 'Valori scritti dall''assistente:';
+  SItActionConfirmTitle = 'L''assistente vuole eseguire "%s"';
+  SItActionValuesFooter = 'I valori qui sopra li ha scritti l''assistente, non tu: ' +
+    'controllali prima di consentire.';
   SItUiAttach = 'Allega un documento';
   SItUiAttachRemove = 'Togli questo allegato';
   SItAttachTypeRefused = 'Un file %s non è fra quelli che l''assistente può leggere. Sono accettati: %s.';
@@ -399,6 +417,9 @@ begin
     hcmVoiceConsentNeeded: Result := SEnVoiceConsentNeeded;
     hcmDocNotFound: Result := SEnDocNotFound;
     hcmActionConfirm: Result := SEnActionConfirm;
+    hcmActionValues: Result := SEnActionValues;
+    hcmActionConfirmTitle: Result := SEnActionConfirmTitle;
+    hcmActionValuesFooter: Result := SEnActionValuesFooter;
     hcmUiAttach: Result := SEnUiAttach;
     hcmUiAttachRemove: Result := SEnUiAttachRemove;
     hcmAttachTypeRefused: Result := SEnAttachTypeRefused;
@@ -469,6 +490,9 @@ begin
     hcmVoiceConsentNeeded: Result := SItVoiceConsentNeeded;
     hcmDocNotFound: Result := SItDocNotFound;
     hcmActionConfirm: Result := SItActionConfirm;
+    hcmActionValues: Result := SItActionValues;
+    hcmActionConfirmTitle: Result := SItActionConfirmTitle;
+    hcmActionValuesFooter: Result := SItActionValuesFooter;
     hcmUiAttach: Result := SItUiAttach;
     hcmUiAttachRemove: Result := SItUiAttachRemove;
     hcmAttachTypeRefused: Result := SItAttachTypeRefused;

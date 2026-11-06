@@ -6,7 +6,7 @@
 {       Author: Carlo Barazzetta                                               }
 {       Contributors:                                                          }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {******************************************************************************}
 {                                                                              }
@@ -31,7 +31,9 @@
 ///  registers for each style: text, panel, hot/accent, borders, light or dark),
 ///  then, for a style not in the table, the colours the style itself reports
 ///  through <c>StyleServices</c>. The page background comes from the style's
-///  window colour; the accent is the more saturated of the hot and hot-border
+///  window colour, except under a light style, where it is white: the chat is
+///  read, and the window colour of a light style is the grey of the forms.
+///  The accent is the more saturated of the hot and hot-border
 ///  colours of the table, since some styles use a pale hover and keep the
 ///  brand colour for the border.
 /// </summary>
@@ -268,11 +270,9 @@ begin
       Result.Accent := LColors.Accent;
     Result.Background := LWindow;
     // No window colour, or one equal to the surface: bubbles need contrast.
-    if (Result.Background = '') or SameText(Result.Background, Result.Surface) then
-      if Result.IsDark then
-        Result.Background := HelpChatBlend(Result.Surface, '#000000', 0.25)
-      else
-        Result.Background := HelpChatBlend(Result.Surface, '#000000', 0.04);
+    // A light style does not get here: its page is forced white below.
+    if Result.IsDark and ((Result.Background = '') or SameText(Result.Background, Result.Surface)) then
+      Result.Background := HelpChatBlend(Result.Surface, '#000000', 0.25);
   end
   else
   begin
@@ -285,6 +285,21 @@ begin
     Result.Border := HelpChatColorToHex(StyleServices.GetStyleColor(scBorder));
     Result.Accent := HelpChatColorToHex(StyleServices.GetSystemColor(clHighlight));
     Result.IsDark := HelpChatIsDarkColor(Result.Background);
+  end;
+
+  // A light style paints the window with the grey of the forms (Windows10
+  // answers #f3f3f3, Lavender Classico #d3d3dd), and the chat is not a form:
+  // it is read, so its page is white whatever the style says. The surfaces -
+  // header, footer, assistant bubbles, documentation page - keep the colour of
+  // the style, and take the step the page used to take when the style paints
+  // them white as well ('Light', 'Tablet Light', 'Windows11 White Smoke'),
+  // or they would vanish into the page. Dark styles are left alone: there the
+  // grey of the style *is* the reading surface.
+  if not Result.IsDark then
+  begin
+    Result.Background := '#ffffff';
+    if HelpChatLuminance(Result.Surface) > 0.97 then
+      Result.Surface := HelpChatBlend(Result.Surface, '#000000', 0.04);
   end;
 
   if Screen.MessageFont.Name <> '' then

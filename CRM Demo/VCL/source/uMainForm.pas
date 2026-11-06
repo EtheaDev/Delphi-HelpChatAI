@@ -247,6 +247,7 @@ type
     /// gestore gira sul thread principale. Quelle che scrivono dati chiedono
     /// conferma all'utente prima di partire.</summary>
     procedure RegisterHelpActions;
+    function ResolveAccountName(const AText: string): string;
     /// <summary>Ripiego: la chiave di Claude non c'e' da nessuna parte (ne'
     /// nei file di configurazione ne' in ANTHROPIC_API_KEY). La chiediamo una
     /// volta sola, la cifriamo con il segreto di questa applicazione e la
@@ -338,6 +339,61 @@ begin
     Result := DM.LeadsFDTable.Locate('AccountName', VarArrayOf([AName]), [loCaseInsensitive, loPartialKey]);
 end;
 
+/// <summary>The company name as the Accounts list spells it. An exact match
+/// (case apart) wins; else a name containing the text, if there is exactly
+/// one; else an exception written for the model: no match means "create it
+/// with create_account", more than one means "ask the user which one". The
+/// lookup walks the table under DisableControls and goes back where it was,
+/// so the grids of the application do not move.</summary>
+function TMainForm.ResolveAccountName(const AText: string): string;
+var
+  LTable: TDataSet;
+  LBookmark: TBookmark;
+  LCandidates: TStringList;
+  LName, LError: string;
+begin
+  Result := Trim(AText);
+  if Result = '' then
+    Exit;
+  LTable := DM.AcctFDTable;
+  LCandidates := TStringList.Create;
+  try
+    LTable.DisableControls;
+    try
+      LBookmark := LTable.GetBookmark;
+      try
+        LTable.First;
+        while not LTable.Eof do
+        begin
+          LName := LTable.FieldByName('AccountName').AsString;
+          if SameText(LName, Result) then
+            Exit(LName);
+          if LName.ToLower.Contains(Result.ToLower) then
+            LCandidates.Add(LName);
+          LTable.Next;
+        end;
+      finally
+        if LTable.BookmarkValid(LBookmark) then
+          LTable.GotoBookmark(LBookmark);
+        LTable.FreeBookmark(LBookmark);
+      end;
+    finally
+      LTable.EnableControls;
+    end;
+    if LCandidates.Count = 1 then
+      Exit(LCandidates[0]);
+    if LCandidates.Count > 1 then
+      LError := Format('More than one account matches "%s": %s. Ask the user which one.',
+        [Result, string.Join(', ', LCandidates.ToStringArray)])
+    else
+      LError := Format('There is no account called "%s". Create it with create_account, ' +
+        'then call create_lead again.', [Result]);
+  finally
+    LCandidates.Free;
+  end;
+  raise Exception.Create(LError);
+end;
+
 procedure TMainForm.RegisterHelpActions;
 begin
   HelpChat.Actions.Add('open_screen',
@@ -354,27 +410,68 @@ begin
       PageControl.ActivePage := LTab;
       PageControlChange(PageControl);
       AResult := 'Opened the ' + LTab.Caption + ' screen.';
+    end, False); // changes nothing: no confirmation
+
+  // Scrive un record: chiede conferma (il default), e l'utente vede nome e
+  // valori. L'azienda deve esistere: l'handler la cerca e, se manca o se il
+  // nome e' ambiguo, lo dice al modello con un'eccezione che spiega cosa
+  // fare - creare l'azienda con create_account, o chiedere all'utente.
+  HelpChat.Actions.Add('create_account',
+    'Creates a company in the Accounts list. Use it before create_lead when the ' +
+    'company of the lead is not there yet.',
+    [THelpChatActionParam.Create('name', 'Company name')],
+    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+    var
+      LName: string;
+    begin
+      LName := Trim(AArgs.AsString('name'));
+      if LName = '' then
+        raise Exception.Create('The company name is required.');
+      // Idempotent: after a timeout the model may call it again, and the
+      // second call must not create a second company.
+      if DM.AcctFDTable.Locate('AccountName', VarArrayOf([LName]), [loCaseInsensitive]) then
+        raise Exception.CreateFmt('The account "%s" already exists.',
+          [DM.AcctFDTable.FieldByName('AccountName').AsString]);
+      AcctBindSourceDB.DataSet.DisableControls;
+      try
+        AcctBindSourceDB.DataSet.AppendRecord([nil, LName]);
+      finally
+        AcctBindSourceDB.DataSet.EnableControls;
+      end;
+      // The Accounts grid reads the query, the combo of the lead window reads
+      // the table: both have to see the new row.
+      LinkGridToDataSourceAcctBindSourceDB.Active := False;
+      LinkGridToDataSourceAcctBindSourceDB.Active := True;
+      DM.AcctFDTable.Refresh;
+      LeadsForm.LinkFillControlToField2.Active := False;
+      LeadsForm.LinkFillControlToField2.Active := True;
+      AResult := Format('Account "%s" created.', [LName]);
     end);
 
-  // Scrive un record: chiede conferma, e l'utente vede nome e valori.
   HelpChat.Actions.Add('create_lead',
     'Creates a new lead for the active user and opens its detail window so the ' +
-    'user can check it. Does not send anything to anybody.',
+    'user can check it. Does not send anything to anybody. The company must ' +
+    'exist in the Accounts list: if it does not, create it with create_account first.',
     [THelpChatActionParam.Create('name', 'Name of the person'),
-     THelpChatActionParam.Create('account', 'Company name, as in the Accounts list', apkString, False),
+     THelpChatActionParam.Create('account',
+       'Company name, as in the Accounts list (it must exist)', apkString, False),
      THelpChatActionParam.Create('phone', 'Office phone', apkString, False),
      THelpChatActionParam.Create('email', 'E-mail address', apkString, False),
      THelpChatActionParam.Create('notes', 'Anything worth remembering', apkString, False)],
     procedure(const AArgs: THelpChatActionArgs; var AResult: string)
     var
       LDataSet: TDataSet;
+      LAccount: string;
     begin
+      // The company as it is spelled in the Accounts list, or an exception
+      // the model reads: "create it first" or "ask the user which one".
+      LAccount := ResolveAccountName(AArgs.AsString('account'));
       PageControl.ActivePage := LeadsTab;
       LDataSet := LeadsBindNewSourceDB.DataSet;
       LDataSet.Append;
       LDataSet.FieldByName('Status').AsString := 'New';
       LDataSet.FieldByName('Name').AsString := AArgs.AsString('name');
-      LDataSet.FieldByName('AccountName').AsString := AArgs.AsString('account');
+      LDataSet.FieldByName('AccountName').AsString := LAccount;
       LDataSet.FieldByName('OfficePhone').AsString := AArgs.AsString('phone');
       LDataSet.FieldByName('Email').AsString := AArgs.AsString('email');
       LDataSet.FieldByName('Notes').AsString := AArgs.AsString('notes');

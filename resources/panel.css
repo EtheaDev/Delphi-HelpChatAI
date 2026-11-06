@@ -17,6 +17,10 @@
   --hc-error-bg: #fef2f2;
   --hc-error-text: #991b1b;
   --hc-code-bg: #f1f3f5;
+  /* Under the header and over the footer: the bars share their colour with
+     the assistant bubbles, so without it a bubble touching an edge melts
+     into them. */
+  --hc-shadow: rgba(0,0,0,0.16);
   --hc-radius: 14px;
   --hc-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -36,6 +40,7 @@
     --hc-error-bg: #3b1d1d;
     --hc-error-text: #fca5a5;
     --hc-code-bg: #2b2f36;
+    --hc-shadow: rgba(0,0,0,0.55);
   }
 }
 * { box-sizing: border-box; }
@@ -55,6 +60,7 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 12px; background: var(--hc-surface);
   border-bottom: 1px solid var(--hc-border); flex: 0 0 auto;
+  position: relative; z-index: 2; box-shadow: 0 2px 6px var(--hc-shadow);
 }
 /* The name of the assistant, with the icon of the bubble when the host sent
    one (a data: URI: the CSP allows no other source for an image). The name is
@@ -123,6 +129,7 @@ body {
 .hc-chat-doc-bar {
   display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
   padding: 6px 12px; border-bottom: 1px solid var(--hc-border);
+  position: relative; z-index: 1; box-shadow: 0 2px 6px var(--hc-shadow);
 }
 /* The title takes what is left, which is what puts the buttons of the bar
    at its right end - an auto margin would have to know how many there are. */
@@ -181,7 +188,11 @@ body {
 @media (hover: none) { .hc-chat-mbtn { opacity: 1; } }
 
 /* Footer */
-.hc-chat-footer { flex: 0 0 auto; padding: 10px 12px; background: var(--hc-surface); border-top: 1px solid var(--hc-border); }
+.hc-chat-footer {
+  flex: 0 0 auto; padding: 10px 12px; background: var(--hc-surface);
+  border-top: 1px solid var(--hc-border);
+  position: relative; z-index: 2; box-shadow: 0 -2px 6px var(--hc-shadow);
+}
 .hc-chat-footer form { display: flex; align-items: flex-end; gap: 8px; margin: 0; }
 .hc-chat-input {
   flex: 1 1 auto; resize: none; max-height: 120px; min-height: 38px;

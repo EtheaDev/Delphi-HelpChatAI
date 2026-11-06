@@ -143,6 +143,10 @@
         <DCCReference Include="HelpChatAI.dcp"/>
         <DCCReference Include="HelpChatAIServer.dcp"/>
         <DCCReference Include="..\..\source\FMX.HelpChatAI.Panel.pas"/>
+        <DCCReference Include="..\..\source\FMX.HelpChatAI.ConfirmDialog.pas">
+            <Form>FmxHelpChatConfirmDialog</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
         <DCCReference Include="..\..\source\FMX.HelpChatAI.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

@@ -6,7 +6,7 @@
 {       Author: Carlo Barazzetta                                               }
 {       Contributors:                                                          }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {******************************************************************************}
 {                                                                              }
@@ -419,6 +419,7 @@ uses
   FMX.Dialogs,
   FMX.DialogService,
   FMX.TabControl,
+  FMX.HelpChatAI.ConfirmDialog,
   HelpChatAI.Panel,            // the page contract: it decides the default name
   HelpChatAI.Server,
   HelpChatAI.Transport.Remote;
@@ -1229,15 +1230,36 @@ end;
 
 procedure TFmxHelpChatAI.ActionConfirm(Sender: TObject; const AName: string;
   const AArgs: THelpChatActionArgs; var AAllow: Boolean);
+var
+  LRequest: TFmxHelpChatConfirmRequest;
 begin
-  // FMX has no dialog that can be waited for on every platform (on mobile they
-  // are asynchronous), and the worker is waiting for this answer: without a
-  // handler an action that needs confirmation is refused, and the model says
-  // so. Assign OnActionConfirm to ask the user your way.
   if Assigned(FOnActionConfirm) then
-    FOnActionConfirm(Self, AName, AArgs, AAllow)
-  else
-    AAllow := False;
+  begin
+    FOnActionConfirm(Self, AName, AArgs, AAllow);
+    Exit;
+  end;
+  // No handler: on the desktop the dialog registered in
+  // FMX.HelpChatAI.ConfirmDialog asks (the form of the library unless the
+  // application registered its own), a form that follows the style of the
+  // application - which the message box of the system does not. On a mobile
+  // platform a modal form answers in a callback later on while the worker is
+  // waiting now, so there the action is refused and the model says so:
+  // assign OnActionConfirm to ask your way.
+  LRequest := Default(TFmxHelpChatConfirmRequest);
+  LRequest.Host := ResolveHostForm;
+  LRequest.Language := FSettings.Language;
+  LRequest.ActionName := AName;
+  LRequest.Action := FActions.Find(AName);
+  LRequest.Args := AArgs;
+  LRequest.Caption := ResolvedAssistantName;
+  LRequest.Title := HelpChatMsgFmt(hcmActionConfirmTitle, [AName], LRequest.Language);
+  if Assigned(LRequest.Action) then
+    LRequest.Description := LRequest.Action.Description;
+  LRequest.Values := AArgs.ToDisplayPairs(LRequest.Action);
+  if Length(LRequest.Values) > 0 then
+    LRequest.Footer := HelpChatMsg(hcmActionValuesFooter, LRequest.Language);
+  LRequest.TimeoutMs := HELPCHAT_CONFIRM_TIMEOUT_MS;
+  AAllow := HelpChatFmxConfirmAction(LRequest);
 end;
 
 procedure TFmxHelpChatAI.RegisterPdfAction;
@@ -1273,7 +1295,7 @@ begin
           PdfRequest(LDoc);
         end);
       AResult := HelpChatMsg(hcmPdfHandedOver, FSettings.Language);
-    end);
+    end, False); // the save dialog is the confirmation, and the user may cancel it
 end;
 
 procedure TFmxHelpChatAI.PdfRequest(const ADoc: THelpChatPrintableDoc);

@@ -54,6 +54,7 @@ requires
 
 contains
   FMX.HelpChatAI.Panel in '..\..\source\FMX.HelpChatAI.Panel.pas',
+  FMX.HelpChatAI.ConfirmDialog in '..\..\source\FMX.HelpChatAI.ConfirmDialog.pas' {FmxHelpChatConfirmDialog},
   FMX.HelpChatAI in '..\..\source\FMX.HelpChatAI.pas';
 
 end.
