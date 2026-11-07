@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -55,6 +55,9 @@ const
   HELPCHAT_DEF_CONVERSATION_MAXAGE_DAYS = 30;
   HELPCHAT_DEF_PERSIST = True;
   HELPCHAT_DEF_CONVERSATION_FILENAME = 'helpchatai-conversation.json';
+  /// <summary>Where the engine remembers the assistant the user picked in the
+  /// panel (next to the conversation file, never in a configuration file).</summary>
+  HELPCHAT_DEF_STATE_FILENAME = 'helpchatai-state.json';
   HELPCHAT_DEF_DOCINDEX_FILENAME = 'help-index.json';
   /// <summary>Name of the JSON configuration file, looked up next to the
   /// executable (application defaults) and in the per-user data folder (user
@@ -84,10 +87,12 @@ const
     'You are the in-app help assistant of a desktop application. Your only job is to explain ' +
     'how to use this application. ' +
     'Base your answers ONLY on the documentation excerpts provided below and on the screen the ' +
-    'user is on. If the excerpts do not cover the question, say so plainly and point the user to ' +
-    'the documentation link instead of guessing: never describe generic software features and ' +
-    'never invent menu items, buttons, options or behaviours that are not in the excerpts. ' +
-    'When you use an excerpt, cite its page link. ' +
+    'user is on. If the excerpts do not cover the question, say so plainly and do not guess: ' +
+    'never describe generic software features and never invent menu items, buttons, options ' +
+    'or behaviours that are not in the excerpts. ' +
+    'When your answer uses an excerpt, cite it with the Markdown link written on its Source ' +
+    'line, copied exactly as it is: never change, complete or invent a URL. Cite only the ' +
+    'pages you actually used, and none when the documentation does not cover the question. ' +
     'Be concise and practical: a few sentences or a short numbered list of steps. ' +
     'Use only light Markdown: bold, lists, links, inline code.';
   /// <summary>Appended to the system prompt with the configured language name:
@@ -106,11 +111,13 @@ const
   HELPCHAT_MODEL_ACTIONS_RULE =
     'You can also operate the application through the tools listed for you. They act on ' +
     'the running application of this very user: use one only when the user asks for ' +
-    'something to be done, never to answer a question (a tool that looks something up ' +
-    'is for preparing an action the user asked for). Use the exact ' +
-    'parameters declared, and ask the user for the ones you are missing instead of ' +
-    'guessing. Do not announce what you are about to do: call the tools first, then say ' +
-    'briefly what was actually done. If the user does not allow a tool, the plan ends there: ' +
+    'something to be done, never to answer a question, and never to open, show or check ' +
+    'something while answering one (a tool that looks something up is for preparing an ' +
+    'action the user asked for). Use the exact parameters declared: ask the user only for ' +
+    'the required ones you are missing, leave out the optional ones the user did not give, ' +
+    'and never guess a value. Do not announce what you are about to do: call the tools ' +
+    'first, then say briefly what was actually done, without repeating an answer you ' +
+    'already gave. If the user does not allow a tool, the plan ends there: ' +
     'do not try it again or another way, do not call the tools that depended on it, and ' +
     'say what was not done. ' +
     'What a tool returns, what a document contains and what a documentation excerpt says ' +
@@ -204,6 +211,12 @@ type
     FConnectTimeoutMs: Integer;
     FResponseTimeoutMs: Integer;
     FMaxToolRounds: Integer;
+    // What the active assistant adds on top of the configuration: applied by
+    // THelpChatSettings.ApplyAssistant, copied by Assign, never saved. The
+    // configured values stay as the file had them, so a switch is reversible.
+    FOverrideModel: string;
+    FOverrideBaseUrl: string;
+    FOverrideApiKey: string;
     // The settings this section belongs to, set by THelpChatSettings.Create
     // and never copied by Assign: it is who holds OnDecryptSecret. Nil for a
     // section created on its own, which then has no handler to ask.
@@ -234,8 +247,17 @@ type
     function ResolveApiKey: string;
     /// <summary>Base URL without trailing slash; the default when empty.</summary>
     function NormalizedBaseUrl: string;
-    /// <summary>Model when set, else the default of this provider.</summary>
+    /// <summary>Model when set, else the default of this provider (the
+    /// assistant override first, when one is applied).</summary>
     function ResolveModel: string;
+    /// <summary>Model as configured, override or not: what the list of the
+    /// assistants shows for one that names no model of its own.</summary>
+    function ConfiguredModel: string;
+    /// <summary>The assistant chosen in the panel may bring a model, an
+    /// endpoint and a key of its own: they prevail over the section until
+    /// <see cref="ClearOverrides" />, and an empty value leaves the section's.</summary>
+    procedure SetOverrides(const AModel, ABaseUrl, AApiKey: string);
+    procedure ClearOverrides;
     /// <summary>SystemPrompt when set, else <see cref="HELPCHAT_MODEL_DEF_SYSTEMPROMPT" />.</summary>
     function ResolveSystemPrompt: string;
     /// <summary>MaxToolRounds, never below one.</summary>
@@ -480,10 +502,70 @@ type
     property BandMm: Integer read FBandMm write FBandMm default HELPCHAT_PDF_DEF_BANDMM;
   end;
 
+  /// <summary>One assistant the user may pick in the panel: a name, the
+  /// provider that answers for it, and what it adds to that provider's
+  /// section - a model, an endpoint, a key - when it differs. Three local
+  /// models on one Ollama are three of these on <c>openai</c>. <c>Icon</c>
+  /// names one of the icons of <c>HelpChatAI.Icons</c> when the one deduced
+  /// from the model is not the right one.</summary>
+  THelpChatAssistantSettings = class(TCollectionItem)
+  private
+    FName: string;
+    FProvider: string;
+    FModel: string;
+    FBaseUrl: string;
+    FApiKey: string;
+    FIcon: string;
+  protected
+    function GetDisplayName: string; override;
+  public
+    procedure Assign(Source: TPersistent); override;
+    procedure LoadFromJSONObject(const AObject: TJSONObject);
+    procedure SaveToJSONObject(const AObject: TJSONObject);
+  published
+    /// <summary>What the panel calls it. Must be unique in the list.</summary>
+    property Name: string read FName write FName;
+    /// <summary>Registered provider name (claude, openai, gemini...).</summary>
+    property Provider: string read FProvider write FProvider;
+    /// <summary>Model, or empty for the one of the provider's section.</summary>
+    property Model: string read FModel write FModel;
+    /// <summary>Endpoint, or empty for the one of the provider's section.</summary>
+    property BaseUrl: string read FBaseUrl write FBaseUrl;
+    /// <summary>Key, or empty for the one of the provider's section.</summary>
+    property ApiKey: string read FApiKey write FApiKey;
+    /// <summary>Icon id (claude, openai, gemini, gemma, qwen...); empty =
+    /// deduced from the model, then from the endpoint, then from the provider.</summary>
+    property Icon: string read FIcon write FIcon;
+  end;
+
+  THelpChatAssistantsSettings = class(TOwnedCollection)
+  private
+    function GetItem(AIndex: Integer): THelpChatAssistantSettings;
+  public
+    constructor Create(AOwner: TPersistent);
+    function Add: THelpChatAssistantSettings;
+    /// <summary>The assistant named AName (case-insensitive), or nil.</summary>
+    function Find(const AName: string): THelpChatAssistantSettings;
+    property Items[AIndex: Integer]: THelpChatAssistantSettings read GetItem; default;
+  end;
+
+  /// <summary>What the panel shows of an assistant: the list the engine
+  /// hands to the page. <c>Icon</c> is the id resolved by the engine.</summary>
+  THelpChatAssistantInfo = record
+    Name: string;
+    Provider: string;
+    Model: string;
+    BaseUrl: string;
+    Icon: string;
+    Active: Boolean;
+  end;
+
   /// <summary>Settings of the whole engine.</summary>
   THelpChatSettings = class(TPersistent)
   private
     FProvider: string;
+    FAssistant: string;
+    FAssistants: THelpChatAssistantsSettings;
     FPoolSize: Integer;
     FMessageMaxLength: Integer;
     FHistoryMaxMessages: Integer;
@@ -510,10 +592,31 @@ type
     procedure SetRemote(const Value: THelpChatRemoteSettings);
     procedure SetAttachments(const Value: THelpChatAttachmentSettings);
     procedure SetPdf(const Value: THelpChatPdfSettings);
+    procedure SetAssistants(const Value: THelpChatAssistantsSettings);
+    procedure LoadAssistantsFromJSON(const AValue: TJSONValue);
+    function SaveAssistantsToJSON: TJSONArray;
   public
     constructor Create;
     destructor Destroy; override;
     procedure Assign(Source: TPersistent); override;
+
+    /// <summary>The assistants the user may choose from: the configured
+    /// list, each with the model and the endpoint it resolves to, or the one
+    /// implicit assistant <c>Provider</c> stands for when the list is empty.
+    /// <c>Active</c> marks the one <see cref="ActiveAssistantName" /> names.</summary>
+    function ResolveAssistants: TArray<THelpChatAssistantInfo>;
+    /// <summary>The name of the assistant in use: <c>Assistant</c> when it
+    /// names one of the list, else the first of the list, else the implicit
+    /// one of <c>Provider</c>.</summary>
+    function ActiveAssistantName: string;
+    /// <summary>Makes AName the assistant in use: <c>Provider</c> becomes its
+    /// provider, and its model, endpoint and key become the overrides of that
+    /// provider's section (the other sections lose theirs). False, and nothing
+    /// changes, when no assistant has that name. With an empty list the one
+    /// implicit assistant is already in use, and only its name is accepted.</summary>
+    function ApplyAssistant(const AName: string): Boolean;
+    /// <summary>The implicit assistant of <c>Provider</c>, with no list.</summary>
+    function ImplicitAssistant: THelpChatAssistantInfo;
 
     /// <summary>Installs the handler that turns a stored secret into the value
     /// to use, and the object the handler will see as <c>Sender</c> (the
@@ -596,6 +699,13 @@ type
   published
     /// <summary>Registered provider name: stub, docsearch, claude (or a custom one).</summary>
     property Provider: string read FProvider write FProvider;
+    /// <summary>Name of the assistant in use among <c>Assistants</c>; empty
+    /// = the first of the list. Changed at run time by the panel.</summary>
+    property Assistant: string read FAssistant write FAssistant;
+    /// <summary>The assistants the user may switch between in the panel
+    /// (<c>"Assistants"</c> in <c>helpchatai.json</c>; a file that names
+    /// the list replaces it whole). Empty = <c>Provider</c> alone, no choice.</summary>
+    property Assistants: THelpChatAssistantsSettings read FAssistants write SetAssistants;
     /// <summary>Worker threads producing replies (1..n).</summary>
     property PoolSize: Integer read FPoolSize write FPoolSize default HELPCHAT_DEF_POOLSIZE;
     /// <summary>User messages are truncated to this length (0 = no limit).</summary>
@@ -637,6 +747,10 @@ type
 /// <summary>Per-user writable data folder of the running application
 /// (e.g. %LOCALAPPDATA%\&lt;ExeName&gt; on Windows), created on demand.</summary>
 function HelpChatAppDataFolder: string;
+
+/// <summary>How a provider is called when nothing else names it: Claude,
+/// OpenAI, Gemini, else the registered name.</summary>
+function HelpChatProviderDisplayName(const AProvider: string): string;
 
 implementation
 
@@ -788,6 +902,9 @@ begin
     FConnectTimeoutMs := LSource.FConnectTimeoutMs;
     FResponseTimeoutMs := LSource.FResponseTimeoutMs;
     FMaxToolRounds := LSource.FMaxToolRounds;
+    FOverrideModel := LSource.FOverrideModel;
+    FOverrideBaseUrl := LSource.FOverrideBaseUrl;
+    FOverrideApiKey := LSource.FOverrideApiKey;
   end
   else
     inherited Assign(Source);
@@ -795,7 +912,9 @@ end;
 
 function THelpChatModelSettings.RawApiKey: string;
 begin
-  Result := Trim(FApiKey);
+  Result := Trim(FOverrideApiKey);
+  if Result = '' then
+    Result := Trim(FApiKey);
   if Result = '' then
     Result := Trim(GetEnvironmentVariable(ApiKeyEnvVar));
 end;
@@ -808,7 +927,9 @@ end;
 
 function THelpChatModelSettings.NormalizedBaseUrl: string;
 begin
-  Result := Trim(FBaseUrl);
+  Result := Trim(FOverrideBaseUrl);
+  if Result = '' then
+    Result := Trim(FBaseUrl);
   if Result = '' then
     Result := DefaultBaseUrl;
   while Result.EndsWith('/') do
@@ -817,9 +938,30 @@ end;
 
 function THelpChatModelSettings.ResolveModel: string;
 begin
+  Result := Trim(FOverrideModel);
+  if Result = '' then
+    Result := ConfiguredModel;
+end;
+
+function THelpChatModelSettings.ConfiguredModel: string;
+begin
   Result := Trim(FModel);
   if Result = '' then
     Result := DefaultModel;
+end;
+
+procedure THelpChatModelSettings.SetOverrides(const AModel, ABaseUrl, AApiKey: string);
+begin
+  FOverrideModel := Trim(AModel);
+  FOverrideBaseUrl := Trim(ABaseUrl);
+  FOverrideApiKey := Trim(AApiKey);
+end;
+
+procedure THelpChatModelSettings.ClearOverrides;
+begin
+  FOverrideModel := '';
+  FOverrideBaseUrl := '';
+  FOverrideApiKey := '';
 end;
 
 function THelpChatModelSettings.ResolveSystemPrompt: string;
@@ -1226,6 +1368,85 @@ begin
   AObject.AddPair('BandMm', TJSONNumber.Create(FBandMm));
 end;
 
+{ THelpChatAssistantSettings }
+
+function THelpChatAssistantSettings.GetDisplayName: string;
+begin
+  Result := FName;
+  if Result = '' then
+    Result := inherited GetDisplayName;
+end;
+
+procedure THelpChatAssistantSettings.Assign(Source: TPersistent);
+var
+  LSource: THelpChatAssistantSettings;
+begin
+  if Source is THelpChatAssistantSettings then
+  begin
+    LSource := THelpChatAssistantSettings(Source);
+    FName := LSource.FName;
+    FProvider := LSource.FProvider;
+    FModel := LSource.FModel;
+    FBaseUrl := LSource.FBaseUrl;
+    FApiKey := LSource.FApiKey;
+    FIcon := LSource.FIcon;
+  end
+  else
+    inherited Assign(Source);
+end;
+
+procedure THelpChatAssistantSettings.LoadFromJSONObject(const AObject: TJSONObject);
+begin
+  if AObject = nil then
+    Exit;
+  FName := JsonStr(AObject, 'Name', FName);
+  FProvider := JsonStr(AObject, 'Provider', FProvider);
+  FModel := JsonStr(AObject, 'Model', FModel);
+  FBaseUrl := JsonStr(AObject, 'BaseUrl', FBaseUrl);
+  FApiKey := JsonStr(AObject, 'ApiKey', FApiKey);
+  FIcon := JsonStr(AObject, 'Icon', FIcon);
+  // A nameless assistant is called by what it runs.
+  if Trim(FName) = '' then
+    FName := Trim(HelpChatProviderDisplayName(FProvider) + ' ' + FModel);
+end;
+
+procedure THelpChatAssistantSettings.SaveToJSONObject(const AObject: TJSONObject);
+begin
+  AObject.AddPair('Name', FName);
+  AObject.AddPair('Provider', FProvider);
+  AObject.AddPair('Model', FModel);
+  AObject.AddPair('BaseUrl', FBaseUrl);
+  AObject.AddPair('ApiKey', FApiKey);
+  AObject.AddPair('Icon', FIcon);
+end;
+
+{ THelpChatAssistantsSettings }
+
+constructor THelpChatAssistantsSettings.Create(AOwner: TPersistent);
+begin
+  inherited Create(AOwner, THelpChatAssistantSettings);
+end;
+
+function THelpChatAssistantsSettings.GetItem(AIndex: Integer): THelpChatAssistantSettings;
+begin
+  Result := THelpChatAssistantSettings(inherited Items[AIndex]);
+end;
+
+function THelpChatAssistantsSettings.Add: THelpChatAssistantSettings;
+begin
+  Result := THelpChatAssistantSettings(inherited Add);
+end;
+
+function THelpChatAssistantsSettings.Find(const AName: string): THelpChatAssistantSettings;
+var
+  I: Integer;
+begin
+  for I := 0 to Count - 1 do
+    if SameText(Trim(Items[I].Name), Trim(AName)) then
+      Exit(Items[I]);
+  Result := nil;
+end;
+
 { THelpChatSettings }
 
 constructor THelpChatSettings.Create;
@@ -1237,6 +1458,7 @@ begin
   FRemote := THelpChatRemoteSettings.Create;
   FAttachments := THelpChatAttachmentSettings.Create;
   FPdf := THelpChatPdfSettings.Create;
+  FAssistants := THelpChatAssistantsSettings.Create(Self);
   FProvider := HELPCHAT_DEF_PROVIDER;
   FPoolSize := HELPCHAT_DEF_POOLSIZE;
   FMessageMaxLength := HELPCHAT_DEF_MSGMAXLEN;
@@ -1255,6 +1477,7 @@ end;
 
 destructor THelpChatSettings.Destroy;
 begin
+  FAssistants.Free;
   FRemote.Free;
   FPdf.Free;
   FAttachments.Free;
@@ -1314,6 +1537,153 @@ begin
   FPdf.Assign(Value);
 end;
 
+procedure THelpChatSettings.SetAssistants(const Value: THelpChatAssistantsSettings);
+begin
+  FAssistants.Assign(Value);
+end;
+
+procedure THelpChatSettings.LoadAssistantsFromJSON(const AValue: TJSONValue);
+var
+  LItem: TJSONValue;
+begin
+  // A file that names the list replaces it: merging two lists item by item
+  // would leave an assistant nobody can delete.
+  if not (AValue is TJSONArray) then
+    Exit;
+  FAssistants.Clear;
+  for LItem in TJSONArray(AValue) do
+    if LItem is TJSONObject then
+      FAssistants.Add.LoadFromJSONObject(TJSONObject(LItem));
+end;
+
+function THelpChatSettings.SaveAssistantsToJSON: TJSONArray;
+var
+  I: Integer;
+  LObject: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  for I := 0 to FAssistants.Count - 1 do
+  begin
+    LObject := TJSONObject.Create;
+    FAssistants[I].SaveToJSONObject(LObject);
+    Result.Add(LObject);
+  end;
+end;
+
+function HelpChatProviderDisplayName(const AProvider: string): string;
+var
+  LName: string;
+begin
+  LName := Trim(AProvider).ToLower;
+  if LName = 'claude' then
+    Result := 'Claude'
+  else if LName = 'openai' then
+    Result := 'OpenAI'
+  else if LName = 'gemini' then
+    Result := 'Gemini'
+  else if LName = '' then
+    Result := HELPCHAT_DEF_PROVIDER
+  else
+    Result := Trim(AProvider);
+end;
+
+function THelpChatSettings.ImplicitAssistant: THelpChatAssistantInfo;
+var
+  LModel: THelpChatModelSettings;
+begin
+  Result := Default(THelpChatAssistantInfo);
+  Result.Name := HelpChatProviderDisplayName(FProvider);
+  Result.Provider := Trim(FProvider);
+  LModel := ModelFor(FProvider);
+  if LModel <> nil then
+  begin
+    Result.Model := LModel.ResolveModel;
+    Result.BaseUrl := LModel.NormalizedBaseUrl;
+  end;
+  Result.Active := True;
+end;
+
+function THelpChatSettings.ActiveAssistantName: string;
+begin
+  if FAssistants.Count = 0 then
+    Exit(ImplicitAssistant.Name);
+  if FAssistants.Find(FAssistant) <> nil then
+    Result := FAssistants.Find(FAssistant).Name
+  else
+    Result := FAssistants[0].Name;
+end;
+
+function THelpChatSettings.ResolveAssistants: TArray<THelpChatAssistantInfo>;
+var
+  I: Integer;
+  LItem: THelpChatAssistantSettings;
+  LModel: THelpChatModelSettings;
+  LActive: string;
+begin
+  if FAssistants.Count = 0 then
+  begin
+    SetLength(Result, 1);
+    Result[0] := ImplicitAssistant;
+    Exit;
+  end;
+  LActive := ActiveAssistantName;
+  SetLength(Result, FAssistants.Count);
+  for I := 0 to FAssistants.Count - 1 do
+  begin
+    LItem := FAssistants[I];
+    Result[I] := Default(THelpChatAssistantInfo);
+    Result[I].Name := LItem.Name;
+    Result[I].Provider := Trim(LItem.Provider);
+    if Result[I].Provider = '' then
+      Result[I].Provider := Trim(FProvider);
+    Result[I].Model := Trim(LItem.Model);
+    Result[I].BaseUrl := Trim(LItem.BaseUrl);
+    Result[I].Icon := Trim(LItem.Icon);
+    LModel := ModelFor(Result[I].Provider);
+    if LModel <> nil then
+    begin
+      // What the section is configured with, not what the assistant in use
+      // put on top of it: the list describes each one on its own.
+      if Result[I].Model = '' then
+        Result[I].Model := LModel.ConfiguredModel;
+      if Result[I].BaseUrl = '' then
+      begin
+        Result[I].BaseUrl := Trim(LModel.BaseUrl);
+        if Result[I].BaseUrl = '' then
+          Result[I].BaseUrl := LModel.DefaultBaseUrl;
+      end;
+    end;
+    Result[I].Active := SameText(Result[I].Name, LActive);
+  end;
+end;
+
+function THelpChatSettings.ApplyAssistant(const AName: string): Boolean;
+var
+  LItem: THelpChatAssistantSettings;
+  LModel: THelpChatModelSettings;
+begin
+  TMonitor.Enter(Self);
+  try
+    if FAssistants.Count = 0 then
+      Exit(SameText(Trim(AName), ImplicitAssistant.Name));
+    LItem := FAssistants.Find(AName);
+    if LItem = nil then
+      Exit(False);
+    FClaude.ClearOverrides;
+    FOpenAI.ClearOverrides;
+    FGemini.ClearOverrides;
+    if Trim(LItem.Provider) <> '' then
+      FProvider := Trim(LItem.Provider);
+    LModel := ModelFor(FProvider);
+    if LModel <> nil then
+      LModel.SetOverrides(LItem.Model, LItem.BaseUrl, LItem.ApiKey);
+    FAssistant := LItem.Name;
+    Result := True;
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
 procedure THelpChatSettings.SetRemote(const Value: THelpChatRemoteSettings);
 begin
   FRemote.Assign(Value);
@@ -1326,28 +1696,37 @@ begin
   if Source is THelpChatSettings then
   begin
     LSource := THelpChatSettings(Source);
-    FProvider := LSource.FProvider;
-    FPoolSize := LSource.FPoolSize;
-    FMessageMaxLength := LSource.FMessageMaxLength;
-    FHistoryMaxMessages := LSource.FHistoryMaxMessages;
-    FMaxStoredMessages := LSource.FMaxStoredMessages;
-    FGreeting := LSource.FGreeting;
-    FLanguage := LSource.FLanguage;
-    FDocIndexFile := LSource.FDocIndexFile;
-    FDocBaseUrl := LSource.FDocBaseUrl;
-    FDocFolder := LSource.FDocFolder;
-    FPersistConversation := LSource.FPersistConversation;
-    FConversationFile := LSource.FConversationFile;
-    FConversationMaxAgeDays := LSource.FConversationMaxAgeDays;
-    FClaude.Assign(LSource.FClaude);
-    FOpenAI.Assign(LSource.FOpenAI);
-    FGemini.Assign(LSource.FGemini);
-    FRemote.Assign(LSource.FRemote);
-    FAttachments.Assign(LSource.FAttachments);
-    FPdf.Assign(LSource.FPdf);
-    // The snapshot a request works on must be able to decrypt what it carries.
-    FOnDecryptSecret := LSource.FOnDecryptSecret;
-    FSecretSender := LSource.FSecretSender;
+    // A worker snapshots these settings while the panel may be switching
+    // assistant on an HTTP thread: one of the two at a time.
+    TMonitor.Enter(LSource);
+    try
+      FProvider := LSource.FProvider;
+      FPoolSize := LSource.FPoolSize;
+      FMessageMaxLength := LSource.FMessageMaxLength;
+      FHistoryMaxMessages := LSource.FHistoryMaxMessages;
+      FMaxStoredMessages := LSource.FMaxStoredMessages;
+      FGreeting := LSource.FGreeting;
+      FLanguage := LSource.FLanguage;
+      FDocIndexFile := LSource.FDocIndexFile;
+      FDocBaseUrl := LSource.FDocBaseUrl;
+      FDocFolder := LSource.FDocFolder;
+      FPersistConversation := LSource.FPersistConversation;
+      FConversationFile := LSource.FConversationFile;
+      FConversationMaxAgeDays := LSource.FConversationMaxAgeDays;
+      FAssistant := LSource.FAssistant;
+      FAssistants.Assign(LSource.FAssistants);
+      FClaude.Assign(LSource.FClaude);
+      FOpenAI.Assign(LSource.FOpenAI);
+      FGemini.Assign(LSource.FGemini);
+      FRemote.Assign(LSource.FRemote);
+      FAttachments.Assign(LSource.FAttachments);
+      FPdf.Assign(LSource.FPdf);
+      // The snapshot a request works on must be able to decrypt what it carries.
+      FOnDecryptSecret := LSource.FOnDecryptSecret;
+      FSecretSender := LSource.FSecretSender;
+    finally
+      TMonitor.Exit(LSource);
+    end;
   end
   else
     inherited Assign(Source);
@@ -1436,6 +1815,8 @@ begin
   LRoot := TJSONObject(LValue);
   try
     FProvider := JsonStr(LRoot, 'Provider', FProvider);
+    FAssistant := JsonStr(LRoot, 'Assistant', FAssistant);
+    LoadAssistantsFromJSON(JsonFind(LRoot, 'Assistants'));
     FPoolSize := JsonInt(LRoot, 'PoolSize', FPoolSize);
     FMessageMaxLength := JsonInt(LRoot, 'MessageMaxLength', FMessageMaxLength);
     FHistoryMaxMessages := JsonInt(LRoot, 'HistoryMaxMessages', FHistoryMaxMessages);
@@ -1472,6 +1853,8 @@ begin
   LRoot := TJSONObject.Create;
   try
     LRoot.AddPair('Provider', FProvider);
+    LRoot.AddPair('Assistant', FAssistant);
+    LRoot.AddPair('Assistants', SaveAssistantsToJSON);
     LRoot.AddPair('Language', LanguageToConfig(FLanguage));
     LRoot.AddPair('Greeting', FGreeting);
     LRoot.AddPair('DocIndexFile', FDocIndexFile);

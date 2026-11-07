@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -64,6 +64,7 @@ uses
   HelpChatAI.Messages,
   HelpChatAI.Settings,
   HelpChatAI.Theme,
+  HelpChatAI.Commands,
   HelpChatAI.Engine,
   HelpChatAI.Html,
   HelpChatAI.Pdf,
@@ -150,6 +151,7 @@ type
     FOnDecryptSecret: THelpChatSecretEvent;
     FCaption: string;
     FAssistantName: string;
+    FEnabledCommands: THelpChatCommands;
     FRememberPanelPosition: Boolean;
     FThemeMode: TFmxHelpChatThemeMode;
     FHostForm: TCommonCustomForm;
@@ -186,6 +188,7 @@ type
     procedure ApplyBubbleIcon;
     procedure SetCaption(const Value: string);
     procedure SetAssistantName(const Value: string);
+    procedure SetEnabledCommands(const Value: THelpChatCommands);
     procedure SetHostForm(const Value: TCommonCustomForm);
     procedure SetThemeMode(const Value: TFmxHelpChatThemeMode);
     function ResolveHostForm: TCommonCustomForm;
@@ -247,6 +250,33 @@ type
     /// <summary>Opens the panel on a page of <c>Settings.DocFolder</c> ("110",
     /// "guide/setup.md"); the page shows "not available" when there is none.</summary>
     procedure OpenDocPage(const APage: string);
+    /// <summary>Runs a slash command in the panel exactly as if the user had
+    /// typed it (opening the panel when it is closed), answer included. From
+    /// code any command runs, enabled or not: <c>EnabledCommands</c> is what
+    /// the user may type. With a remote engine the server decides.</summary>
+    procedure ExecuteCommand(const ACommand: THelpChatCommand; const AArgs: string = '');
+    /// <summary>The answer of a command as plain text, without the panel:
+    /// "Available actions (/actions):" and the list. The commands of the page
+    /// (clear, pdf, copy...) answer with what they do; <c>run</c> with its
+    /// usage - call <c>Actions</c> to run one. Empty with a remote engine:
+    /// the answer lives on the server.</summary>
+    function ExplainCommand(const ACommand: THelpChatCommand; const AArgs: string = ''): string;
+    /// <summary>Clears the conversation: the ↺ of the panel.</summary>
+    procedure ClearConversation;
+    /// <summary>The assistants the panel offers, with the one in use marked.</summary>
+    function Assistants: TArray<THelpChatAssistantInfo>;
+    /// <summary>Makes AName the assistant in use, like the list of the badge;
+    /// False when there is no such assistant or the engine is remote.</summary>
+    function SelectAssistant(const AName: string): Boolean;
+    /// <summary>Asks the last question again, to AAssistant when named: /retry.</summary>
+    procedure RetryLastQuestion(const AAssistant: string = '');
+    /// <summary>Saves the conversation as PDF, asking where: the PDF button.</summary>
+    procedure SaveConversationPdf;
+    /// <summary>Copies the last answer to the clipboard: its copy button.</summary>
+    procedure CopyLastAnswer;
+    /// <summary>Attaches a file to the conversation, like the clip; False with
+    /// the reason in AError when it is refused (type, size, attachments off).</summary>
+    function AttachFile(const AFileName: string; out AError: string): Boolean;
     procedure Close;
     procedure Toggle;
     function IsPanelVisible: Boolean;
@@ -317,6 +347,12 @@ type
     /// the localized "Assistant". It is a name, not a window title: that is
     /// <c>Caption</c>.</summary>
     property AssistantName: string read FAssistantName write SetAssistantName;
+    /// <summary>The slash commands the user may type in the question box
+    /// (<c>/who</c>, <c>/use</c>, <c>/search</c>...). Everything but
+    /// <c>prompt</c> and <c>run</c> by default: those two show the context
+    /// of a request and run an action by hand. See <c>HelpChatAI.Commands</c>.</summary>
+    property EnabledCommands: THelpChatCommands read FEnabledCommands write SetEnabledCommands
+      default HELPCHAT_DEF_COMMANDS;
     /// <summary>Round button with the assistant icon, in the bottom-right
     /// corner of the host form.</summary>
     property ShowBubble: Boolean read FShowBubble write SetShowBubble default True;
@@ -413,6 +449,7 @@ type
 implementation
 
 uses
+  HelpChatAI.Attachments,
   System.IOUtils,
   System.JSON,
   System.Math,
@@ -482,6 +519,7 @@ begin
   FActions.OnExecuted := ActionExecuted;
   FActionsEnabled := True;
   FHandleF1 := True;
+  FEnabledCommands := HELPCHAT_DEF_COMMANDS;
   FRegisterHelpViewer := True;
   FShowBubble := True;
   FImageIndex := -1;
@@ -1444,6 +1482,7 @@ begin
   LName := ResolvedAssistantName;
   LIcon := AssistantIconDataUri;
   FTransport.SetAssistant(LName, LIcon);   // the next page load is rendered with them
+  FTransport.SetEnabledCommands(FEnabledCommands);
   if Assigned(FView) and FView.PageReady then
     FView.RunScript('window.hcSetAssistant && window.hcSetAssistant(' +
       JsStr(LName) + ', ' + JsStr(LIcon) + ');');
@@ -1456,6 +1495,18 @@ begin
   FCaption := Value;
   if Assigned(FOwnForm) then
     FOwnForm.Caption := ResolvedCaption;
+end;
+
+procedure TFmxHelpChatAI.SetEnabledCommands(const Value: THelpChatCommands);
+begin
+  if FEnabledCommands = Value then
+    Exit;
+  FEnabledCommands := Value;
+  if (csDesigning in ComponentState) or not Assigned(FTransport) then
+    Exit;
+  FTransport.SetEnabledCommands(FEnabledCommands);
+  if Assigned(FView) and FView.PageReady then
+    FView.RunScript('window.hcRefreshCommands && window.hcRefreshCommands();');
 end;
 
 procedure TFmxHelpChatAI.SetAssistantName(const Value: string);
@@ -1644,6 +1695,106 @@ begin
   finally
     LJson.Free;
   end;
+end;
+
+procedure TFmxHelpChatAI.ExecuteCommand(const ACommand: THelpChatCommand; const AArgs: string);
+var
+  LLine: TJSONString;
+begin
+  Open;
+  if not Assigned(FView) then
+    Exit;
+  LLine := TJSONString.Create(Trim('/' + HelpChatCommandName(ACommand) + ' ' + AArgs));
+  try
+    // Queued by the view until the page is ready, like a question.
+    FView.RunScript(Format('window.hcCommand && window.hcCommand(%s, true);', [LLine.ToJSON]));
+  finally
+    LLine.Free;
+  end;
+end;
+
+function TFmxHelpChatAI.ExplainCommand(const ACommand: THelpChatCommand; const AArgs: string): string;
+var
+  LRequest: THelpChatCommandRequest;
+begin
+  Result := '';
+  if not Assigned(FEngine) or not FEngine.Active then
+    Exit;
+  LRequest := Default(THelpChatCommandRequest);
+  LRequest.Command := ACommand;
+  LRequest.Args := AArgs;
+  LRequest.ConversationKey := FEngine.ConversationKey;
+  LRequest.Context := BuildContext;
+  LRequest.Language := FSettings.Language;
+  LRequest.Enabled := FEnabledCommands;
+  Result := HelpChatCommandText(FEngine, LRequest);
+end;
+
+procedure TFmxHelpChatAI.ClearConversation;
+begin
+  if Assigned(FView) and IsPanelVisible then
+    ExecuteCommand(hccClear)       // the page redraws itself with the greeting
+  else if Assigned(FEngine) and FEngine.Active then
+  begin
+    FEngine.Clear;
+    if Assigned(FView) then
+      FView.RunScript('window.hcRefresh && window.hcRefresh();');
+  end;
+end;
+
+function TFmxHelpChatAI.Assistants: TArray<THelpChatAssistantInfo>;
+begin
+  if Assigned(FEngine) then
+    Result := FEngine.Assistants
+  else
+    Result := FSettings.ResolveAssistants;
+end;
+
+function TFmxHelpChatAI.SelectAssistant(const AName: string): Boolean;
+begin
+  Result := Assigned(FEngine) and FEngine.Active and not FSettings.Remote.IsConfigured and
+    FEngine.SelectAssistant(AName);
+  if Result and Assigned(FView) then
+    FView.RunScript('window.hcRefreshAssistants && window.hcRefreshAssistants();');
+end;
+
+procedure TFmxHelpChatAI.RetryLastQuestion(const AAssistant: string);
+begin
+  ExecuteCommand(hccRetry, AAssistant);
+end;
+
+procedure TFmxHelpChatAI.SaveConversationPdf;
+begin
+  ExecuteCommand(hccPdf);
+end;
+
+procedure TFmxHelpChatAI.CopyLastAnswer;
+begin
+  ExecuteCommand(hccCopy);
+end;
+
+function TFmxHelpChatAI.AttachFile(const AFileName: string; out AError: string): Boolean;
+var
+  LAttachment: THelpChatAttachment;
+begin
+  Result := False;
+  AError := '';
+  if not Assigned(FEngine) or not FEngine.Active or FSettings.Remote.IsConfigured then
+    Exit;
+  if not FSettings.Attachments.Enabled then
+  begin
+    AError := HelpChatMsg(hcmAttachFailed, FSettings.Language);
+    Exit;
+  end;
+  if not TFile.Exists(AFileName) then
+  begin
+    AError := AFileName;
+    Exit;
+  end;
+  Result := FEngine.AddAttachment(FEngine.ConversationKey, TPath.GetFileName(AFileName),
+    TFile.ReadAllBytes(AFileName), LAttachment, AError);
+  if Result and Assigned(FView) then
+    FView.RunScript('window.hcRefreshAttachments && window.hcRefreshAttachments();');
 end;
 
 procedure TFmxHelpChatAI.OpenForCurrentScreen;

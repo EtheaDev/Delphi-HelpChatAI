@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -138,6 +138,9 @@ type
     /// answers these, never the server.</summary>
     function HandleUiCommand(const ASession: THelpChatServerSession;
       const ACommand: string): Boolean; override;
+    /// <summary>The engine is shared by every session: no client may switch
+    /// its assistant for everybody. The list is still served, read-only.</summary>
+    function CanSelectAssistant: Boolean; override;
     procedure Log(const AText: string); overload;
     procedure Log(const AFormat: string; const AArgs: array of const); overload;
   public
@@ -574,6 +577,11 @@ begin
   end;
   if Length(LDead) > 0 then
     Log('%d idle session(s) expired', [Length(LDead)]);
+end;
+
+function THelpChatRemoteServer.CanSelectAssistant: Boolean;
+begin
+  Result := False;
 end;
 
 function THelpChatRemoteServer.HandleUiCommand(const ASession: THelpChatServerSession;

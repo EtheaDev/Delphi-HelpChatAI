@@ -3,7 +3,8 @@ rem ---------------------------------------------------------------------------
 rem  HelpChatAI - compiles the panel resources (HTML, CSS, JS, htmx) into
 rem  source\HelpChatAI.Panel.res, the assistant icons (Images\*.png) into
 rem  source\HelpChatAI.Assistant.res and the IDE splash/About icons into
-rem  source\HelpChatAI.Splash.res. Run after editing anything under
+rem  source\HelpChatAI.Splash.res, and the provider icons (Images\providers\*.svg)
+rem  into source\HelpChatAI.Providers.res. Run after editing anything under
 rem  resources\, or after regenerating the icons with Tools\BuildIcons.cmd.
 rem ---------------------------------------------------------------------------
 setlocal
@@ -22,7 +23,10 @@ set RC=%errorlevel%
 if not "%RC%"=="0" goto :done
 "%BRCC%" -fo "%ROOT%\source\HelpChatAI.Splash.res" HelpChatAI.Splash.rc
 set RC=%errorlevel%
+if not "%RC%"=="0" goto :done
+"%BRCC%" -fo "%ROOT%\source\HelpChatAI.Providers.res" HelpChatAI.Providers.rc
+set RC=%errorlevel%
 :done
 popd
 if not "%RC%"=="0" exit /b %RC%
-echo source\HelpChatAI.Panel.res, HelpChatAI.Assistant.res and HelpChatAI.Splash.res updated.
+echo source\HelpChatAI.Panel.res, HelpChatAI.Assistant.res, HelpChatAI.Splash.res and HelpChatAI.Providers.res updated.

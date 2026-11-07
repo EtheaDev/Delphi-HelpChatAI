@@ -250,7 +250,8 @@ uses
   uAppSecret, uLicenseActivationFmx,
   // A provider exists only if its unit is linked: it registers itself in
   // the initialization. Same rule as in the VCL demo.
-  HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude;
+  HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude,
+  HelpChatAI.Provider.OpenAI, HelpChatAI.Provider.Gemini;
 
 procedure TMainFormFmx.ApplyDarkStyle;
 var
@@ -572,7 +573,8 @@ end;
 procedure TMainFormFmx.RegisterHelpActions;
 begin
   HelpChat.Actions.Add('open_screen',
-    'Brings one of the application screens to the front.',
+    'Brings one of the application screens to the front. Only when the user asks to ' +
+    'go to a screen: never to show where something is while answering a question.',
     [THelpChatActionParam.Create('name',
       'Screen name: Dashboard, Accounts, Leads, Sales, Marketing, Calendar or Users.')],
     procedure(const AArgs: THelpChatActionArgs; var AResult: string)

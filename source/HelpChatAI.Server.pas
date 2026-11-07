@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -64,6 +64,7 @@ uses
   HelpChatAI.Transport,
   HelpChatAI.Panel,
   HelpChatAI.Attachments,
+  HelpChatAI.Commands,
   HelpChatAI.Provider;
 
 const
@@ -93,6 +94,7 @@ type
     FThemeCss: string;
     FAssistantName: string;
     FAssistantIcon: string;
+    FEnabledCommands: THelpChatCommands;
     FCreatedAt: TDateTime;
     FLastAccess: TDateTime;
     function GetLastAccess: TDateTime;
@@ -111,6 +113,8 @@ type
     procedure SetAssistant(const AName, AIcon: string);
     function GetAssistantName: string;
     function GetAssistantIcon: string;
+    procedure SetEnabledCommands(const ACommands: THelpChatCommands);
+    function GetEnabledCommands: THelpChatCommands;
     /// <summary>Where this client listens for the commands of its page, and with
     /// which secret; empty = the page talks to the server it came from.</summary>
     procedure SetUiEndpoint(const ABase, AToken: string);
@@ -182,6 +186,16 @@ type
     /// <summary>True when there is a host in this process that can print a
     /// document and ask the user where to put it.</summary>
     function HasPdfHost: Boolean; virtual;
+    /// <summary>Whether a client may switch the assistant in use: when the
+    /// engine offers more than one, and the server is this user's own.</summary>
+    function CanSelectAssistant: Boolean; virtual;
+    /// <summary>Whether a command the session does not enable may still run
+    /// when the page says the application asked for it (<c>host=1</c>): only
+    /// a server inside the application's own process, whose page talks to
+    /// nobody else.</summary>
+    function HostMayRunAnyCommand: Boolean; virtual;
+    /// <summary>The list the page builds its badge and its menu from.</summary>
+    function AssistantListJson: string;
     property Server: TIdHTTPServer read FServer;
   public
     /// <summary>The engine is started on Start if needed; owned when AOwnsEngine.</summary>
@@ -223,10 +237,12 @@ type
     FContext: THelpChatContext;
     FAssistantName: string;
     FAssistantIcon: string;
+    FEnabledCommands: THelpChatCommands;
     FOnUiCommand: THelpChatUiCommandEvent;
     FOnPdfRequest: THelpChatPdfRequestEvent;
   strict protected
     function SessionByToken(const AToken: string): THelpChatServerSession; override;
+    function HostMayRunAnyCommand: Boolean; override;
     function HandleUiCommand(const ASession: THelpChatServerSession;
       const ACommand: string): Boolean; override;
     function HandlePdfRequest(const ASession: THelpChatServerSession;
@@ -247,6 +263,8 @@ type
     procedure SetAssistant(const AName, AIconDataUri: string);
     function GetAssistantName: string;
     function GetAssistantIcon: string;
+    procedure SetEnabledCommands(const ACommands: THelpChatCommands);
+    function GetEnabledCommands: THelpChatCommands;
     function GetEngine: THelpChatEngine;
     procedure SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
     procedure SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
@@ -266,6 +284,8 @@ uses
   System.NetEncoding,
   System.StrUtils,
   System.JSON,
+  HelpChatAI.Settings,
+  HelpChatAI.Icons,
   IdSocketHandle,
   IdGlobal;
 
@@ -310,6 +330,9 @@ end;
 
 constructor THelpChatServerSession.Create(const AId, AToken, AUserId, AConversationKey: string);
 begin
+  // Everything but prompt and run until a component says otherwise:
+  // a remote client has no actions here to run.
+  FEnabledCommands := HELPCHAT_DEF_COMMANDS - [hccRun];
   inherited Create;
   FLock := TCriticalSection.Create;
   FId := AId;
@@ -412,6 +435,26 @@ begin
   FLock.Enter;
   try
     Result := FAssistantIcon;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatServerSession.SetEnabledCommands(const ACommands: THelpChatCommands);
+begin
+  FLock.Enter;
+  try
+    FEnabledCommands := ACommands;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatServerSession.GetEnabledCommands: THelpChatCommands;
+begin
+  FLock.Enter;
+  try
+    Result := FEnabledCommands;
   finally
     FLock.Leave;
   end;
@@ -773,6 +816,9 @@ var
   LResult: THelpChatSendResult;
   LDoc: THelpChatRenderedDoc;
   LIsPost: Boolean;
+  LCommand: THelpChatCommand;
+  LCmdRequest: THelpChatCommandRequest;
+  LJson: TJSONObject;
 begin
   LIsPost := ARequestInfo.CommandType = hcPOST;
   if LIsPost then
@@ -872,6 +918,51 @@ begin
     WriteHtml(AResponseInfo, '');
   end
 
+  else if (ADocument = HELPCHAT_API_COMMANDS) and not LIsPost then
+    WriteJson(AResponseInfo, HelpChatCommandsToJson(ASession.GetEnabledCommands,
+      FEngine.Settings.Language))
+
+  else if (ADocument = HELPCHAT_API_COMMAND) and LIsPost then
+  begin
+    // Only what the session enables: the page does not even show the others.
+    if not HelpChatCommandByName(FormField(LBody, 'name'), LCommand) or
+       (not (LCommand in ASession.GetEnabledCommands) and
+        not ((FormField(LBody, 'host') = '1') and HostMayRunAnyCommand)) then
+      WriteStatus(AResponseInfo, 403)
+    else
+    begin
+      LCmdRequest := Default(THelpChatCommandRequest);
+      LCmdRequest.Command := LCommand;
+      LCmdRequest.Args := FormField(LBody, 'args');
+      LCmdRequest.ConversationKey := LKey;
+      LCmdRequest.Context := ASession.GetContext;
+      LCmdRequest.Language := FEngine.Settings.Language;
+      LCmdRequest.Enabled := ASession.GetEnabledCommands;
+      LJson := TJSONObject.Create;
+      try
+        LJson.AddPair('html', HelpChatRunCommand(FEngine, LCmdRequest));
+        WriteJson(AResponseInfo, LJson.ToJSON);
+      finally
+        LJson.Free;
+      end;
+    end;
+  end
+
+  else if (ADocument = HELPCHAT_API_ASSISTANTS) and not LIsPost then
+    WriteJson(AResponseInfo, AssistantListJson)
+
+  else if (ADocument = HELPCHAT_API_ASSISTANT_SELECT) and LIsPost then
+  begin
+    // The switch applies to the next question: a reply being produced keeps
+    // the snapshot of the settings it started with.
+    if not CanSelectAssistant then
+      WriteStatus(AResponseInfo, 403)
+    else if FEngine.SelectAssistant(FormField(LBody, 'name')) then
+      WriteJson(AResponseInfo, AssistantListJson)
+    else
+      WriteStatus(AResponseInfo, 404);
+  end
+
   else if (ADocument = HELPCHAT_API_ATTACH) and LIsPost then
   begin
     // The bytes are the whole body: a multipart form would have to be decoded
@@ -920,10 +1011,53 @@ begin
     WriteStatus(AResponseInfo, 404);
 end;
 
+function THelpChatHttpServerBase.CanSelectAssistant: Boolean;
+begin
+  Result := FEngine.CanSelectAssistant;
+end;
+
+function THelpChatHttpServerBase.HostMayRunAnyCommand: Boolean;
+begin
+  Result := False;
+end;
+
+function THelpChatHttpServerBase.AssistantListJson: string;
+var
+  LRoot, LItem: TJSONObject;
+  LItems: TJSONArray;
+  LInfo: THelpChatAssistantInfo;
+begin
+  LRoot := TJSONObject.Create;
+  try
+    LRoot.AddPair('canSelect', TJSONBool.Create(CanSelectAssistant));
+    LItems := TJSONArray.Create;
+    LRoot.AddPair('items', LItems);
+    for LInfo in FEngine.Assistants do
+    begin
+      LItem := TJSONObject.Create;
+      LItem.AddPair('name', LInfo.Name);
+      LItem.AddPair('provider', LInfo.Provider);
+      LItem.AddPair('model', LInfo.Model);
+      LItem.AddPair('icon', LInfo.Icon);
+      // The SVG itself: the page inlines it, so a monochrome icon follows
+      // the colours of the theme, and the CSP needs no new source.
+      LItem.AddPair('svg', HelpChatProviderIconSvg(LInfo.Icon));
+      LItem.AddPair('active', TJSONBool.Create(LInfo.Active));
+      if LInfo.Active then
+        LRoot.AddPair('active', LInfo.Name);
+      LItems.Add(LItem);
+    end;
+    Result := LRoot.ToJSON;
+  finally
+    LRoot.Free;
+  end;
+end;
+
 { THelpChatLocalServer }
 
 constructor THelpChatLocalServer.Create(const AEngine: THelpChatEngine; const AOwnsEngine: Boolean);
 begin
+  FEnabledCommands := HELPCHAT_DEF_COMMANDS;
   inherited Create(AEngine, AOwnsEngine);
   FLock := TCriticalSection.Create;
 end;
@@ -947,6 +1081,7 @@ begin
   FSession.SetContext(GetContext);
   FSession.SetThemeCss(GetTheme.ToCss);
   FSession.SetAssistant(GetAssistantName, GetAssistantIcon);
+  FSession.SetEnabledCommands(GetEnabledCommands);
   // The page talks to the host through this same server.
   FSession.SetUiEndpoint('', '');
 end;
@@ -1037,6 +1172,35 @@ begin
   end;
   if Assigned(FSession) then
     FSession.SetAssistant(AName, AIconDataUri);
+end;
+
+procedure THelpChatLocalServer.SetEnabledCommands(const ACommands: THelpChatCommands);
+begin
+  FLock.Enter;
+  try
+    FEnabledCommands := ACommands;
+  finally
+    FLock.Leave;
+  end;
+  if Assigned(FSession) then
+    FSession.SetEnabledCommands(ACommands);
+end;
+
+function THelpChatLocalServer.HostMayRunAnyCommand: Boolean;
+begin
+  // The page of this process: the application that owns it may ask for any
+  // command, the way it may call any method of the component.
+  Result := True;
+end;
+
+function THelpChatLocalServer.GetEnabledCommands: THelpChatCommands;
+begin
+  FLock.Enter;
+  try
+    Result := FEnabledCommands;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 function THelpChatLocalServer.GetAssistantName: string;

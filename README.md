@@ -66,6 +66,48 @@ OpenRouter, Mistral, DeepSeek, Ollama and LM Studio also speak, so `BaseUrl` and
 enough to point the same provider at any of them — including a model running on the user's own
 machine, where nothing leaves the PC.
 
+### More than one assistant
+
+`Assistants` in `helpchatai.json` lists the assistants the user may switch between from the
+panel: each one has a name, a provider, and the model, endpoint and key it adds to that
+provider's section when they differ — three local models on one Ollama are three entries on
+`openai`. `Assistant` names the one in use at start; the choice made in the panel is remembered
+per user. The header shows the icon of the model in use (deduced from the model name, then from
+the endpoint, then from the provider; `Icon` overrides it), with name and model as the tooltip,
+and with more than one assistant a click on it opens the list. With no list, `Provider` alone is
+the one assistant and nothing can be switched.
+
+```json
+{
+  "Assistant": "Claude",
+  "Assistants": [
+    { "Name": "Claude", "Provider": "claude", "Model": "claude-haiku-4-5" },
+    { "Name": "Gemini", "Provider": "gemini", "Model": "gemini-3.8-flash" },
+    { "Name": "Gemma (local)", "Provider": "openai", "Model": "gemma4:12b", "BaseUrl": "http://localhost:11434/v1" }
+  ]
+}
+```
+
+The icons of the providers and models are those of [lobe-icons](https://github.com/lobehub/lobe-icons)
+(MIT); the logos themselves are trademarks of their respective owners.
+
+### Commands
+
+A line that starts with `/` in the question box is a command, answered without the model:
+`/who` (assistant, model, provider, endpoint), `/use name` and `/retry [name]` (switch, ask
+again), `/search words` (the pages the answer would be grounded on), `/pages` and `/doc page`,
+`/context` (the screen F1 knows), `/actions` (what the assistant can do here), `/check` (the
+configuration check), `/stats`, `/clear`, `/pdf`, `/copy`, `/attach`, `/help`. `EnabledCommands`
+on the component is the set the panel accepts: all of them by default except `/prompt`, which
+shows the instructions and excerpts the last question went with, and `/run action name=value`,
+which runs a registered action by hand (with the usual confirmation). Every answer starts with
+what it answers, e.g. "Available actions (/actions):".
+
+Everything the panel does can be done from code on the component: `ExecuteCommand(hccActions)`
+shows an answer in the panel (any command, enabled or not), `ExplainCommand(hccActions)` returns
+it as text without opening anything, and `ClearConversation`, `SelectAssistant`, `Assistants`,
+`RetryLastQuestion`, `SaveConversationPdf`, `CopyLastAnswer` and `AttachFile` do what their buttons do.
+
 ## Setup for automatic installation of components
 
 An "Installer" ready to use is located in the Release area:
@@ -109,6 +151,8 @@ assistant to your Delphi application, and how to make its answers good.
 | [The VCL component](https://ethea.it/docs/helpchatai/VCL-Component) | Bubble, F1, embedding, dictation, the design-time preview |
 | [The FMX component](https://ethea.it/docs/helpchatai/FMX-Component) | What FireMonkey does differently |
 | [Providers](https://ethea.it/docs/helpchatai/Providers) | The five of them, their settings, writing your own |
+| [Assistants](https://ethea.it/docs/helpchatai/Assistants) | Several providers and models in one panel, and the switch between them |
+| [Slash commands](https://ethea.it/docs/helpchatai/Commands) | `/who`, `/search`, `/actions`... and everything the panel does, from code |
 | [The documentation index](https://ethea.it/docs/helpchatai/Documentation-Index) | Building `help-index.json`, and the pages shown inside the panel |
 | [Actions](https://ethea.it/docs/helpchatai/Actions) | An assistant that does things, safely |
 | [Attaching documents](https://ethea.it/docs/helpchatai/Attachments) | Handing the assistant a PDF, an image or a text file |
@@ -151,8 +195,8 @@ It comes **in both frameworks**, sharing one data module, one database and one m
 
 | | Project | Delphi | What it is |
 |---|---|---|---|
-| VCL | `CRM Demo\VCL\project\VCL_CRMDemo.dproj` | 10.4 → 13 | The whole application: seven pages, the lead and proposal windows, and all three actions |
-| FMX | `CRM Demo\FMX\project\FMX_CRMDemo.dproj` | 12 → 13 | The same application: the seven pages, the lead, proposal and draft windows, and the same three actions |
+| VCL | `CRM Demo\VCL\project\VCL_CRMDemo.dproj` | 10.4 → 13 | The whole application: seven pages, the lead and proposal windows, and all four actions |
+| FMX | `CRM Demo\FMX\project\FMX_CRMDemo.dproj` | 12 → 13 | The same application: the seven pages, the lead, proposal and draft windows, and the same four actions |
 
 Neither of them keeps the API key in clear: `CRM Demo\common\uAppSecret.pas` encrypts it
 with DCPcrypt (an svn:external of the demo, no package of the library requires it) and the
@@ -162,7 +206,7 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 `CRM Demo\BuildAllDemos.ps1` builds both with every Delphi it finds, Win32 and Win64: twelve
 builds, and the FireMonkey ones are reported `N/A` below Delphi 12 rather than failed.
 
-`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **316 tests** that runs without
+`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **352 tests** that runs without
 network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, the actions from a real worker thread, the secrets of the settings and the printable
@@ -174,6 +218,20 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+7 Nov 2026: ver. 1.5.0
+- More than one assistant: `Assistants` in `helpchatai.json` (name, provider, model, endpoint, key, icon), `Assistant` for the one in use, and the switch from the panel: the icon of the model in the header, name and model in its tooltip, the list on a click. The choice is remembered per user. `GET /api/assistants` and `POST /api/assistant/select` on the server (read-only on a remote one)
+- `HelpChatAI.Icons`: the icons of the providers and models (lobe-icons, MIT) as SVG in `HelpChatAI.Providers.res`, deduced from the model name, the endpoint or the provider
+- The configuration check reports every assistant of the list, not only the one in use
+- The system prompt cites a page with a Markdown link it copies (`Source: [Title](Page.md)`), cites only the pages it used and none when the documentation does not cover the question; the actions rule asks only for the required parameters and forbids a tool as part of an answer. Measured on five models with `Test\LLMBench`: citations went from 6-7/8 to 8/8 on four of them
+- The engine adds the source line itself (`Source: [Leads](Leads.md)`) when an answer uses a page of the documentation without linking it: with the same prompt a model cited 8/8 in one run and 6/8 in the next, and now the link is certain
+- `Test\LLMBench`: a console benchmark of the providers on the manual of the CRM demo (three local Ollama models, `claude`, `gemini`), one model after the other, with a Markdown report
+- Slash commands in the question box (`/who`, `/use`, `/retry`, `/search`, `/pages`, `/doc`, `/context`, `/actions`, `/check`, `/stats`, `/clear`, `/pdf`, `/copy`, `/attach`, `/help`, and `/prompt` and `/run` when enabled): `EnabledCommands` on the components, `HelpChatAI.Commands`, `GET /api/commands` and `POST /api/command`. Every answer starts with its heading ("Available actions (/actions):")
+- Everything the panel does, from code: `ExecuteCommand` (any command, enabled or not), `ExplainCommand`, `ClearConversation`, `SelectAssistant`, `Assistants`, `RetryLastQuestion`, `SaveConversationPdf`, `CopyLastAnswer` and `AttachFile` on both components
+- The VCL bubble is antialiased: a layered window drawn with GDI+ from Windows 8 on, a window region as before elsewhere
+- The header of the panel: larger buttons, the icon of the assistant as the last one on the right, no close button of its own (the window has one)
+- The CRM demos link `HelpChatAI.Provider.OpenAI` as well
+- 352 tests
 
 6 Nov 2026: ver. 1.4.0
 - Actions ask for confirmation by default: `Confirm` is now True in `Actions.Add`, and an action that changes nothing says so with False

@@ -26,6 +26,16 @@ know rather than invent. **Read more** opens the whole page inside the assistant
 The conversation stays as you move around the application, and the ↻ button at the top
 clears it.
 
+## Choosing the assistant
+
+Next to the name in the header there may be a small icon: it is the model that is answering,
+and resting the mouse on it shows its name and the model. When the configuration offers more
+than one assistant — the cloud service of Anthropic, Google's Gemini, a model running on this
+very computer — a click on that icon opens the list, each with its icon, name and model, and
+the one you pick answers from the next question on. The choice is remembered. With one
+assistant configured the icon is only a label, and with none that has a face there is no icon
+at all.
+
 ## Keeping an answer
 
 An answer is not only to be read. Move the mouse over one and two small buttons appear

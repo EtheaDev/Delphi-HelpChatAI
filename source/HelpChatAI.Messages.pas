@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -106,6 +106,60 @@ type
     hcmUiAttach,
     /// <summary>Title of the button that takes an attachment away.</summary>
     hcmUiAttachRemove,
+    /// <summary>Tooltip of the assistant badge when there is a list to pick from.</summary>
+    hcmUiChangeAssistant,
+    // The slash commands of the panel (HelpChatAI.Commands): one description
+    // each, in the order of THelpChatCommand, then what their answers say.
+    hcmCmdHelp,
+    hcmCmdWho,
+    hcmCmdUse,
+    hcmCmdRetry,
+    hcmCmdSearch,
+    hcmCmdDoc,
+    hcmCmdPages,
+    hcmCmdContext,
+    hcmCmdActions,
+    hcmCmdCheck,
+    hcmCmdStats,
+    hcmCmdClear,
+    hcmCmdPdf,
+    hcmCmdCopy,
+    hcmCmdAttach,
+    hcmCmdPrompt,
+    hcmCmdRun,
+    /// <summary>%s is the word typed after the slash.</summary>
+    hcmCmdUnknown,
+    hcmCmdProvider,
+    hcmCmdEndpoint,
+    hcmCmdNoIndex,
+    hcmCmdNoQuestion,
+    /// <summary>%s is what was searched.</summary>
+    hcmCmdNoResults,
+    hcmCmdNoContext,
+    hcmCmdNoActions,
+    hcmCmdRunUsage,
+    hcmCmdNoEngine,
+    /// <summary>%s is the name asked for.</summary>
+    hcmCmdNoAssistant,
+    /// <summary>%s twice: time to the first token, time to the end.</summary>
+    hcmCmdStatsLine,
+    hcmCmdNoStats,
+    hcmCmdDocUsage,
+    hcmCmdUseUsage,
+    hcmCmdNoAnswer,
+    /// <summary>The first line of the answer of a command ("Available actions"):
+    /// the page adds " (/name):" after it.</summary>
+    hcmCmdTitleHelp,
+    hcmCmdTitleWho,
+    hcmCmdTitleUse,
+    hcmCmdTitleSearch,
+    hcmCmdTitlePages,
+    hcmCmdTitleContext,
+    hcmCmdTitleActions,
+    hcmCmdTitleCheck,
+    hcmCmdTitleStats,
+    hcmCmdTitlePrompt,
+    hcmCmdTitleRun,
     /// <summary>A file of a type no model reads: %s is the extension,
     /// %s the list of the accepted ones.</summary>
     hcmAttachTypeRefused,
@@ -231,6 +285,51 @@ resourcestring
   SEnUiRetry = 'Retry';
   SEnUiSendError = 'The message could not be sent.';
   SEnUiBack = 'Back to the chat';
+  SEnUiChangeAssistant = 'Change assistant';
+  SEnCmdHelp = 'The commands you can type';
+  SEnCmdWho = 'Who is answering: assistant, model, provider';
+  SEnCmdUse = 'Switch to the named assistant: /use Gemini';
+  SEnCmdRetry = 'Ask the last question again, to another assistant if named';
+  SEnCmdSearch = 'The documentation pages that would ground the answer';
+  SEnCmdDoc = 'Open a page of the documentation: /doc Leads.md';
+  SEnCmdPages = 'The pages of the documentation index';
+  SEnCmdContext = 'The screen the assistant thinks you are on';
+  SEnCmdActions = 'What the assistant can do in this application';
+  SEnCmdCheck = 'The configuration check of the assistant';
+  SEnCmdStats = 'Timing of the last answer';
+  SEnCmdClear = 'Clear the conversation';
+  SEnCmdPdf = 'Save the conversation as PDF';
+  SEnCmdCopy = 'Copy the last answer';
+  SEnCmdAttach = 'Attach a file';
+  SEnCmdPrompt = 'The instructions and excerpts the last question went with';
+  SEnCmdRun = 'Run an action by hand: /run open_screen name=Leads';
+  SEnCmdUnknown = 'Unknown command %s. Type /help for the list.';
+  SEnCmdProvider = 'Provider';
+  SEnCmdEndpoint = 'Endpoint';
+  SEnCmdNoIndex = 'There is no documentation index.';
+  SEnCmdNoQuestion = 'No question yet.';
+  SEnCmdNoResults = 'Nothing found for "%s".';
+  SEnCmdNoContext = 'No screen context was sent.';
+  SEnCmdNoActions = 'This application registered no actions.';
+  SEnCmdRunUsage = 'Usage: /run action name=value name2="a value with spaces"';
+  SEnCmdNoEngine = 'The engine is not running.';
+  SEnCmdNoAssistant = 'No assistant named "%s".';
+  SEnCmdStatsLine = 'Last answer: first token after %s, complete after %s.';
+  SEnCmdNoStats = 'No answer yet.';
+  SEnCmdDocUsage = 'Usage: /doc page';
+  SEnCmdUseUsage = 'Usage: /use assistant';
+  SEnCmdNoAnswer = 'No answer to copy.';
+  SEnCmdTitleHelp = 'Available commands';
+  SEnCmdTitleWho = 'Assistant in use';
+  SEnCmdTitleUse = 'Assistant changed';
+  SEnCmdTitleSearch = 'Documentation pages for "%s"';
+  SEnCmdTitlePages = 'Documentation pages';
+  SEnCmdTitleContext = 'Screen context';
+  SEnCmdTitleActions = 'Available actions';
+  SEnCmdTitleCheck = 'Configuration check';
+  SEnCmdTitleStats = 'Timing of the last answer';
+  SEnCmdTitlePrompt = 'System prompt of the last question';
+  SEnCmdTitleRun = 'Action run';
   SEnUiMic = 'Dictate the question';
   SEnVoiceConsentNeeded = 'Dictation goes through the online speech recognition of Windows, which is not enabled on this computer.' + sLineBreak + sLineBreak + 'The Windows settings will now open: turn on Online speech recognition, then press the microphone again.';
   SEnVoiceUnavailable = 'Speech recognition is not available on this computer. Check Settings, Privacy, Speech, and that the language pack is installed.';
@@ -307,6 +406,51 @@ resourcestring
   SItUiRetry = 'Riprova';
   SItUiSendError = 'Non è stato possibile inviare il messaggio.';
   SItUiBack = 'Torna alla chat';
+  SItUiChangeAssistant = 'Cambia assistente';
+  SItCmdHelp = 'I comandi che puoi scrivere';
+  SItCmdWho = 'Chi sta rispondendo: assistente, modello, provider';
+  SItCmdUse = 'Passa all''assistente indicato: /use Gemini';
+  SItCmdRetry = 'Ripete l''ultima domanda, a un altro assistente se indicato';
+  SItCmdSearch = 'Le pagine della documentazione su cui si baserebbe la risposta';
+  SItCmdDoc = 'Apre una pagina della documentazione: /doc Leads.md';
+  SItCmdPages = 'Le pagine dell''indice della documentazione';
+  SItCmdContext = 'La schermata in cui l''assistente pensa che tu sia';
+  SItCmdActions = 'Cosa l''assistente può fare in questa applicazione';
+  SItCmdCheck = 'Il controllo della configurazione dell''assistente';
+  SItCmdStats = 'I tempi dell''ultima risposta';
+  SItCmdClear = 'Azzera la conversazione';
+  SItCmdPdf = 'Salva la conversazione in PDF';
+  SItCmdCopy = 'Copia l''ultima risposta';
+  SItCmdAttach = 'Allega un file';
+  SItCmdPrompt = 'Le istruzioni e gli estratti con cui è partita l''ultima domanda';
+  SItCmdRun = 'Esegue un''azione a mano: /run open_screen name=Leads';
+  SItCmdUnknown = 'Comando sconosciuto %s. Scrivi /help per l''elenco.';
+  SItCmdProvider = 'Provider';
+  SItCmdEndpoint = 'Endpoint';
+  SItCmdNoIndex = 'Non c''è un indice della documentazione.';
+  SItCmdNoQuestion = 'Nessuna domanda ancora.';
+  SItCmdNoResults = 'Niente trovato per "%s".';
+  SItCmdNoContext = 'Nessun contesto di schermata è stato inviato.';
+  SItCmdNoActions = 'Questa applicazione non ha registrato azioni.';
+  SItCmdRunUsage = 'Uso: /run azione nome=valore nome2="un valore con spazi"';
+  SItCmdNoEngine = 'Il motore non è in esecuzione.';
+  SItCmdNoAssistant = 'Nessun assistente di nome "%s".';
+  SItCmdStatsLine = 'Ultima risposta: primo token dopo %s, completa dopo %s.';
+  SItCmdNoStats = 'Nessuna risposta ancora.';
+  SItCmdDocUsage = 'Uso: /doc pagina';
+  SItCmdUseUsage = 'Uso: /use assistente';
+  SItCmdNoAnswer = 'Nessuna risposta da copiare.';
+  SItCmdTitleHelp = 'Comandi disponibili';
+  SItCmdTitleWho = 'Assistente in uso';
+  SItCmdTitleUse = 'Assistente cambiato';
+  SItCmdTitleSearch = 'Pagine della documentazione per "%s"';
+  SItCmdTitlePages = 'Pagine della documentazione';
+  SItCmdTitleContext = 'Contesto della schermata';
+  SItCmdTitleActions = 'Azioni disponibili';
+  SItCmdTitleCheck = 'Controllo della configurazione';
+  SItCmdTitleStats = 'Tempi dellultima risposta';
+  SItCmdTitlePrompt = 'Prompt di sistema dellultima domanda';
+  SItCmdTitleRun = 'Azione eseguita';
   SItUiMic = 'Detta la domanda';
   SItVoiceConsentNeeded = 'La dettatura passa dal riconoscimento vocale online di Windows, che su questo computer non è abilitato.' + sLineBreak + sLineBreak + 'Verrà aperta la pagina delle impostazioni di Windows: attiva Riconoscimento vocale online, poi premi di nuovo il microfono.';
   SItVoiceUnavailable = 'Il riconoscimento vocale non è disponibile su questo computer. Controlla Impostazioni, Privacy, Riconoscimento vocale, e che il pacchetto della lingua sia installato.';
@@ -422,6 +566,51 @@ begin
     hcmActionValuesFooter: Result := SEnActionValuesFooter;
     hcmUiAttach: Result := SEnUiAttach;
     hcmUiAttachRemove: Result := SEnUiAttachRemove;
+    hcmUiChangeAssistant: Result := SEnUiChangeAssistant;
+    hcmCmdHelp: Result := SEnCmdHelp;
+    hcmCmdWho: Result := SEnCmdWho;
+    hcmCmdUse: Result := SEnCmdUse;
+    hcmCmdRetry: Result := SEnCmdRetry;
+    hcmCmdSearch: Result := SEnCmdSearch;
+    hcmCmdDoc: Result := SEnCmdDoc;
+    hcmCmdPages: Result := SEnCmdPages;
+    hcmCmdContext: Result := SEnCmdContext;
+    hcmCmdActions: Result := SEnCmdActions;
+    hcmCmdCheck: Result := SEnCmdCheck;
+    hcmCmdStats: Result := SEnCmdStats;
+    hcmCmdClear: Result := SEnCmdClear;
+    hcmCmdPdf: Result := SEnCmdPdf;
+    hcmCmdCopy: Result := SEnCmdCopy;
+    hcmCmdAttach: Result := SEnCmdAttach;
+    hcmCmdPrompt: Result := SEnCmdPrompt;
+    hcmCmdRun: Result := SEnCmdRun;
+    hcmCmdUnknown: Result := SEnCmdUnknown;
+    hcmCmdProvider: Result := SEnCmdProvider;
+    hcmCmdEndpoint: Result := SEnCmdEndpoint;
+    hcmCmdNoIndex: Result := SEnCmdNoIndex;
+    hcmCmdNoQuestion: Result := SEnCmdNoQuestion;
+    hcmCmdNoResults: Result := SEnCmdNoResults;
+    hcmCmdNoContext: Result := SEnCmdNoContext;
+    hcmCmdNoActions: Result := SEnCmdNoActions;
+    hcmCmdRunUsage: Result := SEnCmdRunUsage;
+    hcmCmdNoEngine: Result := SEnCmdNoEngine;
+    hcmCmdNoAssistant: Result := SEnCmdNoAssistant;
+    hcmCmdStatsLine: Result := SEnCmdStatsLine;
+    hcmCmdNoStats: Result := SEnCmdNoStats;
+    hcmCmdDocUsage: Result := SEnCmdDocUsage;
+    hcmCmdUseUsage: Result := SEnCmdUseUsage;
+    hcmCmdNoAnswer: Result := SEnCmdNoAnswer;
+    hcmCmdTitleHelp: Result := SEnCmdTitleHelp;
+    hcmCmdTitleWho: Result := SEnCmdTitleWho;
+    hcmCmdTitleUse: Result := SEnCmdTitleUse;
+    hcmCmdTitleSearch: Result := SEnCmdTitleSearch;
+    hcmCmdTitlePages: Result := SEnCmdTitlePages;
+    hcmCmdTitleContext: Result := SEnCmdTitleContext;
+    hcmCmdTitleActions: Result := SEnCmdTitleActions;
+    hcmCmdTitleCheck: Result := SEnCmdTitleCheck;
+    hcmCmdTitleStats: Result := SEnCmdTitleStats;
+    hcmCmdTitlePrompt: Result := SEnCmdTitlePrompt;
+    hcmCmdTitleRun: Result := SEnCmdTitleRun;
     hcmAttachTypeRefused: Result := SEnAttachTypeRefused;
     hcmAttachTooLarge: Result := SEnAttachTooLarge;
     hcmAttachTooMany: Result := SEnAttachTooMany;
@@ -495,6 +684,51 @@ begin
     hcmActionValuesFooter: Result := SItActionValuesFooter;
     hcmUiAttach: Result := SItUiAttach;
     hcmUiAttachRemove: Result := SItUiAttachRemove;
+    hcmUiChangeAssistant: Result := SItUiChangeAssistant;
+    hcmCmdHelp: Result := SItCmdHelp;
+    hcmCmdWho: Result := SItCmdWho;
+    hcmCmdUse: Result := SItCmdUse;
+    hcmCmdRetry: Result := SItCmdRetry;
+    hcmCmdSearch: Result := SItCmdSearch;
+    hcmCmdDoc: Result := SItCmdDoc;
+    hcmCmdPages: Result := SItCmdPages;
+    hcmCmdContext: Result := SItCmdContext;
+    hcmCmdActions: Result := SItCmdActions;
+    hcmCmdCheck: Result := SItCmdCheck;
+    hcmCmdStats: Result := SItCmdStats;
+    hcmCmdClear: Result := SItCmdClear;
+    hcmCmdPdf: Result := SItCmdPdf;
+    hcmCmdCopy: Result := SItCmdCopy;
+    hcmCmdAttach: Result := SItCmdAttach;
+    hcmCmdPrompt: Result := SItCmdPrompt;
+    hcmCmdRun: Result := SItCmdRun;
+    hcmCmdUnknown: Result := SItCmdUnknown;
+    hcmCmdProvider: Result := SItCmdProvider;
+    hcmCmdEndpoint: Result := SItCmdEndpoint;
+    hcmCmdNoIndex: Result := SItCmdNoIndex;
+    hcmCmdNoQuestion: Result := SItCmdNoQuestion;
+    hcmCmdNoResults: Result := SItCmdNoResults;
+    hcmCmdNoContext: Result := SItCmdNoContext;
+    hcmCmdNoActions: Result := SItCmdNoActions;
+    hcmCmdRunUsage: Result := SItCmdRunUsage;
+    hcmCmdNoEngine: Result := SItCmdNoEngine;
+    hcmCmdNoAssistant: Result := SItCmdNoAssistant;
+    hcmCmdStatsLine: Result := SItCmdStatsLine;
+    hcmCmdNoStats: Result := SItCmdNoStats;
+    hcmCmdDocUsage: Result := SItCmdDocUsage;
+    hcmCmdUseUsage: Result := SItCmdUseUsage;
+    hcmCmdNoAnswer: Result := SItCmdNoAnswer;
+    hcmCmdTitleHelp: Result := SItCmdTitleHelp;
+    hcmCmdTitleWho: Result := SItCmdTitleWho;
+    hcmCmdTitleUse: Result := SItCmdTitleUse;
+    hcmCmdTitleSearch: Result := SItCmdTitleSearch;
+    hcmCmdTitlePages: Result := SItCmdTitlePages;
+    hcmCmdTitleContext: Result := SItCmdTitleContext;
+    hcmCmdTitleActions: Result := SItCmdTitleActions;
+    hcmCmdTitleCheck: Result := SItCmdTitleCheck;
+    hcmCmdTitleStats: Result := SItCmdTitleStats;
+    hcmCmdTitlePrompt: Result := SItCmdTitlePrompt;
+    hcmCmdTitleRun: Result := SItCmdTitleRun;
     hcmAttachTypeRefused: Result := SItAttachTypeRefused;
     hcmAttachTooLarge: Result := SItAttachTooLarge;
     hcmAttachTooMany: Result := SItAttachTooMany;

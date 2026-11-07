@@ -59,6 +59,7 @@
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
+        <AppEnableRuntimeThemes>true</AppEnableRuntimeThemes>
         <DCC_UnitSearchPath>..\..\..\source;..\..\..\Ext\MarkdownProcessor\source;..\..\..\Ext\DCPcrypt;..\..\..\Ext\DCPcrypt\Ciphers;..\..\..\Ext\DCPcrypt\Hashes;..\source;..\..\common;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_DcuOutput>..\..\dcu\FMX\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>..\..\bin\$(Platform)\</DCC_ExeOutput>
@@ -116,7 +117,6 @@
         <DCC_DebugInformation>0</DCC_DebugInformation>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
-        <AppEnableRuntimeThemes>true</AppEnableRuntimeThemes>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">

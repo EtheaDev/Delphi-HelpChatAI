@@ -231,6 +231,7 @@
     delete polling[id];
     pollingCount--;
     if (pollingCount <= 0) { pollingCount = 0; setBusy(false); focusInput(); }
+    if (timing.start && !timing.done) timing.done = Date.now();
   }
   function poll(id) {
     if (polling[id] === undefined) return;
@@ -245,6 +246,7 @@
         decorateAnswers();
         scrollBottom();
         var fresh = findMsg(id);
+        if (timing.start && !timing.first && fresh && fresh.textContent.trim()) timing.first = Date.now();
         if (!fresh || !fresh.hasAttribute('data-pending')) { stopPoll(id); return; }
         setTimeout(function () { poll(id); }, HC.pollMs || 800);
       })
@@ -309,12 +311,21 @@
     if (e.detail.elt !== form) return;
     var text = (e.detail.parameters.message || '').trim();
     if (!text) { e.preventDefault(); return; }
+    // A slash command is not a question: it never reaches the model.
+    if (text.charAt(0) === '/') {
+      e.preventDefault();
+      input.value = '';
+      autosize();
+      runCommand(text);
+      return;
+    }
     rememberQuestion(text);
   });
   // The parameters are already taken: the box empties while the reply comes.
   document.body.addEventListener('htmx:beforeRequest', function (e) {
     if (e.detail.elt !== form) return;
     if (voiceOn) uiCommand('mic-stop');   // the question is leaving: stop listening
+    timing = { start: Date.now(), first: 0, done: 0 };
     input.value = '';
     questionPos = -1;
     questionDraft = '';
@@ -506,11 +517,6 @@
     if (docIsOpen()) { e.preventDefault(); showDoc(false); } else closePanel();
   });
   stopBtn.addEventListener('click', cancelAll);
-  var closeBtn = document.querySelector('[data-action="close"]');
-  if (closeBtn) {
-    if (HC.hostCommands === false) closeBtn.hidden = true;
-    else closeBtn.addEventListener('click', closePanel);
-  }
 
   // ---- attachments -----------------------------------------------------------
   // One glyph per family, drawn at 24x24. A document is red, a spreadsheet
@@ -635,6 +641,232 @@
       })
       .catch(function () {});
   }
+  // The assistant in use and the others the configuration offers. The list
+  // lives where the engine lives, so the page asks for it the way it asks
+  // for the history, and a reload does not lose it. An assistant with no
+  // icon of its own (a test provider, docsearch) gets a plain glyph in the
+  // list and, when it is alone, no badge at all.
+  var agentBtn = document.getElementById('hc-agent');
+  var agentList = document.getElementById('hc-agents');
+  var agents = { items: [], canSelect: false };
+  var AGENT_GLYPH = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8z"/>' +
+    '<path d="M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></svg>';
+  function agentIcon(a) { return a.svg ? a.svg : AGENT_GLYPH; }
+  function closeAgents() { if (agentList) agentList.hidden = true; }
+  function renderAgents() {
+    if (!agentBtn) return;
+    var active = null, i;
+    for (i = 0; i < agents.items.length; i++) if (agents.items[i].active) active = agents.items[i];
+    var many = agents.items.length > 1;
+    var selectable = many && !!agents.canSelect;
+    if (!active || (!active.svg && !many)) { agentBtn.hidden = true; closeAgents(); return; }
+    agentBtn.innerHTML = agentIcon(active);
+    var tip = active.name + (active.model ? ' \u00B7 ' + active.model : '');
+    if (selectable && HC.labels.changeAssistant) tip += '\n' + HC.labels.changeAssistant;
+    agentBtn.title = tip;
+    agentBtn.setAttribute('aria-label', tip);
+    if (selectable) agentBtn.setAttribute('data-select', '1'); else agentBtn.removeAttribute('data-select');
+    agentBtn.hidden = false;
+    if (agentList) {
+      var html = '';
+      for (i = 0; i < agents.items.length; i++) {
+        var a = agents.items[i];
+        html += '<button type="button" class="hc-chat-agent-item" role="option" data-agent="' +
+          escapeHtml(a.name) + '" aria-selected="' + (a.active ? 'true' : 'false') + '">' +
+          agentIcon(a) + '<span class="hc-chat-agent-text"><span class="hc-chat-agent-name">' +
+          escapeHtml(a.name) + '</span>' +
+          (a.model ? '<span class="hc-chat-agent-model">' + escapeHtml(a.model) + '</span>' : '') +
+          '</span></button>';
+      }
+      agentList.innerHTML = html;
+    }
+  }
+  function loadAgents() {
+    if (!agentBtn) return;
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    fetch(api('/api/assistants'), { headers: headers, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && data.items) { agents = data; renderAgents(); } })
+      .catch(function () {});
+  }
+  function selectAgent(name) {
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    fetch(api('/api/assistant/select'), { method: 'POST', headers: headers,
+      body: 'name=' + encodeURIComponent(name) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.items) { agents = data; renderAgents(); }
+        else showSystem(HC.labels.sendError);
+      })
+      .catch(function () { showSystem(HC.labels.sendError); })
+      .then(function () { closeAgents(); focusInput(); });
+  }
+  if (agentBtn) {
+    agentBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (agentList && agentBtn.hasAttribute('data-select')) agentList.hidden = !agentList.hidden;
+    });
+    if (agentList) {
+      agentList.addEventListener('click', function (e) {
+        var item = e.target && e.target.closest ? e.target.closest('[data-agent]') : null;
+        if (item) selectAgent(item.getAttribute('data-agent'));
+      });
+      document.addEventListener('click', function (e) {
+        if (!agentList.hidden && !agentList.contains(e.target)) closeAgents();
+      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAgents(); });
+    }
+    loadAgents();
+  }
+  window.hcRefreshAssistants = loadAgents;
+  window.hcRefreshAttachments = function () { loadAttachments(); };
+
+  // ---- slash commands ------------------------------------------------------
+  // What the session enables comes from the server, the way the assistants
+  // do; the ones marked local are answered here, the others by the engine
+  // through /api/command. The answer is a system bubble: shown, not stored.
+  var commands = [];
+  var timing = { start: 0, first: 0, done: 0 };
+  function commandByName(name) {
+    for (var i = 0; i < commands.length; i++) if (commands[i].name === name) return commands[i];
+    return null;
+  }
+  // "Available actions (/actions):" - what the answer is an answer to.
+  function headingHtml(name, args) {
+    var cmd = commandByName(name);
+    var title = cmd ? String(cmd.title || '').replace('%s', args || '') : '';
+    return '<p class="hc-chat-cmd-title"><b>' + escapeHtml(title + ' (/' + name + '):') + '</b></p>';
+  }
+  function showSystemHtml(html) {
+    var div = document.createElement('div');
+    div.className = 'hc-chat-msg hc-chat-system';
+    div.innerHTML = '<div class="hc-chat-bubble">' + html + '</div>';
+    body.appendChild(div);
+    // An answer taller than the panel is read from its heading, not from its end.
+    if (div.offsetHeight > body.clientHeight) div.scrollIntoView({ block: 'start' }); else scrollBottom();
+  }
+  function loadCommands() {
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    fetch(api('/api/commands'), { headers: headers, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && data.length !== undefined) commands = data; })
+      .catch(function () {});
+  }
+  function fmtSecs(ms) { return (ms / 1000).toFixed(1) + ' s'; }
+  function fmt(template, value) { return String(template || '%s').replace('%s', value); }
+  function findAgent(name) {
+    var n = String(name || '').trim().toLowerCase(), i, a;
+    if (!n) return null;
+    for (i = 0; i < agents.items.length; i++) { a = agents.items[i]; if (a.name.toLowerCase() === n) return a; }
+    for (i = 0; i < agents.items.length; i++) { a = agents.items[i]; if (a.name.toLowerCase().indexOf(n) === 0) return a; }
+    return null;
+  }
+  function selectAgentNamed(name, then, report) {
+    var a = findAgent(name);
+    if (!a) { showSystem(fmt(HC.labels.cmdNoAssistant, name)); return; }
+    var done = function () {
+      if (report) showSystemHtml(headingHtml('use', '') + '<p><b>' + escapeHtml(a.name) + '</b>' +
+        (a.model ? ' &middot; ' + escapeHtml(a.model) : '') + '</p>');
+      if (then) then();
+    };
+    if (a.active) { done(); return; }
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    fetch(api('/api/assistant/select'), { method: 'POST', headers: headers,
+      body: 'name=' + encodeURIComponent(a.name) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.items) { agents = data; renderAgents(); done(); }
+        else showSystem(HC.labels.sendError);
+      })
+      .catch(function () { showSystem(HC.labels.sendError); });
+  }
+  function runLocalCommand(name, args) {
+    var i, html, last, btn;
+    switch (name) {
+      case 'help':
+        html = headingHtml('help', '') + '<ul>';
+        for (i = 0; i < commands.length; i++)
+          if (commands[i].enabled)
+            html += '<li><code>/' + escapeHtml(commands[i].name) + '</code> - ' +
+              escapeHtml(commands[i].description) + '</li>';
+        showSystemHtml(html + '</ul>');
+        break;
+      case 'use':
+        if (!args) { showSystem(HC.labels.cmdUseUsage); break; }
+        selectAgentNamed(args, null, true);
+        break;
+      case 'retry':
+        last = questions.length ? questions[questions.length - 1] : '';
+        if (!last) { showSystem(HC.labels.cmdNoQuestion); break; }
+        if (args) selectAgentNamed(args, function () { window.hcAsk(last, true); }, false);
+        else window.hcAsk(last, true);
+        break;
+      case 'doc':
+        if (!args) { showSystem(HC.labels.cmdDocUsage); break; }
+        openDoc(args, '', 'new');
+        break;
+      case 'stats':
+        if (!timing.done) { showSystem(HC.labels.cmdNoStats); break; }
+        showSystemHtml(headingHtml('stats', '') + '<p>' + escapeHtml(String(HC.labels.cmdStats || '%s / %s')
+          .replace('%s', fmtSecs((timing.first || timing.done) - timing.start))
+          .replace('%s', fmtSecs(timing.done - timing.start))) + '</p>');
+        break;
+      case 'clear':
+        htmx.ajax('POST', api('/api/clear'), { target: '#hc-body', swap: 'innerHTML' });
+        break;
+      case 'pdf':
+        if (pdfOn()) requestPdf('conversation', ''); else showSystem(HC.labels.pdfUnavailable);
+        break;
+      case 'copy':
+        btn = null;
+        last = body.querySelectorAll('[data-copy-msg]');
+        if (last.length) btn = last[last.length - 1];
+        if (btn) btn.click(); else showSystem(HC.labels.cmdNoAnswer);
+        break;
+      case 'attach':
+        if (HC.attach && fileInput) fileInput.click();
+        break;
+    }
+  }
+  // fromHost: the application asked (window.hcCommand(line, true)), and may
+  // run a command the user is not allowed to type.
+  function runCommand(line, fromHost) {
+    var m = /^\/?(\S+)\s*([\s\S]*)$/.exec(String(line || '').trim());
+    var name = m ? m[1].toLowerCase() : '', args = m ? m[2].trim() : '';
+    var cmd = commandByName(name);
+    if (!cmd || (!cmd.enabled && !fromHost)) { showSystem(fmt(HC.labels.cmdUnknown, '/' + name)); return; }
+    if (cmd.local) { runLocalCommand(name, args); return; }
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    fetch(api('/api/command'), { method: 'POST', headers: headers,
+      body: 'name=' + encodeURIComponent(name) + '&args=' + encodeURIComponent(args) +
+        (fromHost ? '&host=1' : '') })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.html !== undefined) showSystemHtml(data.html);
+        else showSystem(HC.labels.sendError);
+      })
+      .catch(function () { showSystem(HC.labels.sendError); });
+  }
+  window.hcRefreshCommands = loadCommands;
+  // The commands arrive with the first fetch: one the host asked for before
+  // that waits for them instead of being called unknown.
+  var commandsReady = null;
+  window.hcCommand = function (line, fromHost) {
+    if (commands.length) runCommand(line, !!fromHost);
+    else (commandsReady = commandsReady || loadCommandsNow()).then(function () { runCommand(line, !!fromHost); });
+  };
+  function loadCommandsNow() {
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    return fetch(api('/api/commands'), { headers: headers, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && data.length !== undefined) commands = data; })
+      .catch(function () {});
+  }
+  commandsReady = loadCommandsNow();
   if (copyBtn) {
     setGlyph(copyBtn, HC.labels.copyConversation, COPY_GLYPH);
     copyBtn.addEventListener('click', function () { copyConversation(copyBtn); });

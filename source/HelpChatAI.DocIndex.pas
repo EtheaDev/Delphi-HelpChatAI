@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -113,6 +113,9 @@ type
     procedure AddPage(const ATitle, AUrl, ASummary, AText: string; const AKeywords: string = '');
     procedure Clear;
     function Count: Integer;
+    /// <summary>Every page of the index (title, url with the base, summary;
+    /// no excerpt), in the order of the file: what /pages lists.</summary>
+    function Pages: TArray<THelpChatDocPage>;
 
     // IHelpChatRetriever
     function IsAvailable: Boolean;
@@ -478,6 +481,29 @@ begin
     Result := Length(FEntries);
   finally
     FLock.Leave;
+  end;
+end;
+
+function THelpChatDocIndex.Pages: TArray<THelpChatDocPage>;
+var
+  LEntries: TArray<TScoredEntry>;
+  LBase: string;
+  I: Integer;
+begin
+  FLock.Enter;
+  try
+    LEntries := FEntries;
+    LBase := FBaseUrl;
+  finally
+    FLock.Leave;
+  end;
+  SetLength(Result, Length(LEntries));
+  for I := 0 to High(LEntries) do
+  begin
+    Result[I] := Default(THelpChatDocPage);
+    Result[I].Title := LEntries[I].Title;
+    Result[I].Url := HelpChatJoinUrl(LBase, LEntries[I].Url);
+    Result[I].Summary := LEntries[I].Summary;
   end;
 end;
 

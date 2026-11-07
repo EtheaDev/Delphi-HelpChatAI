@@ -80,9 +80,50 @@ body {
   font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .hc-chat-actions { display: flex; gap: 4px; }
+/* The assistant in use, last of the header buttons: the icon of its model
+   or provider (an inline SVG, so a monochrome one takes the colour of the
+   text), with name and model in the tooltip. With more than one assistant
+   configured it is a button, and the list drops down under it. */
+.hc-chat-agent {
+  padding: 2px; display: inline-flex; align-items: center; justify-content: center;
+  cursor: default;
+}
+.hc-chat-agent:hover { background: transparent; color: var(--hc-muted); }
+.hc-chat-hbtn.hc-chat-agent svg { width: 24px; height: 24px; }
+.hc-chat-agent[data-select] { cursor: pointer; }
+.hc-chat-agent[data-select]:hover { background: var(--hc-bg); color: var(--hc-text); }
+.hc-chat-agents {
+  position: absolute; top: 100%; right: 8px; z-index: 3;
+  min-width: 220px; max-width: calc(100% - 16px); margin-top: 4px; padding: 4px;
+  background: var(--hc-surface); color: var(--hc-text);
+  border: 1px solid var(--hc-border); border-radius: var(--hc-radius);
+  box-shadow: 0 4px 12px var(--hc-shadow);
+}
+.hc-chat-agent-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  border: 0; background: transparent; color: inherit; font: inherit; text-align: left;
+  padding: 6px 8px; border-radius: 8px; cursor: pointer;
+}
+.hc-chat-agent-item:hover { background: var(--hc-bg); }
+.hc-chat-agent-item[aria-selected="true"] { background: var(--hc-accent); color: var(--hc-accent-text); }
+.hc-chat-agent-item svg { width: 22px; height: 22px; flex: 0 0 auto; }
+.hc-chat-agent-text { display: flex; flex-direction: column; min-width: 0; }
+.hc-chat-agent-name { font-weight: 600; }
+/* The answer of /prompt: the whole system prompt, excerpts included */
+.hc-chat-prompt {
+  white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.35;
+  max-height: 50vh; overflow: auto; margin: 0; background: var(--hc-code-bg); padding: 8px;
+  border-radius: 8px;
+}
+.hc-chat-system .hc-chat-bubble ul, .hc-chat-system .hc-chat-bubble ol { margin: 4px 0 0 18px; padding: 0; }
+.hc-chat-system .hc-chat-bubble p { margin: 0 0 4px 0; }
+.hc-chat-system .hc-chat-bubble .hc-chat-cmd-title { margin-bottom: 6px; }
+.hc-chat-agent-model {
+  font-size: 12px; opacity: .75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .hc-chat-hbtn {
   border: 0; background: transparent; color: var(--hc-muted);
-  width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px;
+  width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 19px;
 }
 .hc-chat-hbtn:hover { background: var(--hc-bg); color: var(--hc-text); }
 
@@ -161,7 +202,9 @@ body {
 /* Copy and save as PDF: the same two glyphs in three places */
 
 /* The same glyph in the header, in the documentation bar and on an answer. */
-.hc-chat-hbtn svg, .hc-chat-mbtn svg { width: 15px; height: 15px; fill: currentColor; display: block; }
+.hc-chat-mbtn svg { width: 15px; height: 15px; fill: currentColor; display: block; }
+/* The header has room: its glyphs are a size larger than those on an answer. */
+.hc-chat-hbtn svg { width: 20px; height: 20px; fill: currentColor; display: block; }
 /* A button that has just done something says so for a moment. */
 .hc-chat-hbtn.hc-done, .hc-chat-mbtn.hc-done { color: var(--hc-accent); }
 

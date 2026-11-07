@@ -197,6 +197,54 @@ the edit on every version, not on the one that happens to be open.
   know it, exactly like the colours. The icon is a `data:image/png` URI and nothing else is
   accepted (`AssistantIconTag` checks the prefix): the CSP of the page allows `'self'` and
   `data:` for an image, so an http URL would be dropped without a word.
+- **An assistant is a name over a provider, and the list lives in the engine.**
+  `Settings.Assistants` (`THelpChatAssistantSettings`: Name, Provider, Model, BaseUrl, ApiKey,
+  Icon) is what the user may switch between; `Settings.Assistant` is the one in use. One per
+  provider would not do: three local models on one Ollama are three entries on `openai`. The
+  sections keep the configuration as the file had it: `ApplyAssistant` sets `Provider` and
+  puts model, endpoint and key as **overrides** on the section (`SetOverrides`, read by
+  `ResolveModel`, `NormalizedBaseUrl`, `RawApiKey`, copied by `Assign`, never saved), so a
+  switch is reversible and the Object Inspector never shows a value the panel wrote. A
+  provider must therefore read `ResolveModel`, never `Model`. With no list, `Provider` is the
+  one implicit assistant and nothing can be switched (`CanSelectAssistant`). The engine applies
+  the active one in `Start` - before the index reads `GroundingMaxChars` - and remembers the
+  choice in `helpchatai-state.json` next to the conversation file, never in a configuration
+  file. The page asks `GET /api/assistants` the way it asks for the history, posts
+  `/api/assistant/select`, and a remote server answers 403 to that: the engine there is
+  everybody's. The icon is an id of `HelpChatAI.Icons` (lobe-icons SVG in
+  `HelpChatAI.Providers.res`, the fourth versioned `.res`, listed in `Setup.iss` by name like
+  the others), deduced by `HelpChatProviderIconFor` from the model name first, the endpoint
+  second, the provider last - a `gemma4` served by `openai` shows Gemma - and served inline in
+  the JSON so that a monochrome icon (`currentColor`) follows the theme; `docsearch` and `stub`
+  get none, and the page shows no badge for a lone assistant without one. `ApplyAssistant` and
+  `Assign` share a `TMonitor` lock: the switch arrives on an HTTP thread while a worker
+  snapshots the settings.
+- **A line that starts with "/" is a command, and the set decides which.**
+  `HelpChatAI.Commands` (RTL) owns `THelpChatCommand` and the set
+  `THelpChatCommands`; `EnabledCommands` on both components is that set,
+  `HELPCHAT_DEF_COMMANDS` by default (everything but `prompt`, which shows the context of a
+  request, and `run`, which runs an action by hand). It travels like the assistant name,
+  through `IHelpChatTransport.SetEnabledCommands` into the session, and the session is what
+  enforces it: `GET /api/commands` lists only the enabled ones, `POST /api/command` answers
+  403 to the rest, and a remote session starts without `run` (its actions are not here). The
+  page intercepts the line in `htmx:configRequest` and never sends it to the model; a
+  command of `HELPCHAT_COMMANDS_PAGE` is answered by `panel.js` (a button from the keyboard,
+  the switch of assistant, the timing it measured), the others by `HelpChatRunCommand` with
+  the HTML of a system bubble - shown, never stored, never in the next prompt. Adding one =
+  a member of the enumeration, its name in `CommandNames`, its description in both tables
+  of `HelpChatAI.Messages`, and a case in `HelpChatRunCommand` or a branch in `panel.js`
+  with the member in `HELPCHAT_COMMANDS_PAGE`; nothing else reads the list by name.
+  `/run` goes through `IHelpChatActionInvoker.Invoke` like the model does, confirmation
+  included, so an HTTP thread waits while the main thread runs the handler.
+  **Every answer starts with its heading** - "Available actions (/actions):" -
+  (`HelpChatCommandHeading`, a title per command in `HelpChatAI.Messages`), in the engine and
+  in the page alike. **Whatever the user can do in the panel, code can do on the component**:
+  `ExecuteCommand` (any command, enabled or not: the page posts `host=1`, which only
+  `THelpChatLocalServer` honours through `HostMayRunAnyCommand`), `ExplainCommand` (the same
+  answer as plain text, no panel; never runs `run`, which would wait for the calling main
+  thread), `ClearConversation`, `Assistants`/`SelectAssistant`, `RetryLastQuestion`,
+  `SaveConversationPdf`, `CopyLastAnswer`, `AttachFile`. A new button or command gets its method
+  on both components in the same change.
 - **The alpha of an image list cannot be read back.** GDI writes no alpha channel, so a bitmap
   drawn from a `TCustomImageList` comes back opaque and the header icon would carry a grey
   square. `HelpChatIconPng` draws the same image twice, over white and over black: where it is
@@ -212,8 +260,10 @@ the edit on every version, not on the one that happens to be open.
   `Settings.Remote.TimeoutMs`: they must be there before the question that follows them.
 - **The page reaches its host over HTTP, always.** Same server when the engine is local, the
   loopback `THelpChatHostChannel` when it is remote (`HC.uiBase`/`HC.uiToken`, CORS limited to
-  the panel origin plus `Access-Control-Allow-Private-Network`). `HC.hostCommands = false` means
-  nobody is listening and the page hides its ✕.
+  the panel origin plus `Access-Control-Allow-Private-Network`). `HC.hostCommands = false` means nobody is
+  listening. The page has no ✕ of its own: the window of the chat has one, and in a
+  `Container` the application decides; Escape still posts `close`, which only a listening
+  host honours.
 - **Anything the page calls must be in its own CSP.** `panel.html` allows `connect-src 'self'
   {{API_BASE}} {{UI_BASE}}` and nothing else: a call to an origin the policy does not name is
   dropped by the browser before it reaches the network — no request, no error, no clue. A new
@@ -302,8 +352,14 @@ the edit on every version, not on the one that happens to be open.
   and in a real application it vanished: a `TGraphicControl` has no window of its own, the VCL
   paints it on its parent's canvas and keeps it *below* every windowed sibling, so a grid or a
   page control covering the corner hid it (`BringToFront` only reorders the graphic ones).
-  `TVclHelpChatAIBubble` (`Vcl.HelpChatAI.Bubble`) is a `TCustomControl` clipped to an ellipse with
-  `SetWindowRgn` — hence no background to fake — raised with `SetWindowPos(HWND_TOP)`, and it
+  `TVclHelpChatAIBubble` (`Vcl.HelpChatAI.Bubble`) is a `TCustomControl`, and a **layered** child
+  window from Windows 8 on (`WS_EX_LAYERED`, which needs the Windows 8 entry that Delphi's
+  `default_app.manifest` carries): GDI+ draws it antialiased into a premultiplied DIB that
+  `UpdateLayeredWindow` pushes, so the edge blends with whatever lies under it and a click on a
+  transparent corner goes through. Such a window gets no `WM_PAINT`: `Invalidate` is overridden
+  to push again. Where that is refused - the designer, Windows 7, no manifest - it falls back to
+  `SetWindowRgn` with an ellipse, the drawing inside still GDI+ but the rim hard-clipped. The
+  icon keeps its alpha through `HelpChatIconBitmap` (the white/black trick below). It is raised with `SetWindowPos(HWND_TOP)`, and it
   hooks its parent's `WindowProc` to post itself `HELPCHAT_CM_BRINGTOTOP` whenever the host
   adds a child or is resized (`CM_CONTROLLISTCHANGE`, `WM_PARENTNOTIFY`, `WM_SIZE`). The hook
   is restored only while the chain is still ours. FMX needs none of this: there everything is
@@ -398,6 +454,15 @@ the edit on every version, not on the one that happens to be open.
   answers with the Claude section for `stub` and `docsearch`, which have no model at all.
   The old `HELPCHAT_CLAUDE_DEF_*` constants are aliases of the `HELPCHAT_MODEL_DEF_*` ones:
   applications used them.
+- **A citation is the engine's to guarantee, not the model's.** The source line of each
+  excerpt is a Markdown link the model is told to copy, and that improved every model; but the
+  same prompt gave Claude 8/8 citations in one benchmark run and 6/8 in the next. So the runner
+  checks the final reply: `HelpChatSourcesLine` (`HelpChatAI.Provider`) adds "Source: [Title](Url)"
+  when the reply links none of the pages the model was given but names one by its title or file
+  name - the same search the prompt was built with. Nothing is added when the model linked a
+  page, when it named none (an answer the documentation does not cover), for a provider with no
+  model behind it, or after an action (`THelpChatProviderBase.ActionsInvoked`). It goes through
+  the token callback too, so the stream and the stored text agree.
 - **The prompt and the tool-call record belong to every provider.**
   `THelpChatProviderBase.BuildSystemPrompt` builds the instruction, the language rule, the
   screen context and the documentation excerpts: two providers that grounded their answers

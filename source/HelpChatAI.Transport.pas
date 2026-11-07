@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -42,6 +42,7 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Theme,
   HelpChatAI.Html,
+  HelpChatAI.Commands,
   HelpChatAI.Engine;
 
 type
@@ -87,6 +88,11 @@ type
     procedure SetAssistant(const AName, AIconDataUri: string);
     function GetAssistantName: string;
     function GetAssistantIcon: string;
+    /// <summary>The slash commands the panel accepts (<c>EnabledCommands</c>
+    /// of the component). Local: the session refuses the others. Remote: the
+    /// server decides for everybody, and this is kept for the record.</summary>
+    procedure SetEnabledCommands(const ACommands: THelpChatCommands);
+    function GetEnabledCommands: THelpChatCommands;
     /// <summary>The engine behind this transport (nil for a pure remote one).</summary>
     function GetEngine: THelpChatEngine;
     /// <summary>Receives the commands the page posts to /api/ui/{command}, on

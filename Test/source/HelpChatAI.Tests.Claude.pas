@@ -185,7 +185,8 @@ begin
     Assert.Contains(LPrompt, HelpChatMsg(hcmRelevantDocs, hclEnglish));
     Assert.Contains(LPrompt, '## Exporting the grid');
     Assert.Contains(LPrompt, 'Export button in the toolbar', 'the page text (excerpt) is injected, not only the summary');
-    Assert.Contains(LPrompt, 'Source: https://docs.example.com/grid/export.html');
+    Assert.Contains(LPrompt, 'Source: [Exporting the grid](https://docs.example.com/grid/export.html)',
+      'the source is a Markdown link the model copies, never a URL it assembles');
 
     // Without context and retriever: base instruction plus the language rule.
     // The prompt stays English when the UI language is Italian; the configured

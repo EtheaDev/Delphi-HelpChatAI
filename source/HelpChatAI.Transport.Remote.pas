@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -58,6 +58,7 @@ uses
   HelpChatAI.Theme,
   HelpChatAI.Settings,
   HelpChatAI.Engine,
+  HelpChatAI.Commands,
   HelpChatAI.Transport,
   HelpChatAI.Server.HostChannel;
 
@@ -83,6 +84,7 @@ type
     FThemeCssSent: string;
     FAssistantName: string;
     FAssistantIcon: string;
+    FEnabledCommands: THelpChatCommands;
     FAssistantSent: Boolean;
     FOnUiCommand: THelpChatUiCommandEvent;
     FOnPdfRequest: THelpChatPdfRequestEvent;
@@ -111,6 +113,8 @@ type
     procedure SetTheme(const ATheme: THelpChatTheme);
     function GetTheme: THelpChatTheme;
     procedure SetAssistant(const AName, AIconDataUri: string);
+    procedure SetEnabledCommands(const ACommands: THelpChatCommands);
+    function GetEnabledCommands: THelpChatCommands;
     function GetAssistantName: string;
     function GetAssistantIcon: string;
     /// <summary>Always nil: the engine is on the server.</summary>
@@ -529,6 +533,27 @@ begin
   end;
   if LChanged and HasSession then
     PushAssistant;
+end;
+
+procedure THelpChatRemoteTransport.SetEnabledCommands(const ACommands: THelpChatCommands);
+begin
+  // The server decides what its sessions accept: this is only remembered.
+  FLock.Enter;
+  try
+    FEnabledCommands := ACommands;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatRemoteTransport.GetEnabledCommands: THelpChatCommands;
+begin
+  FLock.Enter;
+  try
+    Result := FEnabledCommands;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 function THelpChatRemoteTransport.GetAssistantName: string;

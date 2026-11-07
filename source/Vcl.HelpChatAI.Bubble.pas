@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -123,6 +123,16 @@ type
     FPressed: Boolean;
     FHookedParent: TWinControl;
     FOldParentProc: TWndMethod;
+    // A layered child window (Windows 8 and later, with the manifest every
+    // Delphi application carries) painted with per-pixel alpha: the only way
+    // to an edge that is smooth over whatever lies under the bubble. False
+    // in the designer, on Windows 7, or when the system refused it: then the
+    // window is clipped by a region, as it always was, and only the drawing
+    // inside it is antialiased.
+    FLayered: Boolean;
+    function WantsLayered: Boolean;
+    function RenderLayered: Boolean;
+    procedure DrawBubble(const AGraphics: TObject; const AWidth, AHeight: Integer);
     procedure SetImages(const Value: TCustomImageList);
     procedure SetImageIndex(const Value: TImageIndex);
     procedure SetImageName(const Value: TImageName);
@@ -144,6 +154,7 @@ type
   strict protected
     function GetActionLinkClass: TControlActionLinkClass; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure CreateParams(var Params: TCreateParams); override;
     procedure CreateWnd; override;
     procedure SetParent(AParent: TWinControl); override;
     procedure Resize; override;
@@ -164,6 +175,9 @@ type
     destructor Destroy; override;
     /// <summary>Puts the window back on top of its siblings.</summary>
     procedure BringToTop;
+    /// <summary>A layered window gets no WM_PAINT: every change of state is
+    /// pushed to it here instead.</summary>
+    procedure Invalidate; override;
   published
     property Action;
     property Align;
@@ -229,8 +243,15 @@ implementation
 uses
   System.Math,
   System.NetEncoding,
+  System.Types,   // Point is inline: without this unit Delphi 10.4 reports H2443
+  Winapi.GDIPAPI,
+  Winapi.GDIPOBJ,
   Vcl.Forms,
   Vcl.Themes;
+
+type
+  // Color is protected in TControl: the region fallback paints its corners with it.
+  TWinControlAccess = class(TWinControl);
 
 var
   GAssistantIcons: TImageCollection = nil;
@@ -284,12 +305,14 @@ end;
 ///  over black already *is* the colour multiplied by the alpha, which is what
 ///  a bitmap declared afDefined holds.
 /// </summary>
-function HelpChatIconPng(const AImages: TCustomImageList; const AIndex: Integer;
-  const AStream: TStream): Boolean;
+/// <summary>The image AIndex of AImages as a 32-bit bitmap with its alpha
+/// (premultiplied, <c>afDefined</c>), or nil. GDI writes no alpha, so the
+/// image is drawn twice, over white and over black: see HelpChatIconPng.</summary>
+function HelpChatIconBitmap(const AImages: TCustomImageList; const AIndex: Integer;
+  const AEnabled: Boolean = True): TBitmap;
 var
   LW, LH, X, Y, LAlpha: Integer;
-  LWhite, LBlack, LIcon: TBitmap;
-  LWic: TWICImage;
+  LWhite, LBlack: TBitmap;
   LRowW, LRowB, LRowI: PRGBQuad;
 
   function Flat(const AColor: TColor): TBitmap;
@@ -302,7 +325,7 @@ var
       Result.Canvas.Brush.Style := bsSolid;
       Result.Canvas.Brush.Color := AColor;
       Result.Canvas.FillRect(Rect(0, 0, LW, LH));
-      AImages.Draw(Result.Canvas, 0, 0, AIndex, True);
+      AImages.Draw(Result.Canvas, 0, 0, AIndex, AEnabled);
     except
       Result.Free;
       raise;
@@ -310,7 +333,7 @@ var
   end;
 
 begin
-  Result := False;
+  Result := nil;
   if (AImages = nil) or (AIndex < 0) or (AIndex >= AImages.Count) then
     Exit;
   LW := AImages.Width;
@@ -320,23 +343,21 @@ begin
 
   LWhite := nil;
   LBlack := nil;
-  LIcon := nil;
-  LWic := nil;
   try
     LWhite := Flat(clWhite);
     LBlack := Flat(clBlack);
 
-    LIcon := TBitmap.Create;
-    LIcon.PixelFormat := pf32bit;
-    LIcon.SetSize(LW, LH);
+    Result := TBitmap.Create;
+    Result.PixelFormat := pf32bit;
+    Result.SetSize(LW, LH);
     // Declared before the pixels are written: setting it afterwards would make
     // the VCL premultiply values that already are.
-    LIcon.AlphaFormat := afDefined;
+    Result.AlphaFormat := afDefined;
     for Y := 0 to LH - 1 do
     begin
       LRowW := LWhite.ScanLine[Y];
       LRowB := LBlack.ScanLine[Y];
-      LRowI := LIcon.ScanLine[Y];
+      LRowI := Result.ScanLine[Y];
       for X := 0 to LW - 1 do
       begin
         LAlpha := 255 - (Integer(LRowW^.rgbGreen) - Integer(LRowB^.rgbGreen));
@@ -353,7 +374,28 @@ begin
         Inc(LRowI);
       end;
     end;
+  except
+    FreeAndNil(Result);
+    LBlack.Free;
+    LWhite.Free;
+    raise;
+  end;
+  LBlack.Free;
+  LWhite.Free;
+end;
 
+function HelpChatIconPng(const AImages: TCustomImageList; const AIndex: Integer;
+  const AStream: TStream): Boolean;
+var
+  LIcon: TBitmap;
+  LWic: TWICImage;
+begin
+  Result := False;
+  LIcon := HelpChatIconBitmap(AImages, AIndex);
+  if LIcon = nil then
+    Exit;
+  LWic := nil;
+  try
     LWic := TWICImage.Create;
     LWic.Assign(LIcon);          // Assign resets the format, so PNG comes after
     LWic.ImageFormat := wifPng;
@@ -362,8 +404,6 @@ begin
   finally
     LWic.Free;
     LIcon.Free;
-    LBlack.Free;
-    LWhite.Free;
   end;
 end;
 
@@ -683,11 +723,41 @@ end;
 
 { --- window and painting ------------------------------------------------- }
 
+function TVclHelpChatAIBubble.WantsLayered: Boolean;
+begin
+  // Child windows can be layered from Windows 8 on, for an application whose
+  // manifest says it knows Windows 8 (Delphi's default_app.manifest does).
+  Result := not (csDesigning in ComponentState) and CheckWin32Version(6, 2);
+end;
+
+procedure TVclHelpChatAIBubble.CreateParams(var Params: TCreateParams);
+begin
+  inherited CreateParams(Params);
+  if WantsLayered then
+    Params.ExStyle := Params.ExStyle or WS_EX_LAYERED;
+end;
+
 procedure TVclHelpChatAIBubble.CreateWnd;
 begin
   inherited CreateWnd;
+  FLayered := (GetWindowLong(Handle, GWL_EXSTYLE) and WS_EX_LAYERED) <> 0;
+  if FLayered and not RenderLayered then
+  begin
+    // Refused (an application without the Windows 8 manifest entry, a remote
+    // session that does not compose): back to the region.
+    SetWindowLong(Handle, GWL_EXSTYLE, GetWindowLong(Handle, GWL_EXSTYLE) and not WS_EX_LAYERED);
+    FLayered := False;
+  end;
   UpdateRegion;
   BringToTop;
+end;
+
+procedure TVclHelpChatAIBubble.Invalidate;
+begin
+  if FLayered and HandleAllocated then
+    RenderLayered
+  else
+    inherited Invalidate;
 end;
 
 procedure TVclHelpChatAIBubble.UpdateRegion;
@@ -696,6 +766,13 @@ var
 begin
   if not HandleAllocated then
     Exit;
+  if FLayered then
+  begin
+    // The alpha of the pixels is the shape, for the eye and for the mouse:
+    // a click on a transparent corner goes to the control underneath.
+    SetWindowRgn(Handle, 0, False);
+    Exit;
+  end;
   LRegion := CreateEllipticRgn(0, 0, Width + 1, Height + 1);
   if SetWindowRgn(Handle, LRegion, True) = 0 then
     DeleteObject(LRegion);       // refused: the region is still ours to free
@@ -733,15 +810,34 @@ begin
     Result := clHighlightText;
 end;
 
-procedure TVclHelpChatAIBubble.Paint;
+function GPColor(const AColor: TColor; const AAlpha: Byte = 255): TGPColor;
 var
-  LRect: TRect;
+  LRgb: Longint;
+begin
+  LRgb := ColorToRGB(AColor);
+  Result := MakeColor(AAlpha, GetRValue(LRgb), GetGValue(LRgb), GetBValue(LRgb));
+end;
+
+procedure TVclHelpChatAIBubble.DrawBubble(const AGraphics: TObject;
+  const AWidth, AHeight: Integer);
+var
+  LGraphics: TGPGraphics;
   LFill: TColor;
+  LBrush: TGPSolidBrush;
+  LPen: TGPPen;
   LImages: TCustomImageList;
   LIndex: Integer;
-  LText: string;
+  LIcon: TBitmap;
+  LGlyph: TGPBitmap;
+  LFont: TGPFont;
+  LFormat: TGPStringFormat;
+  LFamily: TGPFontFamily;
 begin
-  LRect := ClientRect;
+  LGraphics := AGraphics as TGPGraphics;
+  LGraphics.SetSmoothingMode(SmoothingModeAntiAlias);
+  LGraphics.SetPixelOffsetMode(PixelOffsetModeHighQuality);
+  LGraphics.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+
   LFill := FillColor;
   if not Enabled then
     LFill := ShiftColor(LFill, 35)
@@ -750,28 +846,140 @@ begin
   else if FHot then
     LFill := ShiftColor(LFill, 12);
 
-  Canvas.Brush.Style := bsSolid;
-  Canvas.Brush.Color := LFill;
-  Canvas.Pen.Style := psSolid;
-  Canvas.Pen.Width := 1;
-  Canvas.Pen.Color := ShiftColor(LFill, -25);
-  Canvas.Ellipse(LRect);
+  // The disc, half a pixel in so that its one-pixel rim is not cut.
+  LBrush := TGPSolidBrush.Create(GPColor(LFill));
+  LPen := TGPPen.Create(GPColor(ShiftColor(LFill, -25)), 1);
+  try
+    LGraphics.FillEllipse(LBrush, 0.5, 0.5, AWidth - 1.0, AHeight - 1.0);
+    LGraphics.DrawEllipse(LPen, 0.5, 0.5, AWidth - 1.0, AHeight - 1.0);
+  finally
+    LPen.Free;
+    LBrush.Free;
+  end;
 
   LImages := ActiveImages;
   LIndex := ActiveImageIndex;
+  LIcon := nil;
   if Assigned(LImages) and (LIndex >= 0) then
-    LImages.Draw(Canvas, (Width - LImages.Width) div 2,
-      (Height - LImages.Height) div 2, LIndex, Enabled)
+    LIcon := HelpChatIconBitmap(LImages, LIndex, Enabled);
+  if LIcon <> nil then
+  try
+    // The VCL bitmap is bottom-up: the first scan line is the last in memory,
+    // and a negative stride reads it top-down.
+    LGlyph := TGPBitmap.Create(LIcon.Width, LIcon.Height, -LIcon.Width * 4,
+      PixelFormat32bppPARGB, PByte(LIcon.ScanLine[0]));
+    try
+      LGraphics.DrawImage(LGlyph, (AWidth - LIcon.Width) div 2,
+        (AHeight - LIcon.Height) div 2, LIcon.Width, LIcon.Height);
+    finally
+      LGlyph.Free;
+    end;
+  finally
+    LIcon.Free;
+  end
   else
   begin
     // No icon available: the question mark the bubble has always shown.
-    LText := '?';
-    Canvas.Brush.Style := bsClear;
-    Canvas.Font.Assign(Font);
-    Canvas.Font.Color := GlyphColor;
-    Canvas.Font.Style := Canvas.Font.Style + [fsBold];
-    Canvas.Font.Height := -Round(Height * 0.5);
-    Canvas.TextRect(LRect, LText, [tfCenter, tfVerticalCenter, tfSingleLine]);
+    LGraphics.SetTextRenderingHint(TextRenderingHintAntiAlias);
+    LFamily := TGPFontFamily.Create(Font.Name);
+    LFont := TGPFont.Create(LFamily, AHeight * 0.5, FontStyleBold, UnitPixel);
+    LFormat := TGPStringFormat.Create;
+    LBrush := TGPSolidBrush.Create(GPColor(GlyphColor));
+    try
+      LFormat.SetAlignment(StringAlignmentCenter);
+      LFormat.SetLineAlignment(StringAlignmentCenter);
+      LGraphics.DrawString('?', 1, LFont, MakeRect(0.0, 0.0, AWidth, AHeight), LFormat, LBrush);
+    finally
+      LBrush.Free;
+      LFormat.Free;
+      LFont.Free;
+      LFamily.Free;
+    end;
+  end;
+end;
+
+function TVclHelpChatAIBubble.RenderLayered: Boolean;
+var
+  LInfo: TBitmapInfo;
+  LDC: HDC;
+  LBitmap, LOld: HBITMAP;
+  LBits: Pointer;
+  LImage: TGPBitmap;
+  LGraphics: TGPGraphics;
+  LSize: TSize;
+  LSource: TPoint;
+  LBlend: TBlendFunction;
+begin
+  Result := False;
+  if not HandleAllocated or (Width <= 0) or (Height <= 0) then
+    Exit(True);              // nothing to show yet is not a refusal
+  FillChar(LInfo, SizeOf(LInfo), 0);
+  LInfo.bmiHeader.biSize := SizeOf(TBitmapInfoHeader);
+  LInfo.bmiHeader.biWidth := Width;
+  LInfo.bmiHeader.biHeight := -Height;      // top-down: the stride is positive
+  LInfo.bmiHeader.biPlanes := 1;
+  LInfo.bmiHeader.biBitCount := 32;
+  LInfo.bmiHeader.biCompression := BI_RGB;
+  LDC := CreateCompatibleDC(0);
+  if LDC = 0 then
+    Exit;
+  try
+    LBitmap := CreateDIBSection(LDC, LInfo, DIB_RGB_COLORS, LBits, 0, 0);
+    if LBitmap = 0 then
+      Exit;
+    LOld := SelectObject(LDC, LBitmap);
+    try
+      // GDI+ draws straight into the memory of the section, premultiplied,
+      // which is what UpdateLayeredWindow wants.
+      LImage := TGPBitmap.Create(Width, Height, Width * 4, PixelFormat32bppPARGB, LBits);
+      try
+        LGraphics := TGPGraphics.Create(LImage);
+        try
+          LGraphics.Clear(MakeColor(0, 0, 0, 0));
+          DrawBubble(LGraphics, Width, Height);
+        finally
+          LGraphics.Free;
+        end;
+      finally
+        LImage.Free;
+      end;
+      LSize.cx := Width;
+      LSize.cy := Height;
+      LSource := Point(0, 0);
+      LBlend.BlendOp := AC_SRC_OVER;
+      LBlend.BlendFlags := 0;
+      LBlend.SourceConstantAlpha := 255;
+      LBlend.AlphaFormat := AC_SRC_ALPHA;
+      Result := UpdateLayeredWindow(Handle, 0, nil, @LSize, LDC, @LSource, 0,
+        @LBlend, ULW_ALPHA);
+    finally
+      SelectObject(LDC, LOld);
+      DeleteObject(LBitmap);
+    end;
+  finally
+    DeleteDC(LDC);
+  end;
+end;
+
+procedure TVclHelpChatAIBubble.Paint;
+var
+  LGraphics: TGPGraphics;
+begin
+  if FLayered then
+    Exit;                      // pushed by RenderLayered, not painted
+  // Clipped by the region: the corners take the colour of the parent, so
+  // that the antialiased rim blends towards what is most likely behind.
+  Canvas.Brush.Style := bsSolid;
+  if Parent <> nil then
+    Canvas.Brush.Color := TWinControlAccess(Parent).Color
+  else
+    Canvas.Brush.Color := clBtnFace;
+  Canvas.FillRect(ClientRect);
+  LGraphics := TGPGraphics.Create(Canvas.Handle);
+  try
+    DrawBubble(LGraphics, Width, Height);
+  finally
+    LGraphics.Free;
   end;
 end;
 

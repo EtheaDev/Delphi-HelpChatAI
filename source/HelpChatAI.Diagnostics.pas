@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -198,6 +198,50 @@ begin
     Add(AIssues, hikInfo, 'Provider', Format('"%s" is registered and configured.', [LName]));
 end;
 
+/// <summary>Every assistant of the list, not only the one in use: each is
+/// checked as if it were the one, so a key or a provider missing shows up
+/// before the user picks it in the panel.</summary>
+procedure CheckAssistants(const ASettings: THelpChatSettings; var AIssues: THelpChatIssues);
+var
+  LInfo: THelpChatAssistantInfo;
+  LClass: THelpChatProviderClass;
+  LCopy: THelpChatSettings;
+  LIssue, LNames: string;
+begin
+  if ASettings.Assistants.Count = 0 then
+    Exit;
+  LNames := '';
+  for LInfo in ASettings.ResolveAssistants do
+  begin
+    if LNames <> '' then
+      LNames := LNames + ', ';
+    LNames := LNames + LInfo.Name;
+    if LInfo.Model <> '' then
+      LNames := LNames + ' (' + LInfo.Model + ')';
+    LClass := THelpChatProviderRegistry.FindProviderClass(LInfo.Provider);
+    if LClass = nil then
+    begin
+      Add(AIssues, hikError, Format('Assistant "%s"', [LInfo.Name]),
+        Format('Nobody registered its provider "%s". Available here: %s.',
+          [LInfo.Provider, string.Join(', ', THelpChatProviderRegistry.ProviderNames)]));
+      Continue;
+    end;
+    LCopy := THelpChatSettings.Create;
+    try
+      LCopy.Assign(ASettings);
+      LCopy.ApplyAssistant(LInfo.Name);
+      LIssue := LClass.ConfigurationIssue(LCopy);
+    finally
+      LCopy.Free;
+    end;
+    if LIssue <> '' then
+      Add(AIssues, hikError, Format('Assistant "%s"', [LInfo.Name]), LIssue);
+  end;
+  Add(AIssues, hikInfo, 'Assistants',
+    Format('%d to choose from in the panel: %s. In use: %s.',
+      [ASettings.Assistants.Count, LNames, ASettings.ActiveAssistantName]));
+end;
+
 procedure CheckDocumentation(const ASettings: THelpChatSettings;
   const AProviderSpokeAlready: Boolean; var AIssues: THelpChatIssues);
 var
@@ -245,6 +289,7 @@ begin
     Exit;
   end;
   LProviderSpoke := CheckProvider(ASettings, Result);
+  CheckAssistants(ASettings, Result);
   CheckDocumentation(ASettings, LProviderSpoke, Result);
 end;
 

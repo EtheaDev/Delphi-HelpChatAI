@@ -58,6 +58,10 @@ type
     [Test] procedure Pdf_Conversation_HasBothSides;
     [Test] procedure Pdf_WithoutAHost_Says501;
     [Test] procedure Pdf_Disabled_Says403;
+    [Test] procedure Assistants_List_AndSelect;
+    [Test] procedure Assistants_Single_CannotSelect;
+    [Test] procedure Commands_List_FollowsTheSession;
+    [Test] procedure Command_Who_AndDisabledIs403;
   end;
 
 implementation
@@ -69,6 +73,7 @@ uses
   System.RegularExpressions,
   HelpChatAI.Messages,
   HelpChatAI.Panel,
+  HelpChatAI.Commands,
   HelpChatAI.Tests.Helpers;
 
 procedure TServerTests.Setup;
@@ -594,6 +599,113 @@ begin
   Assert.IsTrue(FTransport.IsActive);
   Assert.AreEqual(200, Get(HELPCHAT_API_HISTORY).StatusCode);
   Assert.AreNotEqual(LOrigin + 'x', FTransport.GetPanelOrigin + 'x'); // no-op sanity: origins are comparable strings
+end;
+
+procedure TServerTests.Assistants_List_AndSelect;
+var
+  LResponse: IHTTPResponse;
+  LRoot: TJSONValue;
+begin
+  with FSettings.Assistants.Add do
+  begin
+    Name := 'Echo';
+    Provider := TEST_PROVIDER_ECHO;
+  end;
+  with FSettings.Assistants.Add do
+  begin
+    Name := 'Slow';
+    Provider := TEST_PROVIDER_SLOW;
+  end;
+
+  LResponse := Get(HELPCHAT_API_ASSISTANTS);
+  Assert.AreEqual(200, LResponse.StatusCode);
+  LRoot := TJSONObject.ParseJSONValue(LResponse.ContentAsString(TEncoding.UTF8));
+  try
+    Assert.IsTrue(LRoot is TJSONObject);
+    Assert.IsTrue(TJSONObject(LRoot).GetValue<Boolean>('canSelect'));
+    Assert.AreEqual(2, TJSONObject(LRoot).GetValue<TJSONArray>('items').Count);
+    Assert.AreEqual('Echo', TJSONObject(LRoot).GetValue<string>('active'),
+      'nothing chosen yet: the first of the list');
+  finally
+    LRoot.Free;
+  end;
+
+  LResponse := Post(HELPCHAT_API_ASSISTANT_SELECT, 'name=Slow');
+  Assert.AreEqual(200, LResponse.StatusCode);
+  LRoot := TJSONObject.ParseJSONValue(LResponse.ContentAsString(TEncoding.UTF8));
+  try
+    Assert.AreEqual('Slow', TJSONObject(LRoot).GetValue<string>('active'));
+  finally
+    LRoot.Free;
+  end;
+  Assert.AreEqual(TEST_PROVIDER_SLOW, FSettings.Provider, 'the switch reached the settings');
+
+  Assert.AreEqual(404, Post(HELPCHAT_API_ASSISTANT_SELECT, 'name=Nobody').StatusCode);
+  Assert.AreEqual(TEST_PROVIDER_SLOW, FSettings.Provider, 'an unknown name changes nothing');
+end;
+
+procedure TServerTests.Assistants_Single_CannotSelect;
+var
+  LResponse: IHTTPResponse;
+  LRoot: TJSONValue;
+begin
+  // No list: the one implicit assistant of Settings.Provider, and no choice.
+  LResponse := Get(HELPCHAT_API_ASSISTANTS);
+  Assert.AreEqual(200, LResponse.StatusCode);
+  LRoot := TJSONObject.ParseJSONValue(LResponse.ContentAsString(TEncoding.UTF8));
+  try
+    Assert.IsFalse(TJSONObject(LRoot).GetValue<Boolean>('canSelect'));
+    Assert.AreEqual(1, TJSONObject(LRoot).GetValue<TJSONArray>('items').Count);
+    Assert.AreEqual('', TJSONObject(LRoot).GetValue<TJSONArray>('items').Items[0]
+      .GetValue<string>('icon'), 'a test provider has no icon to invent');
+  finally
+    LRoot.Free;
+  end;
+  Assert.AreEqual(403, Post(HELPCHAT_API_ASSISTANT_SELECT, 'name=' + TEST_PROVIDER_ECHO).StatusCode);
+end;
+
+procedure TServerTests.Commands_List_FollowsTheSession;
+var
+  LText: string;
+begin
+  // The local server starts with the default: everything but prompt and run.
+  LText := Get(HELPCHAT_API_COMMANDS).ContentAsString(TEncoding.UTF8);
+  Assert.IsTrue(LText.Contains('"name":"who","title":"Assistant in use"'), LText);
+  Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"search"[^}]*"enabled":true'), LText);
+  Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"prompt"[^}]*"enabled":false'), LText);
+  Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"run"[^}]*"enabled":false'), LText);
+  Assert.IsTrue(LText.Contains('"local":true'), 'the page answers some by itself');
+
+  // What the component enables reaches the session.
+  FTransport.SetEnabledCommands([hccWho, hccPrompt]);
+  LText := Get(HELPCHAT_API_COMMANDS).ContentAsString(TEncoding.UTF8);
+  Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"who"[^}]*"enabled":true'), LText);
+  Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"prompt"[^}]*"enabled":true'), LText);
+  Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"search"[^}]*"enabled":false'), LText);
+end;
+
+procedure TServerTests.Command_Who_AndDisabledIs403;
+var
+  LResponse: IHTTPResponse;
+  LRoot: TJSONValue;
+begin
+  LResponse := Post(HELPCHAT_API_COMMAND, 'name=who');
+  Assert.AreEqual(200, LResponse.StatusCode);
+  LRoot := TJSONObject.ParseJSONValue(LResponse.ContentAsString(TEncoding.UTF8));
+  try
+    Assert.IsTrue(TJSONObject(LRoot).GetValue<string>('html').Contains(TEST_PROVIDER_ECHO),
+      'the implicit assistant of the provider');
+  finally
+    LRoot.Free;
+  end;
+  Assert.AreEqual(403, Post(HELPCHAT_API_COMMAND, 'name=prompt').StatusCode, 'not enabled');
+  Assert.AreEqual(200, Post(HELPCHAT_API_COMMAND, 'name=prompt&host=1').StatusCode,
+    'the application of this process may run any');
+  Assert.AreEqual(403, Post(HELPCHAT_API_COMMAND, 'name=nothing&host=1').StatusCode);
+  Assert.AreEqual(403, Post(HELPCHAT_API_COMMAND, 'name=nothing').StatusCode, 'not a command');
+  FTransport.SetEnabledCommands([hccPrompt]);
+  Assert.AreEqual(403, Post(HELPCHAT_API_COMMAND, 'name=who').StatusCode, 'switched off');
+  Assert.AreEqual(200, Post(HELPCHAT_API_COMMAND, 'name=prompt').StatusCode, 'switched on');
 end;
 
 end.

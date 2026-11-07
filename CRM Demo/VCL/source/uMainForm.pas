@@ -286,7 +286,8 @@ uses
   // Un provider esiste solo se la sua unit e' linkata: si registra nella
   // initialization. Senza questa riga Settings.Provider = 'docsearch'
   // trova soltanto lo stub e la chat risponde che il provider non c'e'.
-  HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude;
+  HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude,
+  HelpChatAI.Provider.OpenAI, HelpChatAI.Provider.Gemini;
 
 procedure ScaleBoundGridColumns(AForm: TCustomForm);
 var
@@ -397,7 +398,8 @@ end;
 procedure TMainForm.RegisterHelpActions;
 begin
   HelpChat.Actions.Add('open_screen',
-    'Brings one of the application screens to the front.',
+    'Brings one of the application screens to the front. Only when the user asks to ' +
+    'go to a screen: never to show where something is while answering a question.',
     [THelpChatActionParam.Create('name',
       'Screen name: Dashboard, Accounts, Leads, Sales, Marketing, Calendar or Users.')],
     procedure(const AArgs: THelpChatActionArgs; var AResult: string)

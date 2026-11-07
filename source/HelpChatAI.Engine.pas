@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -87,6 +87,10 @@ type
     FOnMessageChanged: THelpChatMessageEvent;
     procedure StoreChanged(const AKey, AMessageId: string);
     procedure EnsureActive;
+    function StateFile: string;
+    function LoadAssistantState: string;
+    procedure SaveAssistantState;
+    procedure ApplyAssistantState;
   public
     /// <summary>With <c>ASettings = nil</c> the engine creates and owns its own
     /// settings; otherwise it uses the given instance (owned when AOwnsSettings).</summary>
@@ -138,6 +142,20 @@ type
       out AAttachment: THelpChatAttachment; out AError: string): Boolean;
     /// <summary>Drops one attachment of the conversation.</summary>
     function RemoveAttachment(const AKey, AId: string): Boolean;
+
+    /// <summary>The assistants the panel may switch between, with the icon
+    /// each one shows: the configured list, or the one implicit assistant of
+    /// <c>Settings.Provider</c>. See <c>THelpChatSettings.ResolveAssistants</c>.</summary>
+    function Assistants: TArray<THelpChatAssistantInfo>;
+    /// <summary>The one in use.</summary>
+    function ActiveAssistant: THelpChatAssistantInfo;
+    /// <summary>Makes AName the assistant in use for the questions that follow
+    /// (a reply being produced keeps the settings it started with), and
+    /// remembers the choice for the next start when the conversation is
+    /// persisted. False when no assistant has that name.</summary>
+    function SelectAssistant(const AName: string): Boolean;
+    /// <summary>True when there is more than one assistant to choose from.</summary>
+    function CanSelectAssistant: Boolean;
 
     /// <summary>The greeting bubble text (settings or localized default).</summary>
     function Greeting: string;
@@ -191,7 +209,9 @@ implementation
 
 uses
   System.IOUtils,
-  HelpChatAI.Html;
+  System.JSON,
+  HelpChatAI.Html,
+  HelpChatAI.Icons;
 
 { THelpChatEngine }
 
@@ -232,6 +252,9 @@ begin
   if FActive then
     Exit;
   HelpChatDefaultLanguage := FSettings.Language;
+  // The assistant in use decides the provider and the model before anything
+  // below reads them (the excerpt size of the index comes from the model).
+  ApplyAssistantState;
 
   FDocIndex := THelpChatDocIndex.Create;
   FRetriever := FDocIndex; // keeps it alive
@@ -404,6 +427,110 @@ end;
 function THelpChatEngine.RemoveAttachment(const AKey, AId: string): Boolean;
 begin
   Result := FAttachments.Remove(AKey, AId);
+end;
+
+function THelpChatEngine.StateFile: string;
+begin
+  Result := TPath.Combine(TPath.GetDirectoryName(FSettings.ResolveConversationFile),
+    HELPCHAT_DEF_STATE_FILENAME);
+end;
+
+function THelpChatEngine.LoadAssistantState: string;
+var
+  LValue: TJSONValue;
+begin
+  Result := '';
+  if not TFile.Exists(StateFile) then
+    Exit;
+  try
+    LValue := TJSONObject.ParseJSONValue(TFile.ReadAllText(StateFile, TEncoding.UTF8));
+    try
+      if LValue is TJSONObject then
+        Result := TJSONObject(LValue).GetValue<string>('Assistant', '');
+    finally
+      LValue.Free;
+    end;
+  except
+    // A damaged state file is not worth an error at start: the configuration decides.
+    Result := '';
+  end;
+end;
+
+procedure THelpChatEngine.SaveAssistantState;
+var
+  LRoot: TJSONObject;
+begin
+  if not FSettings.PersistConversation then
+    Exit;
+  LRoot := TJSONObject.Create;
+  try
+    LRoot.AddPair('Assistant', FSettings.ActiveAssistantName);
+    try
+      TDirectory.CreateDirectory(TPath.GetDirectoryName(StateFile));
+      TFile.WriteAllText(StateFile, LRoot.Format(2), TEncoding.UTF8);
+    except
+      // A read-only profile must not break the switch: it is just not remembered.
+    end;
+  finally
+    LRoot.Free;
+  end;
+end;
+
+procedure THelpChatEngine.ApplyAssistantState;
+var
+  LName: string;
+begin
+  if FSettings.Assistants.Count = 0 then
+    Exit;
+  LName := '';
+  if FSettings.PersistConversation then
+    LName := LoadAssistantState;
+  // The remembered one, if it is still in the list; else what the configuration names.
+  if (LName = '') or not FSettings.ApplyAssistant(LName) then
+    FSettings.ApplyAssistant(FSettings.ActiveAssistantName);
+end;
+
+function THelpChatEngine.Assistants: TArray<THelpChatAssistantInfo>;
+var
+  I: Integer;
+begin
+  Result := FSettings.ResolveAssistants;
+  for I := 0 to High(Result) do
+    // An icon named in the configuration must exist; otherwise the model,
+    // the endpoint and the provider say which one it is.
+    if not HelpChatProviderIconExists(Result[I].Icon) then
+      Result[I].Icon := HelpChatProviderIconFor(Result[I].Model, Result[I].BaseUrl,
+        Result[I].Provider);
+end;
+
+function THelpChatEngine.ActiveAssistant: THelpChatAssistantInfo;
+var
+  LList: TArray<THelpChatAssistantInfo>;
+  I: Integer;
+begin
+  LList := Assistants;
+  for I := 0 to High(LList) do
+    if LList[I].Active then
+      Exit(LList[I]);
+  if Length(LList) > 0 then
+    Result := LList[0]
+  else
+    Result := Default(THelpChatAssistantInfo);
+end;
+
+function THelpChatEngine.SelectAssistant(const AName: string): Boolean;
+begin
+  Result := FSettings.ApplyAssistant(AName);
+  if not Result then
+    Exit;
+  if Assigned(FDocIndex) then
+    FDocIndex.ExcerptMaxChars := FSettings.ActiveModel.GroundingMaxChars;
+  SaveAssistantState;
+end;
+
+function THelpChatEngine.CanSelectAssistant: Boolean;
+begin
+  Result := FSettings.Assistants.Count > 1;
 end;
 
 function THelpChatEngine.Greeting: string;

@@ -1,0 +1,24 @@
+/* HelpChat provider and model icons, compiled into source\HelpChatAI.Providers.res
+   by Tools\BuildResources.cmd and linked by HelpChatAI.Icons.pas.
+
+   One RCDATA entry per icon, the SVG as it is: HelpChatProviderIconSvg reads
+   it as UTF-8 text and the panel inlines it in the page, so the monochrome
+   ones (fill="currentColor") follow the colours of the theme.
+   The files are those of lobe-icons (https://github.com/lobehub/lobe-icons,
+   MIT; see Images\providers\LICENSE-lobe-icons.txt). The logos themselves
+   are trademarks of their respective owners. */
+
+HCICON_AZURE       RCDATA "..\\Images\\providers\\azure.svg"
+HCICON_CLAUDE      RCDATA "..\\Images\\providers\\claude.svg"
+HCICON_COHERE      RCDATA "..\\Images\\providers\\cohere.svg"
+HCICON_DEEPSEEK    RCDATA "..\\Images\\providers\\deepseek.svg"
+HCICON_GEMINI      RCDATA "..\\Images\\providers\\gemini.svg"
+HCICON_GEMMA       RCDATA "..\\Images\\providers\\gemma.svg"
+HCICON_GROQ        RCDATA "..\\Images\\providers\\groq.svg"
+HCICON_LLAMA       RCDATA "..\\Images\\providers\\llama.svg"
+HCICON_LMSTUDIO    RCDATA "..\\Images\\providers\\lmstudio.svg"
+HCICON_MISTRAL     RCDATA "..\\Images\\providers\\mistral.svg"
+HCICON_OLLAMA      RCDATA "..\\Images\\providers\\ollama.svg"
+HCICON_OPENAI      RCDATA "..\\Images\\providers\\openai.svg"
+HCICON_OPENROUTER  RCDATA "..\\Images\\providers\\openrouter.svg"
+HCICON_QWEN        RCDATA "..\\Images\\providers\\qwen.svg"

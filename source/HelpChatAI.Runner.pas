@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -423,6 +423,31 @@ var
   LCancel: IHelpChatCancelToken;
   LCancelled: Boolean;
   LPartial: THelpChatMessage;
+  LHistory: TArray<THelpChatMessage>;
+  LSources: string;
+
+  function SourcesLine: string;
+  var
+    LMax: Integer;
+    LRetriever: IHelpChatRetriever;
+  begin
+    // Only for a model grounded on the documentation, and not for an answer
+    // that reports what an action did.
+    Result := '';
+    if ARequest.Settings.ModelFor(ARequest.Settings.Provider) = nil then
+      Exit;
+    if ((LProvider as TObject) is THelpChatProviderBase) and
+       (THelpChatProviderBase(LProvider as TObject).ActionsInvoked > 0) then
+      Exit;
+    LMax := ARequest.Settings.ActiveModel.GroundingMaxPages;
+    LRetriever := LShared.Retriever;
+    if (LMax <= 0) or not Assigned(LRetriever) or not LRetriever.IsAvailable then
+      Exit;
+    // The same search the system prompt was built with: the pages the model saw.
+    Result := HelpChatSourcesLine(LReply,
+      LRetriever.Search(THelpChatProviderBase.LastUserMessage(LHistory), ARequest.Context.SearchHint, LMax),
+      ARequest.Settings.Language);
+  end;
 
   procedure FinishCancelled;
   begin
@@ -445,8 +470,9 @@ begin
     LProvider := THelpChatProviderRegistry.CreateProvider(ARequest.ProviderName,
       ARequest.Settings, LShared.Retriever, ARequest.Actions);
     LProvider.SetAttachments(ARequest.Attachments);
+    LHistory := LShared.GetHistory(LKey, ARequest.MaxHistory);
     LReply := LProvider.Generate(
-      LShared.GetHistory(LKey, ARequest.MaxHistory),
+      LHistory,
       ARequest.Context,
       procedure(const AToken: string)
       begin
@@ -457,7 +483,16 @@ begin
     if LCancel.IsCancelled then
       LCancelled := True
     else
+    begin
+      LSources := SourcesLine;
+      if LSources <> '' then
+      begin
+        // Streamed like the rest, so what the user reads and what is stored agree.
+        LShared.AppendToken(LKey, LId, sLineBreak + sLineBreak + LSources);
+        LReply := TrimRight(LReply) + sLineBreak + sLineBreak + LSources;
+      end;
       LShared.Complete(LKey, LId, LReply);
+    end;
   except
     on E: EHelpChatCancelled do
       LCancelled := True;

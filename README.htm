@@ -211,6 +211,42 @@ and decrypt it the way your application sees fit.</p>
 OpenRouter, Mistral, DeepSeek, Ollama and LM Studio also speak, so <code>BaseUrl</code> and <code>Model</code> are
 enough to point the same provider at any of them — including a model running on the user's own
 machine, where nothing leaves the PC.</p>
+<h3 id="more-than-one-assistant">More than one assistant</h3>
+<p><code>Assistants</code> in <code>helpchatai.json</code> lists the assistants the user may switch between from the
+panel: each one has a name, a provider, and the model, endpoint and key it adds to that
+provider's section when they differ — three local models on one Ollama are three entries on
+<code>openai</code>. <code>Assistant</code> names the one in use at start; the choice made in the panel is remembered
+per user. The header shows the icon of the model in use (deduced from the model name, then from
+the endpoint, then from the provider; <code>Icon</code> overrides it), with name and model as the tooltip,
+and with more than one assistant a click on it opens the list. With no list, <code>Provider</code> alone is
+the one assistant and nothing can be switched.</p>
+<div style="font-family: Arial, 'Courier New', monospace; font-size: 12pt;  background-color: #FFFFFF; color: #000000;">
+<pre><code><span style="color: #555555; ">{</span>
+<span>  </span><span style="color: #000080; ">&quot;Assistant&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Claude&quot;</span><span style="color: #555555; ">,</span>
+<span>  </span><span style="color: #000080; ">&quot;Assistants&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span>
+<span>    </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;Name&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Claude&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Provider&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;claude&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Model&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;claude-haiku-4-5&quot;</span><span> </span><span style="color: #555555; ">},</span>
+<span>    </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;Name&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Gemini&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Provider&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;gemini&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Model&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;gemini-3.8-flash&quot;</span><span> </span><span style="color: #555555; ">},</span>
+<span>    </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;Name&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Gemma (local)&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Provider&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;openai&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Model&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;gemma4:12b&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;BaseUrl&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;http://localhost:11434/v1&quot;</span><span> </span><span style="color: #555555; ">}</span>
+<span>  </span><span style="color: #555555; ">]
+}</span>
+</code></pre>
+</div>
+<p>The icons of the providers and models are those of <a href="https://github.com/lobehub/lobe-icons">lobe-icons</a>
+(MIT); the logos themselves are trademarks of their respective owners.</p>
+<h3 id="commands">Commands</h3>
+<p>A line that starts with <code>/</code> in the question box is a command, answered without the model:
+<code>/who</code> (assistant, model, provider, endpoint), <code>/use name</code> and <code>/retry [name]</code> (switch, ask
+again), <code>/search words</code> (the pages the answer would be grounded on), <code>/pages</code> and <code>/doc page</code>,
+<code>/context</code> (the screen F1 knows), <code>/actions</code> (what the assistant can do here), <code>/check</code> (the
+configuration check), <code>/stats</code>, <code>/clear</code>, <code>/pdf</code>, <code>/copy</code>, <code>/attach</code>, <code>/help</code>. <code>EnabledCommands</code>
+on the component is the set the panel accepts: all of them by default except <code>/prompt</code>, which
+shows the instructions and excerpts the last question went with, and <code>/run action name=value</code>,
+which runs a registered action by hand (with the usual confirmation). Every answer starts with
+what it answers, e.g. “Available actions (/actions):“.</p>
+<p>Everything the panel does can be done from code on the component: <code>ExecuteCommand(hccActions)</code>
+shows an answer in the panel (any command, enabled or not), <code>ExplainCommand(hccActions)</code> returns
+it as text without opening anything, and <code>ClearConversation</code>, <code>SelectAssistant</code>, <code>Assistants</code>,
+<code>RetryLastQuestion</code>, <code>SaveConversationPdf</code>, <code>CopyLastAnswer</code> and <code>AttachFile</code> do what their buttons do.</p>
 <h2 id="setup-for-automatic-installation-of-components">Setup for automatic installation of components</h2>
 <p>An “Installer” ready to use is located in the Release area:
 <a href="https://github.com/EtheaDev/Delphi-HelpChatAI/releases/latest/download/HelpChatAI_Setup.exe">Download the Installer</a>.</p>
@@ -258,6 +294,14 @@ assistant to your Delphi application, and how to make its answers good.</p>
 <tr>
 <td><a href="https://ethea.it/docs/helpchatai/Providers">Providers</a></td>
 <td>The five of them, their settings, writing your own</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Assistants">Assistants</a></td>
+<td>Several providers and models in one panel, and the switch between them</td>
+</tr>
+<tr>
+<td><a href="https://ethea.it/docs/helpchatai/Commands">Slash commands</a></td>
+<td><code>/who</code>, <code>/search</code>, <code>/actions</code>… and everything the panel does, from code</td>
 </tr>
 <tr>
 <td><a href="https://ethea.it/docs/helpchatai/Documentation-Index">The documentation index</a></td>
@@ -380,13 +424,13 @@ create a lead or prepare a proposal.</p>
 <td>VCL</td>
 <td><code>CRM Demo\VCL\project\VCL_CRMDemo.dproj</code></td>
 <td>10.4 → 13</td>
-<td>The whole application: seven pages, the lead and proposal windows, and all three actions</td>
+<td>The whole application: seven pages, the lead and proposal windows, and all four actions</td>
 </tr>
 <tr>
 <td>FMX</td>
 <td><code>CRM Demo\FMX\project\FMX_CRMDemo.dproj</code></td>
 <td>12 → 13</td>
-<td>The same application: the seven pages, the lead, proposal and draft windows, and the same three actions</td>
+<td>The same application: the seven pages, the lead, proposal and draft windows, and the same four actions</td>
 </tr>
 </tbody>
 </table>
@@ -396,7 +440,7 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 <code>Tools\ResetDemoKey.ps1</code> puts that back to “no key”, to show it again.</p>
 <p><code>CRM Demo\BuildAllDemos.ps1</code> builds both with every Delphi it finds, Win32 and Win64: twelve
 builds, and the FireMonkey ones are reported <code>N/A</code> below Delphi 12 rather than failed.</p>
-<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>316 tests</strong> that runs without
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>352 tests</strong> that runs without
 network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, the actions from a real worker thread, the secrets of the settings and the printable
@@ -404,6 +448,21 @@ document - the last two of which write a real PDF with the WebView2 runtime of t
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>7 Nov 2026: ver. 1.5.0</p>
+<ul>
+<li>More than one assistant: <code>Assistants</code> in <code>helpchatai.json</code> (name, provider, model, endpoint, key, icon), <code>Assistant</code> for the one in use, and the switch from the panel: the icon of the model in the header, name and model in its tooltip, the list on a click. The choice is remembered per user. <code>GET /api/assistants</code> and <code>POST /api/assistant/select</code> on the server (read-only on a remote one)</li>
+<li><code>HelpChatAI.Icons</code>: the icons of the providers and models (lobe-icons, MIT) as SVG in <code>HelpChatAI.Providers.res</code>, deduced from the model name, the endpoint or the provider</li>
+<li>The configuration check reports every assistant of the list, not only the one in use</li>
+<li>The system prompt cites a page with a Markdown link it copies (<code>Source: [Title](Page.md)</code>), cites only the pages it used and none when the documentation does not cover the question; the actions rule asks only for the required parameters and forbids a tool as part of an answer. Measured on five models with <code>Test\LLMBench</code>: citations went from 6-7/8 to 8/8 on four of them</li>
+<li>The engine adds the source line itself (<code>Source: [Leads](Leads.md)</code>) when an answer uses a page of the documentation without linking it: with the same prompt a model cited 8/8 in one run and 6/8 in the next, and now the link is certain</li>
+<li><code>Test\LLMBench</code>: a console benchmark of the providers on the manual of the CRM demo (three local Ollama models, <code>claude</code>, <code>gemini</code>), one model after the other, with a Markdown report</li>
+<li>Slash commands in the question box (<code>/who</code>, <code>/use</code>, <code>/retry</code>, <code>/search</code>, <code>/pages</code>, <code>/doc</code>, <code>/context</code>, <code>/actions</code>, <code>/check</code>, <code>/stats</code>, <code>/clear</code>, <code>/pdf</code>, <code>/copy</code>, <code>/attach</code>, <code>/help</code>, and <code>/prompt</code> and <code>/run</code> when enabled): <code>EnabledCommands</code> on the components, <code>HelpChatAI.Commands</code>, <code>GET /api/commands</code> and <code>POST /api/command</code>. Every answer starts with its heading (“Available actions (/actions):“)</li>
+<li>Everything the panel does, from code: <code>ExecuteCommand</code> (any command, enabled or not), <code>ExplainCommand</code>, <code>ClearConversation</code>, <code>SelectAssistant</code>, <code>Assistants</code>, <code>RetryLastQuestion</code>, <code>SaveConversationPdf</code>, <code>CopyLastAnswer</code> and <code>AttachFile</code> on both components</li>
+<li>The VCL bubble is antialiased: a layered window drawn with GDI+ from Windows 8 on, a window region as before elsewhere</li>
+<li>The header of the panel: larger buttons, the icon of the assistant as the last one on the right, no close button of its own (the window has one)</li>
+<li>The CRM demos link <code>HelpChatAI.Provider.OpenAI</code> as well</li>
+<li>352 tests</li>
+</ul>
 <p>6 Nov 2026: ver. 1.4.0</p>
 <ul>
 <li>Actions ask for confirmation by default: <code>Confirm</code> is now True in <code>Actions.Add</code>, and an action that changes nothing says so with False</li>

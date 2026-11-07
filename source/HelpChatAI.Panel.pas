@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -74,6 +74,28 @@ const
   /// image list is a VCL object, and only the client knows which one the
   /// application gave the bubble.</summary>
   HELPCHAT_API_ASSISTANT = '/api/assistant';
+  /// <summary>GET: the assistants the user may switch between, as JSON
+  /// (<c>items</c> with name, provider, model, icon id, the icon as SVG and
+  /// <c>active</c>; <c>active</c> the name in use; <c>canSelect</c> whether a
+  /// POST to <see cref="HELPCHAT_API_ASSISTANT_SELECT" /> is accepted).</summary>
+  HELPCHAT_API_ASSISTANTS = '/api/assistants';
+  /// <summary>POST <c>name=</c>: makes that assistant the one in use for the
+  /// questions that follow, and answers with the list as above. 404 for a
+  /// name that is not in the list, 403 when the server does not let a client
+  /// choose (a remote engine is everybody's).</summary>
+  HELPCHAT_API_ASSISTANT_SELECT = '/api/assistant/select';
+  /// <summary>GET: every slash command, as JSON (<c>name</c>, localized
+  /// <c>title</c> and <c>description</c>, <c>local</c> when the page answers
+  /// it by itself, <c>enabled</c> when the user may type it). The host may
+  /// run the others (<c>window.hcCommand(line, true)</c>). See
+  /// <c>HelpChatAI.Commands</c>.</summary>
+  HELPCHAT_API_COMMANDS = '/api/commands';
+  /// <summary>POST <c>name=</c>, <c>args=</c>: answers a command of the
+  /// engine with <c>{"html": ...}</c>, the content of a system bubble. 403
+  /// for a command that does not exist, or that the session does not enable
+  /// unless <c>host=1</c> says the application asked for it, which only a
+  /// server living in the application's own process accepts.</summary>
+  HELPCHAT_API_COMMAND = '/api/command';
   /// <summary>GET /api/doc?page=...: a page of the documentation folder as an
   /// HTML fragment (&lt;article class="hc-chat-doc-page" data-page data-title&gt;),
   /// 404 when it is not one.</summary>
@@ -319,6 +341,16 @@ begin
     LRoot.AddPair('retry', HelpChatMsg(hcmUiRetry, ALanguage));
     LRoot.AddPair('sendError', HelpChatMsg(hcmUiSendError, ALanguage));
     LRoot.AddPair('back', HelpChatMsg(hcmUiBack, ALanguage));
+    LRoot.AddPair('changeAssistant', HelpChatMsg(hcmUiChangeAssistant, ALanguage));
+    // What the page says about the commands it answers by itself.
+    LRoot.AddPair('cmdUnknown', HelpChatMsg(hcmCmdUnknown, ALanguage));
+    LRoot.AddPair('cmdNoAssistant', HelpChatMsg(hcmCmdNoAssistant, ALanguage));
+    LRoot.AddPair('cmdNoQuestion', HelpChatMsg(hcmCmdNoQuestion, ALanguage));
+    LRoot.AddPair('cmdStats', HelpChatMsg(hcmCmdStatsLine, ALanguage));
+    LRoot.AddPair('cmdNoStats', HelpChatMsg(hcmCmdNoStats, ALanguage));
+    LRoot.AddPair('cmdDocUsage', HelpChatMsg(hcmCmdDocUsage, ALanguage));
+    LRoot.AddPair('cmdUseUsage', HelpChatMsg(hcmCmdUseUsage, ALanguage));
+    LRoot.AddPair('cmdNoAnswer', HelpChatMsg(hcmCmdNoAnswer, ALanguage));
     LRoot.AddPair('docNotFound', HelpChatMsg(hcmDocNotFound, ALanguage));
     LRoot.AddPair('attach', HelpChatMsg(hcmUiAttach, ALanguage));
     LRoot.AddPair('attachRemove', HelpChatMsg(hcmUiAttachRemove, ALanguage));
@@ -394,7 +426,6 @@ begin
     AssistantNameOf(AOptions.AssistantName, AOptions.Language)));
   Result := Result.Replace('{{ICON}}', AssistantIconTag(AOptions.AssistantIcon));
   Result := Result.Replace('{{L_CLEAR}}', Attr(hcmUiClear));
-  Result := Result.Replace('{{L_CLOSE}}', Attr(hcmUiClose));
   Result := Result.Replace('{{L_PLACEHOLDER}}', Attr(hcmUiPlaceholder));
   Result := Result.Replace('{{L_SEND}}', Attr(hcmUiSend));
   Result := Result.Replace('{{L_STOP}}', Attr(hcmUiStop));

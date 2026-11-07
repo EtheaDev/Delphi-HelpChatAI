@@ -19,7 +19,7 @@
 {  Unless required by applicable law or agreed to in writing, software         }
 {  distributed under the License is distributed on an "AS IS" BASIS,           }
 {  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.    }
-{  See the License for the specific language governing permissions and        }
+{  See the License for the specific language governing permissions and         }
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
@@ -115,6 +115,7 @@ type
     FActions: IHelpChatActionInvoker;
     FAttachments: TArray<THelpChatAttachment>;
     FActionDenied: Boolean;
+    FActionsInvoked: Integer;
   protected
     /// <summary>Settings snapshot of the request (not owned).</summary>
     property Settings: THelpChatSettings read FSettings;
@@ -130,6 +131,12 @@ type
     /// A provider lives for one reply, so the rule does too.</summary>
     function InvokeAction(const AName, AArgsJson: string;
       const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
+  public
+    /// <summary>How many actions this reply asked to run (refused ones
+    /// included): an answer that reports an action is not one to add a
+    /// documentation source to.</summary>
+    property ActionsInvoked: Integer read FActionsInvoked;
+  protected
     /// <summary>The attachments of the conversation; empty when there are none.</summary>
     property Attachments: TArray<THelpChatAttachment> read FAttachments;
     /// <summary>The question with the text attachments in front of it, which
@@ -186,6 +193,20 @@ type
 /// it - a name somebody else typed, which must not be able to read like a
 /// line of the instruction.</summary>
 function HelpChatPromptField(const AValue: string; const AMaxChars: Integer = 80): string;
+
+/// <summary>
+///  The source line the engine adds to an answer that used the documentation
+///  without linking it: "Source: [Leads](Leads.md), [FAQ](FAQ.md)", in the
+///  language of the panel. Empty - nothing to add - when the answer already
+///  carries the link of one of APages (the model cited, in its own way), or
+///  when no page of APages is named in it by its title or by its file name
+///  (the answer did not use them: the weather, an action done). The prompt
+///  asks every model to cite; measured, Claude and gpt-oss still answered
+///  "according to the documentation" or "Source: FAQ" now and then, and the
+///  same prompt gave 8/8 one run and 6/8 the next. This makes it certain.
+/// </summary>
+function HelpChatSourcesLine(const AReply: string; const APages: TArray<THelpChatDocPage>;
+  const ALanguage: THelpChatLanguage): string;
 
 type
   /// <summary>
@@ -254,7 +275,46 @@ type
 implementation
 
 uses
-  System.Generics.Defaults;
+  System.Generics.Defaults,
+  System.RegularExpressions;
+
+function HelpChatSourcesLine(const AReply: string; const APages: TArray<THelpChatDocPage>;
+  const ALanguage: THelpChatLanguage): string;
+
+  function Named(const AWord: string): Boolean;
+  begin
+    Result := (Trim(AWord) <> '') and
+      TRegEx.IsMatch(AReply, '(?<![\w-])' + TRegEx.Escape(Trim(AWord)) + '(?![\w-])', [roIgnoreCase]);
+  end;
+
+var
+  LPage: THelpChatDocPage;
+  LLinks, LName: string;
+begin
+  Result := '';
+  if (Trim(AReply) = '') or (Length(APages) = 0) then
+    Exit;
+  for LPage in APages do
+    if (LPage.Url <> '') and AReply.Contains('(' + LPage.Url + ')') then
+      Exit;
+  LLinks := '';
+  for LPage in APages do
+  begin
+    if LPage.Url = '' then
+      Continue;
+    // "Leads" or "Data model" as written, or "Draft-Proposal" the way the
+    // file is called: either says the answer comes from that page.
+    LName := ChangeFileExt(ExtractFileName(LPage.Url.Replace('/', '\')), '');
+    if not (Named(LPage.Title) or Named(LName)) then
+      Continue;
+    if LLinks <> '' then
+      LLinks := LLinks + ', ';
+    LLinks := LLinks + '[' + HelpChatPromptField(LPage.Title).Replace('[', '(').Replace(']', ')') +
+      '](' + LPage.Url + ')';
+  end;
+  if LLinks <> '' then
+    Result := HelpChatMsg(hcmSource, ALanguage) + ': ' + LLinks;
+end;
 
 function HelpChatPromptField(const AValue: string; const AMaxChars: Integer): string;
 var
@@ -342,6 +402,7 @@ end;
 function THelpChatProviderBase.InvokeAction(const AName, AArgsJson: string;
   const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
 begin
+  Inc(FActionsInvoked);
   if FActionDenied then
   begin
     AResult := Format(HELPCHAT_ACTION_DENIED_BEFORE_TEXT, [AName]);
@@ -434,7 +495,10 @@ begin
           LSb.Append(Format('## %s'#10'%s', [LPages[I].Title, LPages[I].Summary]));
           if (LPages[I].Excerpt <> '') and (LPages[I].Excerpt <> LPages[I].Summary) then
             LSb.Append(#10#10).Append(LPages[I].Excerpt);
-          LSb.Append(#10).Append(Format('%s: %s', [HelpChatMsg(hcmSource, LLang), LPages[I].Url]));
+          // The link as the model must write it back: a Markdown link it
+          // copies, with no URL to assemble (and none to invent).
+          LSb.Append(#10).Append(Format('%s: [%s](%s)', [HelpChatMsg(hcmSource, LLang),
+            HelpChatPromptField(LPages[I].Title), LPages[I].Url]));
         end;
       end;
     end;
