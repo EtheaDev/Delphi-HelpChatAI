@@ -706,6 +706,7 @@
   if (agentBtn) {
     agentBtn.addEventListener('click', function (e) {
       e.stopPropagation();
+      closeLangs();
       if (agentList && agentBtn.hasAttribute('data-select')) agentList.hidden = !agentList.hidden;
     });
     if (agentList) {
@@ -721,6 +722,84 @@
     loadAgents();
   }
   window.hcRefreshAssistants = loadAgents;
+
+  // The language of the chat, as a flag next to the assistant. Its labels
+  // are written into this page when it is rendered, so a switch reloads it:
+  // the conversation lives on the server and comes back with the history.
+  // One language, or a server that does not let a client choose, and the
+  // flag is not shown at all.
+  var langBtn = document.getElementById('hc-lang');
+  var langList = document.getElementById('hc-langs');
+  var langs = { items: [], canSelect: false };
+  function closeLangs() { if (langList) langList.hidden = true; }
+  function renderLangs() {
+    if (!langBtn) return;
+    var active = null, i;
+    for (i = 0; i < langs.items.length; i++) if (langs.items[i].active) active = langs.items[i];
+    if (!active || !active.svg || langs.items.length < 2 || !langs.canSelect) {
+      langBtn.hidden = true; closeLangs(); return;
+    }
+    langBtn.innerHTML = active.svg;
+    var tip = active.name + (HC.labels.changeLanguage ? '\n' + HC.labels.changeLanguage : '');
+    langBtn.title = tip;
+    langBtn.setAttribute('aria-label', tip);
+    langBtn.setAttribute('data-select', '1');
+    langBtn.hidden = false;
+    if (langList) {
+      var html = '';
+      for (i = 0; i < langs.items.length; i++) {
+        var l = langs.items[i];
+        html += '<button type="button" class="hc-chat-agent-item" role="option" data-lang="' +
+          escapeHtml(l.code) + '" lang="' + escapeHtml(l.code) + '" aria-selected="' +
+          (l.active ? 'true' : 'false') + '">' + (l.svg || '') +
+          '<span class="hc-chat-agent-text"><span class="hc-chat-agent-name">' +
+          escapeHtml(l.name) + '</span></span></button>';
+      }
+      langList.innerHTML = html;
+    }
+  }
+  function loadLangs() {
+    if (!langBtn) return;
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    fetch(api('/api/languages'), { headers: headers, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && data.items) { langs = data; renderLangs(); } })
+      .catch(function () {});
+  }
+  function selectLang(code) {
+    var current = null, i;
+    for (i = 0; i < langs.items.length; i++) if (langs.items[i].active) current = langs.items[i].code;
+    if (code === current) { closeLangs(); focusInput(); return; }
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    fetch(api('/api/language/select'), { method: 'POST', headers: headers,
+      body: 'code=' + encodeURIComponent(code) })
+      .then(function (r) {
+        if (r.ok) { window.location.reload(); return; }
+        showSystem(HC.labels.sendError);
+        closeLangs(); focusInput();
+      })
+      .catch(function () { showSystem(HC.labels.sendError); closeLangs(); focusInput(); });
+  }
+  if (langBtn) {
+    langBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      closeAgents();
+      if (langList && langBtn.hasAttribute('data-select')) langList.hidden = !langList.hidden;
+    });
+    if (langList) {
+      langList.addEventListener('click', function (e) {
+        var item = e.target && e.target.closest ? e.target.closest('[data-lang]') : null;
+        if (item) selectLang(item.getAttribute('data-lang'));
+      });
+      document.addEventListener('click', function (e) {
+        if (!langList.hidden && !langList.contains(e.target)) closeLangs();
+      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeLangs(); });
+    }
+    loadLangs();
+  }
+  window.hcRefreshLanguages = loadLangs;
   window.hcRefreshAttachments = function () { loadAttachments(); };
 
   // ---- slash commands ------------------------------------------------------
@@ -783,6 +862,30 @@
       })
       .catch(function () { showSystem(HC.labels.sendError); });
   }
+  // A language by code, by its own name or by its English one: /lang es,
+  // /lang Español, /lang spanish all work, and so does a prefix (/lang deu).
+  function findLang(value) {
+    var n = String(value || '').trim().toLowerCase(), i, l;
+    if (!n) return null;
+    for (i = 0; i < langs.items.length; i++) {
+      l = langs.items[i];
+      if (l.code === n || l.name.toLowerCase() === n || l.english.toLowerCase() === n) return l;
+    }
+    for (i = 0; i < langs.items.length; i++) {
+      l = langs.items[i];
+      if (l.name.toLowerCase().indexOf(n) === 0 || l.english.toLowerCase().indexOf(n) === 0) return l;
+    }
+    return null;
+  }
+  function langListHtml() {
+    var html = headingHtml('lang', '') + '<ul class="hc-chat-langlist">', i, l;
+    for (i = 0; i < langs.items.length; i++) {
+      l = langs.items[i];
+      html += '<li>' + (l.svg || '') + (l.active ? '<b>' : '') + escapeHtml(l.name) +
+        (l.active ? '</b>' : '') + ' <code>' + escapeHtml(l.code) + '</code></li>';
+    }
+    return html + '</ul>';
+  }
   function runLocalCommand(name, args) {
     var i, html, last, btn;
     switch (name) {
@@ -797,6 +900,15 @@
       case 'use':
         if (!args) { showSystem(HC.labels.cmdUseUsage); break; }
         selectAgentNamed(args, null, true);
+        break;
+      case 'lang':
+        // No argument, or the language already in use: the list, the active one in bold.
+        last = args ? findLang(args) : null;
+        if (args && (!last || (!last.active && !langs.canSelect))) {
+          showSystem(fmt(HC.labels.cmdNoLanguage, args)); break;
+        }
+        if (!last || last.active) { showSystemHtml(langListHtml()); break; }
+        selectLang(last.code);   // the page reloads in it
         break;
       case 'retry':
         last = questions.length ? questions[questions.length - 1] : '';

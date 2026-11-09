@@ -225,6 +225,12 @@ begin
   Assert.IsTrue(HelpChatParseCommandLine('/WHO', C, LArgs));
   Assert.AreEqual(Ord(hccWho), Ord(C));
   Assert.AreEqual('', LArgs);
+  // /lang is the page's: it knows the languages and reloads itself in the new one.
+  Assert.IsTrue(HelpChatParseCommandLine('/lang es', C, LArgs));
+  Assert.AreEqual(Ord(hccLang), Ord(C));
+  Assert.AreEqual('es', LArgs);
+  Assert.IsTrue(hccLang in HELPCHAT_COMMANDS_PAGE);
+  Assert.IsTrue(hccLang in HELPCHAT_DEF_COMMANDS, 'offered by default, like the flag');
   Assert.IsFalse(HelpChatParseCommandLine('who', C, LArgs), 'no slash: a question');
   Assert.IsFalse(HelpChatParseCommandLine('/nothing here', C, LArgs));
   Assert.IsFalse(HelpChatParseCommandLine('', C, LArgs));

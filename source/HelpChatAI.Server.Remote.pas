@@ -141,6 +141,7 @@ type
     /// <summary>The engine is shared by every session: no client may switch
     /// its assistant for everybody. The list is still served, read-only.</summary>
     function CanSelectAssistant: Boolean; override;
+    function CanSelectLanguage: Boolean; override;
     procedure Log(const AText: string); overload;
     procedure Log(const AFormat: string; const AArgs: array of const); overload;
   public
@@ -581,6 +582,13 @@ end;
 
 function THelpChatRemoteServer.CanSelectAssistant: Boolean;
 begin
+  Result := False;
+end;
+
+function THelpChatRemoteServer.CanSelectLanguage: Boolean;
+begin
+  // The language lives in the settings of the one engine every session
+  // shares: a user switching it would switch it for everybody.
   Result := False;
 end;
 

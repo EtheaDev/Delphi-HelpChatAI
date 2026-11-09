@@ -447,9 +447,9 @@ var
   LMax, I: Integer;
 begin
   if Assigned(ASettings) then
-    LLang := ASettings.Language
+    LLang := ASettings.ResolveLanguage
   else
-    LLang := hclAuto;
+    LLang := HelpChatResolveLanguage(hclAuto);
 
   LSb := TStringBuilder.Create;
   try
@@ -462,6 +462,14 @@ begin
     LSb.Append(' ');
     LSb.Append(Format(HELPCHAT_MODEL_DEF_LANGUAGE_RULE, [HelpChatLanguageName(LLang)]));
     LSb.Append(' ');
+    // A manual in another language: translate the words, keep the captions.
+    if Assigned(ASettings) and (ASettings.DocLanguage <> hclAuto) and
+       (ASettings.DocLanguage <> LLang) then
+    begin
+      LSb.Append(Format(HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE,
+        [HelpChatLanguageName(ASettings.DocLanguage), HelpChatLanguageName(LLang)]));
+      LSb.Append(' ');
+    end;
     // Invariant, so that the month is November and not novembre: the
     // instruction is English, and the model writes the date back in the
     // language it is answering in.

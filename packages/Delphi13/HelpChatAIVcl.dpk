@@ -41,7 +41,7 @@ package HelpChatAIVcl;
 {$DESCRIPTION 'Ethea HelpChatAI VCL Component'}
 {$LIBSUFFIX AUTO}
 {$RUNONLY}
-{$IMPLICITBUILD ON}
+{$IMPLICITBUILD OFF}
 
 requires
   rtl,

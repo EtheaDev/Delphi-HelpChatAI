@@ -34,6 +34,7 @@ type
     [Test] procedure Persistence_Disabled_WritesNothing;
     [Test] procedure DocSearch_EndToEnd_WithIndexFile;
     [Test] procedure ContextQuestion_IsLocalized;
+    [Test] procedure Language_Select_IsRemembered;
     [Test] procedure Stop_WithReplyInFlight_ReturnsQuickly;
   end;
 
@@ -224,6 +225,58 @@ begin
     Assert.IsFalse(LMessages[1].Pending);
   finally
     LEngine2.Free;
+  end;
+end;
+
+procedure TEngineTests.Language_Select_IsRemembered;
+var
+  LEngine2: THelpChatEngine;
+  LStateFile: string;
+  LSaved: THelpChatLanguage;
+begin
+  LSaved := HelpChatDefaultLanguage;
+  LStateFile := TPath.Combine(TPath.GetDirectoryName(FConversationFile), HELPCHAT_DEF_STATE_FILENAME);
+  if TFile.Exists(LStateFile) then
+    TFile.Delete(LStateFile);
+  try
+    FSettings.PersistConversation := True;
+    FSettings.Languages := [hclEnglish, hclSpanish];
+    FEngine.Start;
+    Assert.AreEqual(hclEnglish, FEngine.ActiveLanguage);
+    Assert.IsTrue(FEngine.CanSelectLanguage);
+    Assert.IsFalse(FEngine.SelectLanguage(hclGerman), 'not offered');
+    Assert.IsTrue(FEngine.SelectLanguage(hclSpanish));
+    Assert.AreEqual(hclSpanish, FEngine.ActiveLanguage);
+    Assert.AreEqual(HelpChatMsg(hcmGreeting, hclSpanish), FEngine.Greeting, 'the engine speaks it');
+    FEngine.Stop;
+
+    // The configuration says English; the user said Spanish, and is remembered.
+    FSettings.Language := hclEnglish;
+    LEngine2 := THelpChatEngine.Create(FSettings);
+    try
+      LEngine2.Start;
+      Assert.AreEqual(hclSpanish, LEngine2.ActiveLanguage);
+      Assert.AreEqual(hclSpanish, HelpChatResolveLanguage(hclAuto), 'every auto of the process follows');
+      LEngine2.Stop;
+    finally
+      LEngine2.Free;
+    end;
+
+    // A remembered language that is no longer offered is ignored.
+    FSettings.Language := hclEnglish;
+    FSettings.Languages := [hclEnglish, hclItalian];
+    LEngine2 := THelpChatEngine.Create(FSettings);
+    try
+      LEngine2.Start;
+      Assert.AreEqual(hclEnglish, LEngine2.ActiveLanguage);
+      LEngine2.Stop;
+    finally
+      LEngine2.Free;
+    end;
+  finally
+    HelpChatDefaultLanguage := LSaved;
+    if TFile.Exists(LStateFile) then
+      TFile.Delete(LStateFile);
   end;
 end;
 

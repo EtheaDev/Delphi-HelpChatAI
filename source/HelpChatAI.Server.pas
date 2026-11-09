@@ -189,6 +189,9 @@ type
     /// <summary>Whether a client may switch the assistant in use: when the
     /// engine offers more than one, and the server is this user's own.</summary>
     function CanSelectAssistant: Boolean; virtual;
+    /// <summary>Whether a client may switch the language of the chat: when
+    /// the engine offers more than one, and the server is this user's own.</summary>
+    function CanSelectLanguage: Boolean; virtual;
     /// <summary>Whether a command the session does not enable may still run
     /// when the page says the application asked for it (<c>host=1</c>): only
     /// a server inside the application's own process, whose page talks to
@@ -196,6 +199,8 @@ type
     function HostMayRunAnyCommand: Boolean; virtual;
     /// <summary>The list the page builds its badge and its menu from.</summary>
     function AssistantListJson: string;
+    /// <summary>The list the page builds its flag and its menu from.</summary>
+    function LanguageListJson: string;
     property Server: TIdHTTPServer read FServer;
   public
     /// <summary>The engine is started on Start if needed; owned when AOwnsEngine.</summary>
@@ -818,6 +823,7 @@ var
   LIsPost: Boolean;
   LCommand: THelpChatCommand;
   LCmdRequest: THelpChatCommandRequest;
+  LLanguage: THelpChatLanguage;
   LJson: TJSONObject;
 begin
   LIsPost := ARequestInfo.CommandType = hcPOST;
@@ -963,6 +969,25 @@ begin
       WriteStatus(AResponseInfo, 404);
   end
 
+  else if (ADocument = HELPCHAT_API_LANGUAGES) and not LIsPost then
+    WriteJson(AResponseInfo, LanguageListJson)
+
+  else if (ADocument = HELPCHAT_API_LANGUAGE_SELECT) and LIsPost then
+  begin
+    if not CanSelectLanguage then
+      WriteStatus(AResponseInfo, 403)
+    else if HelpChatLanguageFromCode(FormField(LBody, 'code'), LLanguage) and
+            FEngine.SelectLanguage(LLanguage) then
+    begin
+      // The host writes captions of its own (the window, the bubble): it is
+      // told, the way the page tells it about a click, before the page reloads.
+      HandleUiCommand(ASession, HELPCHAT_UI_LANGUAGE);
+      WriteJson(AResponseInfo, LanguageListJson);
+    end
+    else
+      WriteStatus(AResponseInfo, 404);
+  end
+
   else if (ADocument = HELPCHAT_API_ATTACH) and LIsPost then
   begin
     // The bytes are the whole body: a multipart form would have to be decoded
@@ -1014,6 +1039,41 @@ end;
 function THelpChatHttpServerBase.CanSelectAssistant: Boolean;
 begin
   Result := FEngine.CanSelectAssistant;
+end;
+
+function THelpChatHttpServerBase.CanSelectLanguage: Boolean;
+begin
+  Result := FEngine.CanSelectLanguage;
+end;
+
+function THelpChatHttpServerBase.LanguageListJson: string;
+var
+  LRoot, LItem: TJSONObject;
+  LItems: TJSONArray;
+  LActive, L: THelpChatLanguage;
+begin
+  LActive := FEngine.ActiveLanguage;
+  LRoot := TJSONObject.Create;
+  try
+    LRoot.AddPair('canSelect', TJSONBool.Create(CanSelectLanguage));
+    LRoot.AddPair('active', HelpChatLanguageCode(LActive));
+    LItems := TJSONArray.Create;
+    LRoot.AddPair('items', LItems);
+    for L in FEngine.Languages do
+    begin
+      LItem := TJSONObject.Create;
+      LItem.AddPair('code', HelpChatLanguageCode(L));
+      LItem.AddPair('name', HelpChatLanguageNativeName(L));
+      LItem.AddPair('english', HelpChatLanguageName(L));
+      // Inline, like the icons of the assistants: no new source in the CSP.
+      LItem.AddPair('svg', HelpChatFlagSvg(HelpChatLanguageCode(L)));
+      LItem.AddPair('active', TJSONBool.Create(L = LActive));
+      LItems.Add(LItem);
+    end;
+    Result := LRoot.ToJSON;
+  finally
+    LRoot.Free;
+  end;
 end;
 
 function THelpChatHttpServerBase.HostMayRunAnyCommand: Boolean;

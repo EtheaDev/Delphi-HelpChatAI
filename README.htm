@@ -448,6 +448,20 @@ document - the last two of which write a real PDF with the WebView2 runtime of t
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>9 Nov 2026: ver. 1.6.0</p>
+<ul>
+<li>Six languages: Spanish, French, German and Portuguese join English and Italian (<code>THelpChatLanguage</code>), every string of the library translated - the panel, the engine messages, the answers of the commands, the texts of the confirmation of an action, the PDF</li>
+<li>The language of the chat is chosen in the panel: the flag of the language in use in the header, next to the icon of the assistant, and the list of the languages - each with its flag (circle-flags, MIT) and its own name - on a click. The panel reloads in the new language and keeps the conversation; the choice is remembered per user in <code>helpchatai-state.json</code>, and only once the user has made one</li>
+<li><code>/lang</code> lists the languages, <code>/lang de</code> (or <code>Deutsch</code>, or <code>german</code>) switches</li>
+<li><code>Settings.Languages</code>: the languages the user may pick (all six by default; with fewer than two there is no flag). <code>Settings.Language</code> is resolved among them</li>
+<li><code>Settings.DocLanguage</code>: the language the documentation is written in. When it differs from the language of the chat, the model is told to explain in the language of the user and write the names of screens, buttons and fields exactly as the manual spells them, so that the user finds them on the screen. The CRM demos set it to English</li>
+<li>The language rule of the system prompt now reads “The language of this chat is ...”: it is the language the user chose, no longer necessarily the one of the application</li>
+<li><code>Languages</code>, <code>ActiveLanguage</code> and <code>SelectLanguage</code> on both components; <code>GET /api/languages</code> and <code>POST /api/language/select</code> on the server (read-only on a remote one, where the engine is everybody's); <code>HelpChatLanguageCode</code>, <code>HelpChatLanguageName</code>, <code>HelpChatLanguageNativeName</code>, <code>HelpChatLanguageFromCode</code> and <code>HelpChatFlagSvg</code> for code of your own</li>
+<li>An empty <code>AssistantName</code> reaches the page as it is, so the default name follows the language of the chat as well</li>
+<li>The console server takes any language code in <code>--lang</code></li>
+<li><code>Test\LLMBench</code>: <code>--retrieval</code> writes the ranking of the documentation search for a set of questions, and <code>Test\LLMBench\embeddings</code> measures a semantic search against it (Italian, English and paraphrased questions; four embedding models on Ollama). Nothing in the library changes yet: the report is in <code>results/embeddings-v1.md</code></li>
+<li>362 tests</li>
+</ul>
 <p>7 Nov 2026: ver. 1.5.0</p>
 <ul>
 <li>More than one assistant: <code>Assistants</code> in <code>helpchatai.json</code> (name, provider, model, endpoint, key, icon), <code>Assistant</code> for the one in use, and the switch from the panel: the icon of the model in the header, name and model in its tooltip, the list on a click. The choice is remembered per user. <code>GET /api/assistants</code> and <code>POST /api/assistant/select</code> on the server (read-only on a remote one)</li>

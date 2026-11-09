@@ -41,7 +41,7 @@ package HelpChatAIFmx;
 {$DESCRIPTION 'Ethea HelpChatAI FMX Component'}
 {$LIBSUFFIX AUTO}
 {$RUNONLY}
-{$IMPLICITBUILD ON}
+{$IMPLICITBUILD OFF}
 
 requires
   rtl,

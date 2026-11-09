@@ -59,6 +59,9 @@ type
     hccWho,
     /// <summary>Switches to the named assistant (what the badge menu does).</summary>
     hccUse,
+    /// <summary>Lists the languages of the chat, or switches to the named one
+    /// (what the menu of the flag does).</summary>
+    hccLang,
     /// <summary>Asks the last question again, to another assistant if named.</summary>
     hccRetry,
     /// <summary>The pages the retriever would ground an answer on.</summary>
@@ -107,10 +110,11 @@ const
   /// (it runs an action by hand).</summary>
   HELPCHAT_DEF_COMMANDS = [hccHelp..hccAttach];
   /// <summary>The commands the page answers by itself, without the server:
-  /// the page knows the list of the assistants, the questions it sent, its
+  /// the page knows the list of the assistants and of the languages (and
+  /// reloads itself in a new one), the questions it sent, its
   /// own buttons and the timing of the answers.</summary>
   HELPCHAT_COMMANDS_PAGE =
-    [hccHelp, hccUse, hccRetry, hccDoc, hccStats, hccClear, hccPdf, hccCopy, hccAttach];
+    [hccHelp, hccUse, hccLang, hccRetry, hccDoc, hccStats, hccClear, hccPdf, hccCopy, hccAttach];
   /// <summary>How many pages <c>/search</c> lists.</summary>
   HELPCHAT_CMD_SEARCH_PAGES = 5;
 
@@ -190,16 +194,16 @@ uses
 const
   // The order of THelpChatCommand.
   CommandNames: array[THelpChatCommand] of string = (
-    'help', 'who', 'use', 'retry', 'search', 'doc', 'pages', 'context', 'actions',
+    'help', 'who', 'use', 'lang', 'retry', 'search', 'doc', 'pages', 'context', 'actions',
     'check', 'stats', 'clear', 'pdf', 'copy', 'attach', 'prompt', 'run');
   CommandDescriptions: array[THelpChatCommand] of THelpChatMsgId = (
-    hcmCmdHelp, hcmCmdWho, hcmCmdUse, hcmCmdRetry, hcmCmdSearch, hcmCmdDoc, hcmCmdPages,
+    hcmCmdHelp, hcmCmdWho, hcmCmdUse, hcmCmdLang, hcmCmdRetry, hcmCmdSearch, hcmCmdDoc, hcmCmdPages,
     hcmCmdContext, hcmCmdActions, hcmCmdCheck, hcmCmdStats, hcmCmdClear, hcmCmdPdf,
     hcmCmdCopy, hcmCmdAttach, hcmCmdPrompt, hcmCmdRun);
   // A command that only does something (clear, pdf...) has no answer to head:
   // its description stands in.
   CommandTitles: array[THelpChatCommand] of THelpChatMsgId = (
-    hcmCmdTitleHelp, hcmCmdTitleWho, hcmCmdTitleUse, hcmCmdRetry, hcmCmdTitleSearch,
+    hcmCmdTitleHelp, hcmCmdTitleWho, hcmCmdTitleUse, hcmCmdTitleLang, hcmCmdRetry, hcmCmdTitleSearch,
     hcmCmdDoc, hcmCmdTitlePages, hcmCmdTitleContext, hcmCmdTitleActions, hcmCmdTitleCheck,
     hcmCmdTitleStats, hcmCmdClear, hcmCmdPdf, hcmCmdCopy, hcmCmdAttach,
     hcmCmdTitlePrompt, hcmCmdTitleRun);

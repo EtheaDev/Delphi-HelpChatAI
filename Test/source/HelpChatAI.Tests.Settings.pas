@@ -35,6 +35,8 @@ type
     [Test] procedure LoadConfiguration_NamedFile_OrTheDefaults;
     [Test] procedure Json_PartialFile_MergesOnlyPresentKeys;
     [Test] procedure Json_LanguageCodes;
+    [Test] procedure Json_LanguagesAndDocLanguage;
+    [Test] procedure ResolveLanguage_StaysAmongTheOfferedOnes;
     [Test] procedure Json_Malformed_RaisesConfigError;
     [Test] procedure File_Missing_ReturnsFalse_SaveAndLoad;
     [Test] procedure DefaultConfigFiles_Locations;
@@ -227,6 +229,8 @@ begin
   try
     LSource.Provider := 'claude';
     LSource.Language := hclItalian;
+    LSource.Languages := [hclItalian, hclGerman];
+    LSource.DocLanguage := hclEnglish;
     LSource.Greeting := 'Ciao "tu"';
     LSource.DocIndexFile := 'C:\docs\index.json';
     LSource.DocBaseUrl := 'https://docs.example.com/';
@@ -274,6 +278,8 @@ begin
 
     Assert.AreEqual('claude', LCopy.Provider);
     Assert.AreEqual(hclItalian, LCopy.Language);
+    Assert.IsTrue(LCopy.Languages = [hclItalian, hclGerman], 'Languages');
+    Assert.AreEqual(hclEnglish, LCopy.DocLanguage);
     Assert.AreEqual('Ciao "tu"', LCopy.Greeting);
     Assert.AreEqual('C:\docs\index.json', LCopy.DocIndexFile);
     Assert.AreEqual('https://docs.example.com/', LCopy.DocBaseUrl);
@@ -364,6 +370,57 @@ begin
     LSettings.LoadFromJSON('{"Language":"klingon"}');
     Assert.AreEqual(hclItalian, LSettings.Language, 'unknown code keeps the value');
     Assert.Contains(LSettings.SaveToJSON, '"Language": "it"');
+    LSettings.LoadFromJSON('{"Language":"de"}');
+    Assert.AreEqual(hclGerman, LSettings.Language);
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TSettingsTests.Json_LanguagesAndDocLanguage;
+var
+  LSettings, LCopy: THelpChatSettings;
+begin
+  LSettings := THelpChatSettings.Create;
+  try
+    Assert.IsTrue(LSettings.Languages = HELPCHAT_ALL_LANGUAGES, 'every language by default');
+    Assert.AreEqual(hclAuto, LSettings.DocLanguage, 'not stated by default');
+    LSettings.LoadFromJSON('{"Languages":["it","EN","klingon"],"DocLanguage":"en"}');
+    Assert.IsTrue(LSettings.Languages = [hclEnglish, hclItalian], 'unknown codes are skipped');
+    Assert.AreEqual(hclEnglish, LSettings.DocLanguage);
+    LSettings.LoadFromJSON('{"Languages":"es, fr"}');
+    Assert.IsTrue(LSettings.Languages = [hclSpanish, hclFrench], 'a string of codes works too');
+    LSettings.LoadFromJSON('{"Languages":["klingon"]}');
+    Assert.IsTrue(LSettings.Languages = [hclSpanish, hclFrench], 'a list naming none keeps the value');
+    Assert.Contains(LSettings.SaveToJSON, '"es"');
+    LCopy := THelpChatSettings.Create;
+    try
+      LCopy.Assign(LSettings);
+      Assert.IsTrue(LCopy.Languages = [hclSpanish, hclFrench], 'Assign');
+      Assert.AreEqual(hclEnglish, LCopy.DocLanguage, 'Assign');
+    finally
+      LCopy.Free;
+    end;
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TSettingsTests.ResolveLanguage_StaysAmongTheOfferedOnes;
+var
+  LSettings: THelpChatSettings;
+begin
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.Language := hclGerman;
+    Assert.AreEqual(hclGerman, LSettings.ResolveLanguage);
+    LSettings.Languages := [hclItalian, hclEnglish];
+    Assert.AreEqual(hclEnglish, LSettings.ResolveLanguage, 'not offered: English when it is');
+    LSettings.Languages := [hclPortuguese, hclFrench];
+    Assert.AreEqual(hclFrench, LSettings.ResolveLanguage, 'else the first one offered');
+    LSettings.Language := hclAuto;
+    Assert.AreNotEqual(hclAuto, LSettings.ResolveLanguage, 'never auto');
+    Assert.IsTrue(LSettings.ResolveLanguage in [hclPortuguese, hclFrench]);
   finally
     LSettings.Free;
   end;

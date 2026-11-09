@@ -220,6 +220,9 @@ type
     procedure OwnFormClosedByUser(Sender: TObject);
     procedure ViewCloseRequested(Sender: TObject);
     procedure UiCommand(const ACommand: string);
+    /// <summary>The language of the chat changed (from the flag of the page
+    /// or from SelectLanguage): the captions this side writes follow it.</summary>
+    procedure LanguageChanged;
     procedure PdfRequest(const ADoc: THelpChatPrintableDoc);
     procedure RegisterPdfAction;
     procedure ViewStyleChanged(Sender: TObject);
@@ -294,6 +297,14 @@ type
     /// <summary>Makes AName the assistant in use, like the list of the badge;
     /// False when there is no such assistant or the engine is remote.</summary>
     function SelectAssistant(const AName: string): Boolean;
+    /// <summary>The languages the flag of the panel offers (<c>Settings.Languages</c>).</summary>
+    function Languages: TArray<THelpChatLanguage>;
+    /// <summary>The language the chat speaks now, never <c>hclAuto</c>.</summary>
+    function ActiveLanguage: THelpChatLanguage;
+    /// <summary>Makes ALanguage the language of the chat, like the menu of
+    /// the flag, and reloads the panel with it; False when the language is
+    /// not offered or the engine is remote.</summary>
+    function SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
     /// <summary>Asks the last question again, to AAssistant when named: /retry.</summary>
     procedure RetryLastQuestion(const AAssistant: string = '');
     /// <summary>Saves the conversation as PDF, asking where: the PDF button.</summary>
@@ -665,7 +676,7 @@ begin
   if Value then
   begin
     LoadConfiguration;
-    HelpChatDefaultLanguage := FSettings.Language;
+    HelpChatDefaultLanguage := FSettings.ResolveLanguage;
     FEngine := THelpChatEngine.Create(FSettings);
     FEngine.Actions := FActionsRef;
     // With a remote server the local engine stays idle: no documentation index
@@ -930,7 +941,10 @@ begin
     Exit;
   LName := ResolvedAssistantName;
   LIcon := AssistantIconDataUri;
-  FTransport.SetAssistant(LName, LIcon);   // the next page load is rendered with them
+  // The name as the application wrote it, empty included: the page resolves
+  // an empty one in the language it is rendered in, which the user may change
+  // from the panel itself.
+  FTransport.SetAssistant(FAssistantName.Trim, LIcon);   // the next page load is rendered with them
   FTransport.SetEnabledCommands(FEnabledCommands);
   if Assigned(FView) and FView.PageReady then
     FView.RunScript('window.hcSetAssistant && window.hcSetAssistant(' +
@@ -1477,7 +1491,9 @@ begin
     end;
   end
   else if ACommand = 'mic-stop' then
-    StopVoice;
+    StopVoice
+  else if ACommand = HELPCHAT_UI_LANGUAGE then
+    LanguageChanged;
 end;
 
 { --- dictation ----------------------------------------------------------- }
@@ -1869,6 +1885,39 @@ begin
     FEngine.SelectAssistant(AName);
   if Result and Assigned(FView) then
     FView.RunScript('window.hcRefreshAssistants && window.hcRefreshAssistants();');
+end;
+
+function TVclHelpChatAI.Languages: TArray<THelpChatLanguage>;
+begin
+  Result := HelpChatLanguageList(FSettings.Languages);
+end;
+
+function TVclHelpChatAI.ActiveLanguage: THelpChatLanguage;
+begin
+  Result := FSettings.ResolveLanguage;
+end;
+
+function TVclHelpChatAI.SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
+begin
+  Result := Assigned(FEngine) and FEngine.Active and not FSettings.Remote.IsConfigured and
+    FEngine.SelectLanguage(ALanguage);
+  if not Result then
+    Exit;
+  LanguageChanged;
+  // The labels are written into the page when it is rendered.
+  if Assigned(FView) and FView.PageReady then
+    FView.RunScript('window.location.reload();');
+end;
+
+procedure TVclHelpChatAI.LanguageChanged;
+begin
+  if not FActive then
+    Exit;
+  HelpChatDefaultLanguage := FSettings.ResolveLanguage;
+  if Assigned(FBubble) then
+    FBubble.Hint := HelpChatMsg(hcmUiHelp, FSettings.Language) + ' (F1)';
+  // The caption of the own window, and the name the next page load carries.
+  ApplyAssistant;
 end;
 
 procedure TVclHelpChatAI.RetryLastQuestion(const AAssistant: string);

@@ -202,6 +202,9 @@ type
     procedure PositionOwnForm;
     procedure OwnFormClosedByUser(Sender: TObject);
     procedure UiCommand(const ACommand: string);
+    /// <summary>The language of the chat changed (from the flag of the page
+    /// or from SelectLanguage): the captions this side writes follow it.</summary>
+    procedure LanguageChanged;
     procedure PdfRequest(const ADoc: THelpChatPrintableDoc);
     procedure RegisterPdfAction;
     procedure ViewPageReady(Sender: TObject);
@@ -268,6 +271,14 @@ type
     /// <summary>Makes AName the assistant in use, like the list of the badge;
     /// False when there is no such assistant or the engine is remote.</summary>
     function SelectAssistant(const AName: string): Boolean;
+    /// <summary>The languages the flag of the panel offers (<c>Settings.Languages</c>).</summary>
+    function Languages: TArray<THelpChatLanguage>;
+    /// <summary>The language the chat speaks now, never <c>hclAuto</c>.</summary>
+    function ActiveLanguage: THelpChatLanguage;
+    /// <summary>Makes ALanguage the language of the chat, like the menu of
+    /// the flag, and reloads the panel with it; False when the language is
+    /// not offered or the engine is remote.</summary>
+    function SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
     /// <summary>Asks the last question again, to AAssistant when named: /retry.</summary>
     procedure RetryLastQuestion(const AAssistant: string = '');
     /// <summary>Saves the conversation as PDF, asking where: the PDF button.</summary>
@@ -664,7 +675,7 @@ begin
   if Value then
   begin
     LoadConfiguration;
-    HelpChatDefaultLanguage := FSettings.Language;
+    HelpChatDefaultLanguage := FSettings.ResolveLanguage;
     FEngine := THelpChatEngine.Create(FSettings);
     FEngine.Actions := FActionsRef;
     // With a remote server the local engine stays idle: no documentation index
@@ -1015,7 +1026,8 @@ procedure TFmxHelpChatAI.ApplyBubbleColors;
   begin
     if not HelpChatHexToRgb(AColor, LR, LG, LB) then
       HelpChatHexToRgb(ADefault, LR, LG, LB);
-    Result := TAlphaColor($FF000000 or (LR shl 16) or (LG shl 8) or LB);
+    Result := TAlphaColor($FF000000 or (Cardinal(LR) shl 16) or (Cardinal(LG) shl 8) or
+      Cardinal(LB));
   end;
 
 var
@@ -1419,9 +1431,12 @@ end;
 
 procedure TFmxHelpChatAI.UiCommand(const ACommand: string);
 begin
-  // What the page asked through the server (its ✕ button or Esc).
+  // What the page asked through the server (its ✕ button or Esc), or what
+  // the server says by itself (the language changed).
   if FActive and (ACommand = 'close') then
-    Close;
+    Close
+  else if ACommand = HELPCHAT_UI_LANGUAGE then
+    LanguageChanged;
 end;
 
 procedure TFmxHelpChatAI.ViewPageReady(Sender: TObject);
@@ -1481,7 +1496,10 @@ begin
     Exit;
   LName := ResolvedAssistantName;
   LIcon := AssistantIconDataUri;
-  FTransport.SetAssistant(LName, LIcon);   // the next page load is rendered with them
+  // The name as the application wrote it, empty included: the page resolves
+  // an empty one in the language it is rendered in, which the user may change
+  // from the panel itself.
+  FTransport.SetAssistant(FAssistantName.Trim, LIcon);   // the next page load is rendered with them
   FTransport.SetEnabledCommands(FEnabledCommands);
   if Assigned(FView) and FView.PageReady then
     FView.RunScript('window.hcSetAssistant && window.hcSetAssistant(' +
@@ -1756,6 +1774,39 @@ begin
     FEngine.SelectAssistant(AName);
   if Result and Assigned(FView) then
     FView.RunScript('window.hcRefreshAssistants && window.hcRefreshAssistants();');
+end;
+
+function TFmxHelpChatAI.Languages: TArray<THelpChatLanguage>;
+begin
+  Result := HelpChatLanguageList(FSettings.Languages);
+end;
+
+function TFmxHelpChatAI.ActiveLanguage: THelpChatLanguage;
+begin
+  Result := FSettings.ResolveLanguage;
+end;
+
+function TFmxHelpChatAI.SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
+begin
+  Result := Assigned(FEngine) and FEngine.Active and not FSettings.Remote.IsConfigured and
+    FEngine.SelectLanguage(ALanguage);
+  if not Result then
+    Exit;
+  LanguageChanged;
+  // The labels are written into the page when it is rendered.
+  if Assigned(FView) and FView.PageReady then
+    FView.RunScript('window.location.reload();');
+end;
+
+procedure TFmxHelpChatAI.LanguageChanged;
+begin
+  if not FActive then
+    Exit;
+  HelpChatDefaultLanguage := FSettings.ResolveLanguage;
+  if Assigned(FBubble) then
+    FBubble.Hint := HelpChatMsg(hcmUiHelp, FSettings.Language) + ' (F1)';
+  // The caption of the own window, and the name the next page load carries.
+  ApplyAssistant;
 end;
 
 procedure TFmxHelpChatAI.RetryLastQuestion(const AAssistant: string);

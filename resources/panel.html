@@ -22,12 +22,16 @@
       <button type="button" id="hc-pdf" class="hc-chat-hbtn" hidden></button>
       <button type="button" class="hc-chat-hbtn" data-action="clear" title="{{L_CLEAR}}" aria-label="{{L_CLEAR}}"
               hx-post="{{API_BASE}}/api/clear" hx-target="#hc-body" hx-swap="innerHTML">&#x21BA;</button>
+      <!-- The language of the chat, as a flag: shown only when there is
+           more than one to choose from, and the menu below lists them -->
+      <button type="button" id="hc-lang" class="hc-chat-hbtn hc-chat-agent hc-chat-lang" hidden></button>
       <!-- The assistant in use, last on the right: its icon, name and model
            as the tooltip; with more than one configured, the button that
            opens the list below. The window of the chat has its own close
            box, so the page carries none (Escape still asks the host). -->
       <button type="button" id="hc-agent" class="hc-chat-hbtn hc-chat-agent" hidden></button>
     </span>
+    <div id="hc-langs" class="hc-chat-agents hc-chat-langs" role="listbox" hidden></div>
     <div id="hc-agents" class="hc-chat-agents" role="listbox" hidden></div>
   </header>
   <main id="hc-body" class="hc-chat-body" hx-get="{{API_BASE}}/api/history" hx-trigger="load" hx-swap="innerHTML"></main>

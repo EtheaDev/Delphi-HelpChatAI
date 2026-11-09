@@ -195,7 +195,21 @@ begin
     LSettings.Language := hclItalian;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
     Assert.StartsWith(HELPCHAT_CLAUDE_DEF_SYSTEMPROMPT, LPrompt);
-    Assert.Contains(LPrompt, 'The user interface of the application is in Italian. Reply in Italian,');
+    Assert.Contains(LPrompt, 'The language of this chat is Italian. Reply in Italian,');
+    Assert.DoesNotContain(LPrompt, 'The documentation excerpts and the application itself are in',
+      'DocLanguage not stated: no rule about the names');
+    // A manual in English read by an Italian user: translate, keep the captions.
+    LSettings.DocLanguage := hclEnglish;
+    LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
+    Assert.Contains(LPrompt, 'The documentation excerpts and the application itself are in English, ' +
+      'while the user reads your reply in Italian.');
+    LSettings.Language := hclEnglish;
+    LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
+    Assert.DoesNotContain(LPrompt, 'The documentation excerpts and the application itself are in',
+      'same language as the manual: nothing to keep apart');
+    LSettings.Language := hclItalian;
+    LSettings.DocLanguage := hclAuto;
+    LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
     // A model has no calendar: a document it writes would be dated "today".
     Assert.Contains(LPrompt, Format('Today is %s.',
       [FormatDateTime('dddd, d mmmm yyyy', Date, TFormatSettings.Invariant)]),
@@ -227,7 +241,7 @@ begin
     LSettings.Claude.SystemPrompt := 'You are Bob.';
     LSettings.Claude.GroundingMaxPages := 0;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, LRetriever);
-    Assert.StartsWith('You are Bob. The user interface of the application is in ', LPrompt,
+    Assert.StartsWith('You are Bob. The language of this chat is ', LPrompt,
       'override used, language rule kept, grounding off, no context');
     LSettings.Claude.GroundingMaxPages := 1;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, LRetriever);

@@ -248,7 +248,7 @@ begin
   Writeln('  --idle <minutes>     end a session after this much inactivity');
   Writeln('  --provider <name>    stub | docsearch | claude');
   Writeln('  --index <file>       documentation index (help-index.json)');
-  Writeln('  --lang <auto|en|it>  language of the assistant');
+  Writeln('  --lang <auto|code>   language: en, it, es, fr, de, pt');
   Writeln('  --quiet              no log on the console');
   Writeln('  --help               this text');
   Writeln('');
@@ -330,6 +330,7 @@ function THelpChatServerApp.Run: Integer;
 var
   I: Integer;
   LOption, LValue: string;
+  LLanguage: THelpChatLanguage;
 
   function NextValue: string;
   begin
@@ -385,13 +386,9 @@ begin
         FSettings.DocIndexFile := NextValue
       else if LOption = '--lang' then
       begin
-        LValue := NextValue;
-        if SameText(LValue, 'it') then
-          FSettings.Language := hclItalian
-        else if SameText(LValue, 'en') then
-          FSettings.Language := hclEnglish
-        else if SameText(LValue, 'auto') then
-          FSettings.Language := hclAuto;
+        // auto, or any code the strings are translated into (en, it, es, fr, de, pt).
+        if HelpChatLanguageFromCode(NextValue, LLanguage) then
+          FSettings.Language := LLanguage;
       end;
       Inc(I);
     end;

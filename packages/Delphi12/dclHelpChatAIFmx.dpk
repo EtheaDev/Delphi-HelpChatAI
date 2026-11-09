@@ -42,7 +42,7 @@ package dclHelpChatAIFmx;
 {$DESCRIPTION 'Ethea HelpChatAI FMX Component (design-time)'}
 {$LIBSUFFIX AUTO}
 {$DESIGNONLY}
-{$IMPLICITBUILD ON}
+{$IMPLICITBUILD OFF}
 
 requires
   rtl,

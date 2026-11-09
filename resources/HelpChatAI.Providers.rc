@@ -22,3 +22,16 @@ HCICON_OLLAMA      RCDATA "..\\Images\\providers\\ollama.svg"
 HCICON_OPENAI      RCDATA "..\\Images\\providers\\openai.svg"
 HCICON_OPENROUTER  RCDATA "..\\Images\\providers\\openrouter.svg"
 HCICON_QWEN        RCDATA "..\\Images\\providers\\qwen.svg"
+
+/* The flags of the languages of the chat, read by HelpChatFlagSvg: circle-flags
+   (https://github.com/HatScripts/circle-flags, MIT; see
+   Images\flags\LICENSE-circle-flags.txt). One entry per language code, the
+   file is the flag of the country chosen for it: gb for English, pt for
+   Portuguese. */
+
+HCFLAG_EN          RCDATA "..\\Images\\flags\\gb.svg"
+HCFLAG_IT          RCDATA "..\\Images\\flags\\it.svg"
+HCFLAG_ES          RCDATA "..\\Images\\flags\\es.svg"
+HCFLAG_FR          RCDATA "..\\Images\\flags\\fr.svg"
+HCFLAG_DE          RCDATA "..\\Images\\flags\\de.svg"
+HCFLAG_PT          RCDATA "..\\Images\\flags\\pt.svg"

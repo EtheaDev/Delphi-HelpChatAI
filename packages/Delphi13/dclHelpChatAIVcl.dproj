@@ -2,11 +2,11 @@
     <PropertyGroup>
         <ProjectGuid>{B9E2D7C4-1F58-4A36-8D0B-3E6C9A7F2D15}</ProjectGuid>
         <MainSource>dclHelpChatAIVcl.dpk</MainSource>
-        <ProjectVersion>20.4</ProjectVersion>
+        <ProjectVersion>20.5</ProjectVersion>
         <FrameworkType>VCL</FrameworkType>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
-        <Platform Condition="'$(Platform)'==''">Win64</Platform>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <AppType>Package</AppType>
         <ProjectName Condition="'$(ProjectName)'==''">dclHelpChatAIVcl</ProjectName>
@@ -44,6 +44,12 @@
         <CfgParent>Base</CfgParent>
         <Base>true</Base>
     </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win64)'!=''">
+        <Cfg_2_Win64>true</Cfg_2_Win64>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
+        <Base>true</Base>
+    </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
         <DCC_DcuOutput>..\..\Lib\Delphi13\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
@@ -62,6 +68,7 @@
         <DCC_Description>Ethea HelpChatAI VCL Component (design-time)</DCC_Description>
         <DesignOnlyPackage>true</DesignOnlyPackage>
         <DllSuffix>$(Auto)</DllSuffix>
+        <DCC_OutputNeverBuildDcps>true</DCC_OutputNeverBuildDcps>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_UsePackage>vcl;rtl;HelpChatAIVcl;HelpChatAIServer;HelpChatAI;vclimg;vclwinx;$(DCC_UsePackage)</DCC_UsePackage>

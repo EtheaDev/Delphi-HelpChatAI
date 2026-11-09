@@ -36,6 +36,21 @@ the one you pick answers from the next question on. The choice is remembered. Wi
 assistant configured the icon is only a label, and with none that has a face there is no icon
 at all.
 
+## Choosing the language
+
+Left of that icon there is a small round flag: the language the assistant speaks. Click it
+and pick another one - English, Italiano, Español, Français, Deutsch, Português, each written
+in its own language - and the assistant reloads in it, with the conversation as it was: its
+buttons, its messages and its answers are in the new language from the next question on.
+Typing `/lang` lists the languages, and `/lang it` (or `/lang italiano`) switches straight
+away. The choice is remembered.
+
+This manual and the application are in English, so in another language the assistant explains
+in yours but writes the names of screens and buttons as you see them on the screen - *Save
+Proposal*, sometimes with a translation in brackets - so that you can find them. A question in
+another language may find fewer pages of the manual than the same question in English: if an
+answer says the manual does not cover something you are sure it does, try asking in English.
+
 ## Keeping an answer
 
 An answer is not only to be read. Move the mouse over one and two small buttons appear
@@ -61,8 +76,8 @@ Four things the assistant can do in this application, and nothing else:
 | Ask for | What happens |
 | - | - |
 | *"open the Marketing screen"* | It switches to that screen |
-| *"add Ethea Srl to the accounts"* | It adds the company to the Accounts list |
-| *"create a lead for Mario Rossi of Zeus Red, Inc., phone 02 1234567, email mario.rossi@example.com"* | It creates the lead with status **New** and opens its detail window |
+| *"add Harbor Lane Foods to the accounts"* | It adds the company to the Accounts list |
+| *"create a lead for James Carter of Zeus Red, Inc., phone 555 0142, email james.carter@example.com"* | It creates the lead with status **New** and opens its detail window |
 | *"prepare a proposal for Gary Orange: 12 hours of consulting at 150 each and 4 licenses at 480 each"* | It opens the proposal draft with the customer and the line items already in, total included |
 
 The company of a lead must be in the Accounts list. Name one that is not there and the

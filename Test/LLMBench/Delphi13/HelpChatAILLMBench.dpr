@@ -26,10 +26,15 @@ uses
 //   --only  runs only the targets whose name contains one of the words
 //           (gemma, gpt-oss, qwen, claude, gemini)
 //   --out   where the report goes (default: Test\LLMBench\results\llm-bench-<stamp>.md)
+//
+// HelpChatAILLMBench --retrieval=questions.json [--out=file.json]
+//   no model at all: the ranking of the real lexical search for every question,
+//   as JSON (default: Test\LLMBench\results\retrieval-lexical.json). The input of
+//   Test\LLMBench\embeddings\embed_bench.py
 
 var
   LRunner: TBenchRunner;
-  LRoot, LOut, LArg: string;
+  LRoot, LOut, LArg, LRetrieval: string;
   LOnly: TArray<string>;
   I: Integer;
 begin
@@ -43,7 +48,18 @@ begin
       if LArg.StartsWith('--only=', True) then
         LOnly := LArg.Substring(7).Split([','])
       else if LArg.StartsWith('--out=', True) then
-        LOut := LArg.Substring(6);
+        LOut := LArg.Substring(6)
+      else if LArg.StartsWith('--retrieval=', True) then
+        LRetrieval := LArg.Substring(12);
+    end;
+    if LRetrieval <> '' then
+    begin
+      if LOut = '' then
+        LOut := TPath.Combine(LRoot, 'Test\LLMBench\results\retrieval-lexical.json');
+      TDirectory.CreateDirectory(TPath.GetDirectoryName(LOut));
+      RunRetrieval(TPath.Combine(LRoot, 'CRM Demo\Help\help-index.json'),
+        TPath.GetFullPath(LRetrieval), LOut);
+      Exit;
     end;
     if LOut = '' then
       LOut := TPath.Combine(LRoot, 'Test\LLMBench\results\llm-bench-' +

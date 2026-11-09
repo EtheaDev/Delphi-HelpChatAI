@@ -30,6 +30,7 @@ type
     [Test] procedure Settings_Assign_CarriesTheOverrides;
     [Test] procedure Icons_ModelFirst_ThenEndpoint_ThenProvider;
     [Test] procedure Icons_EveryShippedIdHasAnSvg_WithoutTitle;
+    [Test] procedure Flags_EveryLanguageHasOne;
     [Test] procedure Engine_Select_ChangesTheNextRequest;
     [Test] procedure Engine_Start_AppliesTheConfiguredOne;
   end;
@@ -38,6 +39,7 @@ implementation
 
 uses
   System.SysUtils,
+  HelpChatAI.Messages,
   HelpChatAI.Icons,
   HelpChatAI.Tests.Helpers;
 
@@ -292,6 +294,22 @@ begin
   Assert.IsFalse(HelpChatProviderIconExists('nobody'));
   Assert.AreEqual('', HelpChatProviderIconSvg('nobody'));
   Assert.AreEqual('', HelpChatProviderIconSvg(''));
+end;
+
+procedure TAssistantsTests.Flags_EveryLanguageHasOne;
+var
+  L: THelpChatLanguage;
+  LSvg: string;
+begin
+  for L in HELPCHAT_ALL_LANGUAGES do
+  begin
+    LSvg := HelpChatFlagSvg(HelpChatLanguageCode(L));
+    Assert.IsTrue(LSvg.StartsWith('<svg'), HelpChatLanguageName(L));
+    Assert.IsTrue(LSvg.TrimRight.EndsWith('</svg>'), HelpChatLanguageName(L));
+  end;
+  Assert.AreEqual('', HelpChatFlagSvg('xx'));
+  Assert.AreEqual('', HelpChatFlagSvg('auto'), 'not two letters');
+  Assert.AreEqual('', HelpChatFlagSvg('../'), 'the code becomes a resource name');
 end;
 
 procedure TAssistantsTests.Engine_Select_ChangesTheNextRequest;

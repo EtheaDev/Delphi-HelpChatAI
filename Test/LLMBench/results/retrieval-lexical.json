@@ -1,0 +1,3376 @@
+﻿{
+  "index": "D:\\ETHEA\\Delphi-HelpChat\\CRM Demo\\Help\\help-index.json",
+  "pages": 15,
+  "results": [
+    {
+      "id": "Q1-en",
+      "hint": "Leads",
+      "ranking": [
+        {
+          "page": "Leads.md",
+          "score": 67
+        },
+        {
+          "page": "Assistant.md",
+          "score": 39
+        },
+        {
+          "page": "FAQ.md",
+          "score": 27
+        },
+        {
+          "page": "Calendar.md",
+          "score": 13
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 33
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 38
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 33
+        },
+        {
+          "page": "Home.md",
+          "score": 18
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 16
+        },
+        {
+          "page": "Accounts.md",
+          "score": 15
+        },
+        {
+          "page": "ToDo.md",
+          "score": 21
+        },
+        {
+          "page": "Users.md",
+          "score": 15
+        },
+        {
+          "page": "Marketing.md",
+          "score": 12
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 13
+        },
+        {
+          "page": "Sales.md",
+          "score": 9
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Leads.md",
+          "score": 56
+        },
+        {
+          "page": "Calendar.md",
+          "score": 12
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 32
+        },
+        {
+          "page": "Assistant.md",
+          "score": 35
+        },
+        {
+          "page": "FAQ.md",
+          "score": 23
+        },
+        {
+          "page": "ToDo.md",
+          "score": 21
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 31
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 22
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 13
+        },
+        {
+          "page": "Home.md",
+          "score": 14
+        },
+        {
+          "page": "Users.md",
+          "score": 13
+        },
+        {
+          "page": "Accounts.md",
+          "score": 11
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 13
+        },
+        {
+          "page": "Sales.md",
+          "score": 9
+        },
+        {
+          "page": "Marketing.md",
+          "score": 9
+        }
+      ],
+      "ms": 0.6673
+    },
+    {
+      "id": "Q1-it",
+      "hint": "Leads",
+      "ranking": [
+        {
+          "page": "Leads.md",
+          "score": 50
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 41
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 24
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 25
+        },
+        {
+          "page": "Assistant.md",
+          "score": 15
+        },
+        {
+          "page": "Accounts.md",
+          "score": 9
+        },
+        {
+          "page": "FAQ.md",
+          "score": 13
+        },
+        {
+          "page": "Home.md",
+          "score": 11
+        },
+        {
+          "page": "Marketing.md",
+          "score": 11
+        },
+        {
+          "page": "Calendar.md",
+          "score": 9
+        },
+        {
+          "page": "Sales.md",
+          "score": 10
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 8
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 9
+        },
+        {
+          "page": "ToDo.md",
+          "score": 9
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Leads.md",
+          "score": 39
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 23
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 34
+        },
+        {
+          "page": "Sales.md",
+          "score": 10
+        },
+        {
+          "page": "Calendar.md",
+          "score": 8
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 9
+        },
+        {
+          "page": "Assistant.md",
+          "score": 11
+        },
+        {
+          "page": "Marketing.md",
+          "score": 8
+        },
+        {
+          "page": "ToDo.md",
+          "score": 9
+        },
+        {
+          "page": "Accounts.md",
+          "score": 5
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 14
+        },
+        {
+          "page": "FAQ.md",
+          "score": 9
+        },
+        {
+          "page": "Home.md",
+          "score": 7
+        },
+        {
+          "page": "Users.md",
+          "score": 6
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 3
+        }
+      ],
+      "ms": 0.5991
+    },
+    {
+      "id": "Q1-para",
+      "hint": "Leads",
+      "ranking": [
+        {
+          "page": "Leads.md",
+          "score": 15
+        },
+        {
+          "page": "FAQ.md",
+          "score": 15
+        },
+        {
+          "page": "Assistant.md",
+          "score": 13
+        },
+        {
+          "page": "Home.md",
+          "score": 10
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 10
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 13
+        },
+        {
+          "page": "Accounts.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 7
+        },
+        {
+          "page": "Marketing.md",
+          "score": 6
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 5
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 4
+        },
+        {
+          "page": "Calendar.md",
+          "score": 3
+        },
+        {
+          "page": "ToDo.md",
+          "score": 3
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 2
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "FAQ.md",
+          "score": 11
+        },
+        {
+          "page": "Assistant.md",
+          "score": 9
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Home.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 5
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 3
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 3
+        },
+        {
+          "page": "Marketing.md",
+          "score": 3
+        },
+        {
+          "page": "ToDo.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        }
+      ],
+      "ms": 0.6139
+    },
+    {
+      "id": "Q2-en",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 11
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 22
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 24
+        },
+        {
+          "page": "Home.md",
+          "score": 15
+        },
+        {
+          "page": "FAQ.md",
+          "score": 29
+        },
+        {
+          "page": "Users.md",
+          "score": 9
+        },
+        {
+          "page": "ToDo.md",
+          "score": 11
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 11
+        },
+        {
+          "page": "Assistant.md",
+          "score": 7
+        },
+        {
+          "page": "Accounts.md",
+          "score": 7
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 6
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Sales.md",
+          "score": 5
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Getting-Started.md",
+          "score": 21
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 23
+        },
+        {
+          "page": "FAQ.md",
+          "score": 29
+        },
+        {
+          "page": "Home.md",
+          "score": 12
+        },
+        {
+          "page": "ToDo.md",
+          "score": 11
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 11
+        },
+        {
+          "page": "Accounts.md",
+          "score": 7
+        },
+        {
+          "page": "Users.md",
+          "score": 7
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 6
+        },
+        {
+          "page": "Assistant.md",
+          "score": 6
+        },
+        {
+          "page": "Sales.md",
+          "score": 5
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.4928
+    },
+    {
+      "id": "Q2-it",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Assistant.md",
+          "score": 1
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 1
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 1
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+      ],
+      "ms": 0.4778
+    },
+    {
+      "id": "Q2-para",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 15
+        },
+        {
+          "page": "Assistant.md",
+          "score": 10
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 9
+        },
+        {
+          "page": "Users.md",
+          "score": 8
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 8
+        },
+        {
+          "page": "FAQ.md",
+          "score": 10
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 6
+        },
+        {
+          "page": "Accounts.md",
+          "score": 5
+        },
+        {
+          "page": "ToDo.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Leads.md",
+          "score": 2
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Home.md",
+          "score": 12
+        },
+        {
+          "page": "Assistant.md",
+          "score": 9
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 8
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 8
+        },
+        {
+          "page": "FAQ.md",
+          "score": 10
+        },
+        {
+          "page": "Users.md",
+          "score": 6
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 5
+        },
+        {
+          "page": "Accounts.md",
+          "score": 5
+        },
+        {
+          "page": "ToDo.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.646
+    },
+    {
+      "id": "Q3-en",
+      "hint": "Sales",
+      "ranking": [
+        {
+          "page": "Sales.md",
+          "score": 28
+        },
+        {
+          "page": "FAQ.md",
+          "score": 15
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 21
+        },
+        {
+          "page": "ToDo.md",
+          "score": 14
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 17
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 15
+        },
+        {
+          "page": "Assistant.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 7
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 5
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 2
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "FAQ.md",
+          "score": 14
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 20
+        },
+        {
+          "page": "Sales.md",
+          "score": 21
+        },
+        {
+          "page": "Assistant.md",
+          "score": 10
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 14
+        },
+        {
+          "page": "ToDo.md",
+          "score": 12
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 6
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 15
+        },
+        {
+          "page": "Home.md",
+          "score": 6
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 4
+        },
+        {
+          "page": "Users.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 2
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.2553
+    },
+    {
+      "id": "Q3-it",
+      "hint": "Sales",
+      "ranking": [
+        {
+          "page": "Sales.md",
+          "score": 24
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 19
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 16
+        },
+        {
+          "page": "ToDo.md",
+          "score": 12
+        },
+        {
+          "page": "FAQ.md",
+          "score": 9
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 12
+        },
+        {
+          "page": "Home.md",
+          "score": 5
+        },
+        {
+          "page": "Users.md",
+          "score": 4
+        },
+        {
+          "page": "Assistant.md",
+          "score": 6
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Draft-Proposal.md",
+          "score": 18
+        },
+        {
+          "page": "Assistant.md",
+          "score": 6
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 14
+        },
+        {
+          "page": "FAQ.md",
+          "score": 8
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 11
+        },
+        {
+          "page": "Sales.md",
+          "score": 17
+        },
+        {
+          "page": "ToDo.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 4
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 3
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.3297
+    },
+    {
+      "id": "Q3-para",
+      "hint": "Sales",
+      "ranking": [
+        {
+          "page": "Sales.md",
+          "score": 10
+        },
+        {
+          "page": "ToDo.md",
+          "score": 9
+        },
+        {
+          "page": "FAQ.md",
+          "score": 7
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 7
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 6
+        },
+        {
+          "page": "Assistant.md",
+          "score": 7
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 3
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Users.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        },
+        {
+          "page": "Marketing.md",
+          "score": 2
+        },
+        {
+          "page": "Home.md",
+          "score": 1
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "FAQ.md",
+          "score": 6
+        },
+        {
+          "page": "ToDo.md",
+          "score": 7
+        },
+        {
+          "page": "Assistant.md",
+          "score": 7
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 5
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 5
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Sales.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 2
+        },
+        {
+          "page": "Marketing.md",
+          "score": 2
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        }
+      ],
+      "ms": 0.5796
+    },
+    {
+      "id": "Q4-en",
+      "hint": "Accounts",
+      "ranking": [
+        {
+          "page": "Accounts.md",
+          "score": 26
+        },
+        {
+          "page": "FAQ.md",
+          "score": 16
+        },
+        {
+          "page": "Assistant.md",
+          "score": 23
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 18
+        },
+        {
+          "page": "Leads.md",
+          "score": 10
+        },
+        {
+          "page": "Marketing.md",
+          "score": 9
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 11
+        },
+        {
+          "page": "ToDo.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 8
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 3
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 3
+        },
+        {
+          "page": "Sales.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Accounts.md",
+          "score": 8
+        },
+        {
+          "page": "Marketing.md",
+          "score": 8
+        },
+        {
+          "page": "FAQ.md",
+          "score": 12
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 9
+        },
+        {
+          "page": "Assistant.md",
+          "score": 17
+        },
+        {
+          "page": "Leads.md",
+          "score": 7
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 6
+        },
+        {
+          "page": "Home.md",
+          "score": 6
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 4
+        },
+        {
+          "page": "ToDo.md",
+          "score": 3
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 3
+        },
+        {
+          "page": "Sales.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 1
+        },
+        {
+          "page": "Users.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.3437
+    },
+    {
+      "id": "Q4-it",
+      "hint": "Accounts",
+      "ranking": [
+        {
+          "page": "Accounts.md",
+          "score": 22
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 17
+        },
+        {
+          "page": "FAQ.md",
+          "score": 11
+        },
+        {
+          "page": "Assistant.md",
+          "score": 8
+        },
+        {
+          "page": "ToDo.md",
+          "score": 8
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 6
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 4
+        },
+        {
+          "page": "Home.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Accounts.md",
+          "score": 4
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 5
+        },
+        {
+          "page": "FAQ.md",
+          "score": 7
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 3
+        },
+        {
+          "page": "Assistant.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Home.md",
+          "score": 2
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        },
+        {
+          "page": "ToDo.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.3146
+    },
+    {
+      "id": "Q4-para",
+      "hint": "Accounts",
+      "ranking": [
+        {
+          "page": "Accounts.md",
+          "score": 23
+        },
+        {
+          "page": "FAQ.md",
+          "score": 15
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 19
+        },
+        {
+          "page": "Assistant.md",
+          "score": 11
+        },
+        {
+          "page": "ToDo.md",
+          "score": 11
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 9
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 8
+        },
+        {
+          "page": "Users.md",
+          "score": 7
+        },
+        {
+          "page": "Leads.md",
+          "score": 5
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 5
+        },
+        {
+          "page": "Marketing.md",
+          "score": 5
+        },
+        {
+          "page": "Home.md",
+          "score": 4
+        },
+        {
+          "page": "Sales.md",
+          "score": 4
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "FAQ.md",
+          "score": 11
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 7
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 6
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 7
+        },
+        {
+          "page": "Users.md",
+          "score": 5
+        },
+        {
+          "page": "Accounts.md",
+          "score": 5
+        },
+        {
+          "page": "Assistant.md",
+          "score": 5
+        },
+        {
+          "page": "ToDo.md",
+          "score": 4
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 4
+        },
+        {
+          "page": "Sales.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Leads.md",
+          "score": 2
+        },
+        {
+          "page": "Home.md",
+          "score": 2
+        }
+      ],
+      "ms": 0.4427
+    },
+    {
+      "id": "Q5-en",
+      "hint": "Leads",
+      "ranking": [
+        {
+          "page": "Leads.md",
+          "score": 44
+        },
+        {
+          "page": "ToDo.md",
+          "score": 30
+        },
+        {
+          "page": "Assistant.md",
+          "score": 31
+        },
+        {
+          "page": "Marketing.md",
+          "score": 22
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 36
+        },
+        {
+          "page": "FAQ.md",
+          "score": 22
+        },
+        {
+          "page": "Home.md",
+          "score": 15
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 24
+        },
+        {
+          "page": "Accounts.md",
+          "score": 12
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 26
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 10
+        },
+        {
+          "page": "Users.md",
+          "score": 11
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 11
+        },
+        {
+          "page": "Sales.md",
+          "score": 9
+        },
+        {
+          "page": "Calendar.md",
+          "score": 5
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "ToDo.md",
+          "score": 30
+        },
+        {
+          "page": "Marketing.md",
+          "score": 19
+        },
+        {
+          "page": "Assistant.md",
+          "score": 27
+        },
+        {
+          "page": "Leads.md",
+          "score": 33
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 29
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 23
+        },
+        {
+          "page": "FAQ.md",
+          "score": 18
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 11
+        },
+        {
+          "page": "Home.md",
+          "score": 11
+        },
+        {
+          "page": "Accounts.md",
+          "score": 8
+        },
+        {
+          "page": "Sales.md",
+          "score": 9
+        },
+        {
+          "page": "Users.md",
+          "score": 9
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 7
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 15
+        },
+        {
+          "page": "Calendar.md",
+          "score": 4
+        }
+      ],
+      "ms": 0.4117
+    },
+    {
+      "id": "Q5-it",
+      "hint": "Leads",
+      "ranking": [
+        {
+          "page": "Leads.md",
+          "score": 40
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 29
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 22
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 25
+        },
+        {
+          "page": "Assistant.md",
+          "score": 15
+        },
+        {
+          "page": "Accounts.md",
+          "score": 9
+        },
+        {
+          "page": "FAQ.md",
+          "score": 13
+        },
+        {
+          "page": "Home.md",
+          "score": 11
+        },
+        {
+          "page": "Marketing.md",
+          "score": 10
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 8
+        },
+        {
+          "page": "ToDo.md",
+          "score": 9
+        },
+        {
+          "page": "Calendar.md",
+          "score": 4
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 7
+        },
+        {
+          "page": "Sales.md",
+          "score": 6
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Lead-Detail.md",
+          "score": 21
+        },
+        {
+          "page": "Leads.md",
+          "score": 29
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 22
+        },
+        {
+          "page": "Assistant.md",
+          "score": 11
+        },
+        {
+          "page": "ToDo.md",
+          "score": 9
+        },
+        {
+          "page": "Accounts.md",
+          "score": 5
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 14
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 7
+        },
+        {
+          "page": "FAQ.md",
+          "score": 9
+        },
+        {
+          "page": "Home.md",
+          "score": 7
+        },
+        {
+          "page": "Marketing.md",
+          "score": 7
+        },
+        {
+          "page": "Sales.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 6
+        },
+        {
+          "page": "Calendar.md",
+          "score": 3
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 3
+        }
+      ],
+      "ms": 0.4191
+    },
+    {
+      "id": "Q5-para",
+      "hint": "Leads",
+      "ranking": [
+        {
+          "page": "Leads.md",
+          "score": 15
+        },
+        {
+          "page": "Assistant.md",
+          "score": 15
+        },
+        {
+          "page": "Marketing.md",
+          "score": 14
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 15
+        },
+        {
+          "page": "Home.md",
+          "score": 7
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 13
+        },
+        {
+          "page": "FAQ.md",
+          "score": 7
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 7
+        },
+        {
+          "page": "Accounts.md",
+          "score": 6
+        },
+        {
+          "page": "ToDo.md",
+          "score": 8
+        },
+        {
+          "page": "Users.md",
+          "score": 6
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 4
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 4
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        },
+        {
+          "page": "Sales.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Marketing.md",
+          "score": 11
+        },
+        {
+          "page": "Assistant.md",
+          "score": 11
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 8
+        },
+        {
+          "page": "ToDo.md",
+          "score": 8
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 4
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 4
+        },
+        {
+          "page": "Users.md",
+          "score": 4
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 3
+        },
+        {
+          "page": "FAQ.md",
+          "score": 3
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Sales.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.4697
+    },
+    {
+      "id": "Q6-en",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Assistant.md",
+          "score": 1
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 1
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 1
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Calendar.md",
+          "score": 1
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.1928
+    },
+    {
+      "id": "Q6-it",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Assistant.md",
+          "score": 1
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 1
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 1
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 1
+        },
+        {
+          "page": "ToDo.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Lead-Detail.md",
+          "score": 1
+        },
+        {
+          "page": "ToDo.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.2203
+    },
+    {
+      "id": "Q6-para",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Assistant.md",
+          "score": 1
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 1
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 1
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+      ],
+      "ms": 0.1781
+    },
+    {
+      "id": "X01-it",
+      "hint": "Calendar",
+      "ranking": [
+        {
+          "page": "Calendar.md",
+          "score": 21
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 21
+        },
+        {
+          "page": "Leads.md",
+          "score": 28
+        },
+        {
+          "page": "FAQ.md",
+          "score": 11
+        },
+        {
+          "page": "Home.md",
+          "score": 9
+        },
+        {
+          "page": "ToDo.md",
+          "score": 10
+        },
+        {
+          "page": "Accounts.md",
+          "score": 5
+        },
+        {
+          "page": "Assistant.md",
+          "score": 10
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 14
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 20
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 7
+        },
+        {
+          "page": "Marketing.md",
+          "score": 7
+        },
+        {
+          "page": "Sales.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 6
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 3
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Calendar.md",
+          "score": 12
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 20
+        },
+        {
+          "page": "Leads.md",
+          "score": 28
+        },
+        {
+          "page": "FAQ.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 8
+        },
+        {
+          "page": "ToDo.md",
+          "score": 9
+        },
+        {
+          "page": "Accounts.md",
+          "score": 5
+        },
+        {
+          "page": "Assistant.md",
+          "score": 10
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 14
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 20
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 7
+        },
+        {
+          "page": "Marketing.md",
+          "score": 7
+        },
+        {
+          "page": "Sales.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 6
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 3
+        }
+      ],
+      "ms": 0.2503
+    },
+    {
+      "id": "X02-en",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 28
+        },
+        {
+          "page": "Leads.md",
+          "score": 36
+        },
+        {
+          "page": "FAQ.md",
+          "score": 18
+        },
+        {
+          "page": "Home.md",
+          "score": 14
+        },
+        {
+          "page": "Assistant.md",
+          "score": 21
+        },
+        {
+          "page": "Users.md",
+          "score": 9
+        },
+        {
+          "page": "ToDo.md",
+          "score": 13
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 24
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 21
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 8
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 9
+        },
+        {
+          "page": "Accounts.md",
+          "score": 6
+        },
+        {
+          "page": "Marketing.md",
+          "score": 7
+        },
+        {
+          "page": "Sales.md",
+          "score": 6
+        },
+        {
+          "page": "Calendar.md",
+          "score": 4
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "FAQ.md",
+          "score": 18
+        },
+        {
+          "page": "Leads.md",
+          "score": 35
+        },
+        {
+          "page": "Assistant.md",
+          "score": 20
+        },
+        {
+          "page": "ToDo.md",
+          "score": 13
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 21
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 18
+        },
+        {
+          "page": "Home.md",
+          "score": 11
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 23
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 7
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 9
+        },
+        {
+          "page": "Users.md",
+          "score": 7
+        },
+        {
+          "page": "Accounts.md",
+          "score": 6
+        },
+        {
+          "page": "Marketing.md",
+          "score": 7
+        },
+        {
+          "page": "Sales.md",
+          "score": 6
+        },
+        {
+          "page": "Calendar.md",
+          "score": 4
+        }
+      ],
+      "ms": 0.5958
+    },
+    {
+      "id": "X03-it",
+      "hint": "Users",
+      "ranking": [
+        {
+          "page": "Users.md",
+          "score": 7
+        },
+        {
+          "page": "FAQ.md",
+          "score": 2
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 1
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 1
+        },
+        {
+          "page": "Home.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+      ],
+      "ms": 0.2277
+    },
+    {
+      "id": "X04-en",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 17
+        },
+        {
+          "page": "Users.md",
+          "score": 36
+        },
+        {
+          "page": "Home.md",
+          "score": 14
+        },
+        {
+          "page": "FAQ.md",
+          "score": 18
+        },
+        {
+          "page": "ToDo.md",
+          "score": 17
+        },
+        {
+          "page": "Leads.md",
+          "score": 14
+        },
+        {
+          "page": "Assistant.md",
+          "score": 12
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 29
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 9
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 9
+        },
+        {
+          "page": "Marketing.md",
+          "score": 6
+        },
+        {
+          "page": "Accounts.md",
+          "score": 12
+        },
+        {
+          "page": "Sales.md",
+          "score": 4
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Users.md",
+          "score": 34
+        },
+        {
+          "page": "FAQ.md",
+          "score": 18
+        },
+        {
+          "page": "ToDo.md",
+          "score": 17
+        },
+        {
+          "page": "Home.md",
+          "score": 11
+        },
+        {
+          "page": "Leads.md",
+          "score": 13
+        },
+        {
+          "page": "Assistant.md",
+          "score": 11
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 9
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 28
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 8
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 7
+        },
+        {
+          "page": "Marketing.md",
+          "score": 6
+        },
+        {
+          "page": "Accounts.md",
+          "score": 12
+        },
+        {
+          "page": "Sales.md",
+          "score": 4
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.523
+    },
+    {
+      "id": "X05-it",
+      "hint": "Accounts",
+      "ranking": [
+        {
+          "page": "Accounts.md",
+          "score": 18
+        },
+        {
+          "page": "Assistant.md",
+          "score": 7
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 12
+        },
+        {
+          "page": "ToDo.md",
+          "score": 7
+        },
+        {
+          "page": "FAQ.md",
+          "score": 4
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Home.md",
+          "score": 2
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 2
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 1
+        },
+        {
+          "page": "Marketing.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Assistant.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.1851
+    },
+    {
+      "id": "X06-en",
+      "hint": "Sales",
+      "ranking": [
+        {
+          "page": "Draft-Proposal.md",
+          "score": 20
+        },
+        {
+          "page": "Sales.md",
+          "score": 9
+        },
+        {
+          "page": "Assistant.md",
+          "score": 11
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 10
+        },
+        {
+          "page": "ToDo.md",
+          "score": 9
+        },
+        {
+          "page": "FAQ.md",
+          "score": 8
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        },
+        {
+          "page": "Home.md",
+          "score": 1
+        },
+        {
+          "page": "Users.md",
+          "score": 1
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Draft-Proposal.md",
+          "score": 19
+        },
+        {
+          "page": "Assistant.md",
+          "score": 11
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 8
+        },
+        {
+          "page": "FAQ.md",
+          "score": 7
+        },
+        {
+          "page": "ToDo.md",
+          "score": 7
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Sales.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 1
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.4511
+    },
+    {
+      "id": "X07-it",
+      "hint": "Sales",
+      "ranking": [
+        {
+          "page": "Sales.md",
+          "score": 25
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 23
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 19
+        },
+        {
+          "page": "ToDo.md",
+          "score": 14
+        },
+        {
+          "page": "FAQ.md",
+          "score": 12
+        },
+        {
+          "page": "Users.md",
+          "score": 5
+        },
+        {
+          "page": "Assistant.md",
+          "score": 8
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 12
+        },
+        {
+          "page": "Home.md",
+          "score": 5
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 3
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Draft-Proposal.md",
+          "score": 22
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 17
+        },
+        {
+          "page": "FAQ.md",
+          "score": 11
+        },
+        {
+          "page": "ToDo.md",
+          "score": 12
+        },
+        {
+          "page": "Assistant.md",
+          "score": 8
+        },
+        {
+          "page": "Sales.md",
+          "score": 18
+        },
+        {
+          "page": "Users.md",
+          "score": 4
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 11
+        },
+        {
+          "page": "Home.md",
+          "score": 4
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 3
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.2842
+    },
+    {
+      "id": "X08-en",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 11
+        },
+        {
+          "page": "Assistant.md",
+          "score": 29
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 11
+        },
+        {
+          "page": "Home.md",
+          "score": 6
+        },
+        {
+          "page": "FAQ.md",
+          "score": 9
+        },
+        {
+          "page": "Leads.md",
+          "score": 4
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 4
+        },
+        {
+          "page": "ToDo.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 1
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Assistant.md",
+          "score": 28
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 10
+        },
+        {
+          "page": "FAQ.md",
+          "score": 9
+        },
+        {
+          "page": "ToDo.md",
+          "score": 3
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 3
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 1
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 1
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.4384
+    },
+    {
+      "id": "X09-it",
+      "hint": "Leads",
+      "ranking": [
+        {
+          "page": "Assistant.md",
+          "score": 30
+        },
+        {
+          "page": "Leads.md",
+          "score": 11
+        },
+        {
+          "page": "FAQ.md",
+          "score": 11
+        },
+        {
+          "page": "Home.md",
+          "score": 7
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 11
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 7
+        },
+        {
+          "page": "Accounts.md",
+          "score": 4
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 3
+        },
+        {
+          "page": "Marketing.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 1
+        },
+        {
+          "page": "ToDo.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Assistant.md",
+          "score": 26
+        },
+        {
+          "page": "FAQ.md",
+          "score": 7
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "ToDo.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.3115
+    },
+    {
+      "id": "X10-it",
+      "hint": "Leads",
+      "ranking": [
+        {
+          "page": "Leads.md",
+          "score": 39
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 32
+        },
+        {
+          "page": "FAQ.md",
+          "score": 18
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 29
+        },
+        {
+          "page": "Home.md",
+          "score": 15
+        },
+        {
+          "page": "Assistant.md",
+          "score": 17
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 25
+        },
+        {
+          "page": "Accounts.md",
+          "score": 9
+        },
+        {
+          "page": "Users.md",
+          "score": 11
+        },
+        {
+          "page": "Marketing.md",
+          "score": 10
+        },
+        {
+          "page": "ToDo.md",
+          "score": 13
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 7
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 10
+        },
+        {
+          "page": "Sales.md",
+          "score": 8
+        },
+        {
+          "page": "Calendar.md",
+          "score": 4
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Lead-Detail.md",
+          "score": 28
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 25
+        },
+        {
+          "page": "FAQ.md",
+          "score": 14
+        },
+        {
+          "page": "ToDo.md",
+          "score": 13
+        },
+        {
+          "page": "Leads.md",
+          "score": 28
+        },
+        {
+          "page": "Home.md",
+          "score": 11
+        },
+        {
+          "page": "Assistant.md",
+          "score": 13
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 10
+        },
+        {
+          "page": "Users.md",
+          "score": 9
+        },
+        {
+          "page": "Sales.md",
+          "score": 8
+        },
+        {
+          "page": "Accounts.md",
+          "score": 5
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 14
+        },
+        {
+          "page": "Marketing.md",
+          "score": 7
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 4
+        },
+        {
+          "page": "Calendar.md",
+          "score": 3
+        }
+      ],
+      "ms": 0.2109
+    },
+    {
+      "id": "X11-en",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 24
+        },
+        {
+          "page": "Leads.md",
+          "score": 27
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 16
+        },
+        {
+          "page": "Home.md",
+          "score": 7
+        },
+        {
+          "page": "FAQ.md",
+          "score": 10
+        },
+        {
+          "page": "Users.md",
+          "score": 6
+        },
+        {
+          "page": "Assistant.md",
+          "score": 7
+        },
+        {
+          "page": "Accounts.md",
+          "score": 8
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 7
+        },
+        {
+          "page": "ToDo.md",
+          "score": 7
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 5
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Sales.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Leads.md",
+          "score": 26
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 15
+        },
+        {
+          "page": "FAQ.md",
+          "score": 10
+        },
+        {
+          "page": "Accounts.md",
+          "score": 8
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 14
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 7
+        },
+        {
+          "page": "ToDo.md",
+          "score": 7
+        },
+        {
+          "page": "Assistant.md",
+          "score": 6
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 4
+        },
+        {
+          "page": "Users.md",
+          "score": 4
+        },
+        {
+          "page": "Marketing.md",
+          "score": 4
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 4
+        },
+        {
+          "page": "Home.md",
+          "score": 4
+        },
+        {
+          "page": "Sales.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        }
+      ],
+      "ms": 0.3237
+    },
+    {
+      "id": "X12-it",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "ToDo.md",
+          "score": 1
+        },
+        {
+          "page": "Assistant.md",
+          "score": 1
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 1
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 1
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "ToDo.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.1848
+    },
+    {
+      "id": "X13-en",
+      "hint": "Sales",
+      "ranking": [
+        {
+          "page": "Sales.md",
+          "score": 30
+        },
+        {
+          "page": "ToDo.md",
+          "score": 17
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 21
+        },
+        {
+          "page": "FAQ.md",
+          "score": 13
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 19
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 15
+        },
+        {
+          "page": "Home.md",
+          "score": 7
+        },
+        {
+          "page": "Assistant.md",
+          "score": 9
+        },
+        {
+          "page": "Marketing.md",
+          "score": 7
+        },
+        {
+          "page": "Users.md",
+          "score": 5
+        },
+        {
+          "page": "Accounts.md",
+          "score": 3
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Sales.md",
+          "score": 23
+        },
+        {
+          "page": "ToDo.md",
+          "score": 15
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 19
+        },
+        {
+          "page": "FAQ.md",
+          "score": 12
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 18
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 14
+        },
+        {
+          "page": "Assistant.md",
+          "score": 9
+        },
+        {
+          "page": "Marketing.md",
+          "score": 7
+        },
+        {
+          "page": "Home.md",
+          "score": 6
+        },
+        {
+          "page": "Users.md",
+          "score": 4
+        },
+        {
+          "page": "Accounts.md",
+          "score": 3
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Calendar.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        }
+      ],
+      "ms": 0.2271
+    },
+    {
+      "id": "X14-it",
+      "hint": "Sales",
+      "ranking": [
+        {
+          "page": "Sales.md",
+          "score": 24
+        },
+        {
+          "page": "Draft-Proposal.md",
+          "score": 19
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 16
+        },
+        {
+          "page": "ToDo.md",
+          "score": 12
+        },
+        {
+          "page": "FAQ.md",
+          "score": 9
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 12
+        },
+        {
+          "page": "Home.md",
+          "score": 5
+        },
+        {
+          "page": "Users.md",
+          "score": 4
+        },
+        {
+          "page": "Assistant.md",
+          "score": 6
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+        {
+          "page": "Draft-Proposal.md",
+          "score": 18
+        },
+        {
+          "page": "Assistant.md",
+          "score": 6
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 14
+        },
+        {
+          "page": "FAQ.md",
+          "score": 8
+        },
+        {
+          "page": "Lead-Detail.md",
+          "score": 11
+        },
+        {
+          "page": "Sales.md",
+          "score": 17
+        },
+        {
+          "page": "ToDo.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 4
+        },
+        {
+          "page": "Leads.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 3
+        },
+        {
+          "page": "Accounts.md",
+          "score": 2
+        },
+        {
+          "page": "Dashboard.md",
+          "score": 2
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 2
+        },
+        {
+          "page": "Calendar.md",
+          "score": 1
+        }
+      ],
+      "ms": 0.2273
+    },
+    {
+      "id": "X15-it",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Assistant.md",
+          "score": 1
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 1
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 1
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+      ],
+      "ms": 0.1473
+    },
+    {
+      "id": "X16-it",
+      "hint": "Dashboard",
+      "ranking": [
+        {
+          "page": "Dashboard.md",
+          "score": 10
+        },
+        {
+          "page": "Home.md",
+          "score": 3
+        },
+        {
+          "page": "Users.md",
+          "score": 2
+        },
+        {
+          "page": "Assistant.md",
+          "score": 1
+        },
+        {
+          "page": "Data-Model.md",
+          "score": 1
+        },
+        {
+          "page": "Getting-Started.md",
+          "score": 1
+        },
+        {
+          "page": "Leads.md",
+          "score": 1
+        }
+      ],
+      "rankingNoHint": [
+      ],
+      "ms": 0.214
+    }
+  ]
+}

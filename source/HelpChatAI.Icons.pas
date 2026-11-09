@@ -35,6 +35,8 @@
 ///  <c>resources\HelpChatAI.Providers.rc</c>, the build, a name in
 ///  <c>HELPCHAT_PROVIDER_ICONS</c> and, when a model name points to it, a
 ///  prefix in <see cref="HelpChatProviderIconFor" />.
+///  The same resource carries the flags of the languages of the chat
+///  (circle-flags, MIT, from <c>Imageslags</c>), one per language code.
 /// </summary>
 unit HelpChatAI.Icons;
 
@@ -60,6 +62,10 @@ function HelpChatProviderIconSvg(const AId: string): string;
 /// nothing is known, which is what docsearch and stub get.</summary>
 function HelpChatProviderIconFor(const AModel, ABaseUrl, AProvider: string): string;
 
+/// <summary>The round flag of a language, by ISO code ("en", "it", "es",
+/// "fr", "de", "pt"), as SVG; empty for a code without one.</summary>
+function HelpChatFlagSvg(const ALanguageCode: string): string;
+
 implementation
 
 uses
@@ -76,20 +82,16 @@ begin
   Result := MatchText(Trim(AId), HELPCHAT_PROVIDER_ICONS);
 end;
 
-function HelpChatProviderIconSvg(const AId: string): string;
+/// <summary>The SVG text of an RCDATA resource; empty when there is none.</summary>
+function ResourceSvg(const AName: string): string;
 var
-  LName: string;
   LStream: TResourceStream;
   LBytes: TBytes;
-  LStart, LStop: Integer;
 begin
   Result := '';
-  if not HelpChatProviderIconExists(AId) then
+  if FindResource(HInstance, PChar(AName), RT_RCDATA) = 0 then
     Exit;
-  LName := 'HCICON_' + Trim(AId).ToUpper;
-  if FindResource(HInstance, PChar(LName), RT_RCDATA) = 0 then
-    Exit;
-  LStream := TResourceStream.Create(HInstance, LName, RT_RCDATA);
+  LStream := TResourceStream.Create(HInstance, AName, RT_RCDATA);
   try
     SetLength(LBytes, LStream.Size);
     if LStream.Size > 0 then
@@ -98,6 +100,34 @@ begin
     LStream.Free;
   end;
   Result := TEncoding.UTF8.GetString(LBytes);
+end;
+
+function HelpChatFlagSvg(const ALanguageCode: string): string;
+var
+  LCode: string;
+  C: Char;
+begin
+  Result := '';
+  LCode := Trim(ALanguageCode).ToUpper;
+  // Two letters and nothing else: the code becomes part of a resource name.
+  if LCode.Length <> 2 then
+    Exit;
+  for C in LCode do
+    if not CharInSet(C, ['A'..'Z']) then
+      Exit;
+  Result := ResourceSvg('HCFLAG_' + LCode);
+end;
+
+function HelpChatProviderIconSvg(const AId: string): string;
+var
+  LStart, LStop: Integer;
+begin
+  Result := '';
+  if not HelpChatProviderIconExists(AId) then
+    Exit;
+  Result := ResourceSvg('HCICON_' + Trim(AId).ToUpper);
+  if Result = '' then
+    Exit;
   // The title of the file would become a tooltip of the browser's own.
   LStart := Result.IndexOf('<title>');
   if LStart >= 0 then

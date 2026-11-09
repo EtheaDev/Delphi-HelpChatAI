@@ -95,12 +95,23 @@ const
     'pages you actually used, and none when the documentation does not cover the question. ' +
     'Be concise and practical: a few sentences or a short numbered list of steps. ' +
     'Use only light Markdown: bold, lists, links, inline code.';
-  /// <summary>Appended to the system prompt with the configured language name:
-  /// the chat speaks the language of the application, and follows the user only
-  /// when the user clearly switches.</summary>
+  /// <summary>Appended to the system prompt with the name of the language of
+  /// the chat (the configured one, or the flag the user picked in the panel):
+  /// the model follows the user only when the user clearly switches.</summary>
   HELPCHAT_MODEL_DEF_LANGUAGE_RULE =
-    'The user interface of the application is in %0:s. Reply in %0:s, unless the user ' +
+    'The language of this chat is %0:s. Reply in %0:s, unless the user ' +
     'clearly writes in another language: in that case reply in the language of the user.';
+  /// <summary>Appended when <c>DocLanguage</c> says the documentation is
+  /// written in a language other than the one of the chat (%0:s the
+  /// documentation, %1:s the chat). A translated caption is a caption the
+  /// user cannot find on the screen: the application shows the words of its
+  /// manual, so the names are kept and the explanation is translated.</summary>
+  HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE =
+    'The documentation excerpts and the application itself are in %0:s, while the user reads ' +
+    'your reply in %1:s. Write the explanation in %1:s, but write the names of screens, menus, ' +
+    'buttons, fields and options exactly as the documentation spells them, in %0:s, so that ' +
+    'the user finds them on the screen; when it helps, add a translation in brackets the ' +
+    'first time a name appears.';
   /// <summary>Appended to the system prompt with the date of today,
   /// written out in English: a model has no calendar, and one asked for a
   /// document dates it "today" unless it is told what today is.</summary>
@@ -572,6 +583,8 @@ type
     FMaxStoredMessages: Integer;
     FGreeting: string;
     FLanguage: THelpChatLanguage;
+    FLanguages: THelpChatLanguages;
+    FDocLanguage: THelpChatLanguage;
     FDocIndexFile: string;
     FDocBaseUrl: string;
     FDocFolder: string;
@@ -639,6 +652,11 @@ type
 
     /// <summary>The greeting to show: <c>Greeting</c> when set, else the localized default.</summary>
     function ResolveGreeting: string;
+    /// <summary>The language the chat speaks, never <c>hclAuto</c>:
+    /// <c>Language</c>, or the OS locale when that is auto, as long as it is
+    /// one of <c>Languages</c>; otherwise English if offered, else the first
+    /// language offered.</summary>
+    function ResolveLanguage: THelpChatLanguage;
     /// <summary>The conversation file: <c>ConversationFile</c> when set, else
     /// <c>helpchatai-conversation.json</c> in the per-user application data folder.</summary>
     function ResolveConversationFile: string;
@@ -661,8 +679,9 @@ type
 
     /// <summary>Merges a JSON document into these settings: only the keys present
     /// are applied, so a partial file (e.g. just the API key) is fine. Keys are
-    /// the property names, case-insensitive; <c>Language</c> is "auto", "en" or
-    /// "it"; the Claude settings live in a nested <c>"Claude"</c> object.
+    /// the property names, case-insensitive; <c>Language</c> and
+    /// <c>DocLanguage</c> are "auto" or an ISO code ("en", "it", "es", "fr",
+    /// "de", "pt"), <c>Languages</c> an array of codes; the Claude settings live in a nested <c>"Claude"</c> object.
     /// Raises EHelpChatConfigError on malformed JSON.</summary>
     procedure LoadFromJSON(const AJson: string);
     /// <summary>Every setting as a JSON document (the API key included: keep the
@@ -716,7 +735,21 @@ type
     property MaxStoredMessages: Integer read FMaxStoredMessages write FMaxStoredMessages default HELPCHAT_DEF_STOREDMAXMSG;
     /// <summary>First assistant bubble. Empty = localized default.</summary>
     property Greeting: string read FGreeting write FGreeting;
+    /// <summary>Language of the chat: the strings of the panel and the
+    /// language the model replies in. <c>hclAuto</c> = the OS locale. The
+    /// user may change it in the panel among <c>Languages</c>, and the
+    /// choice is remembered next to the conversation, like the assistant.</summary>
     property Language: THelpChatLanguage read FLanguage write FLanguage default hclAuto;
+    /// <summary>The languages the user may pick from the flag of the panel;
+    /// with fewer than two there is no flag. Default: all of them.</summary>
+    property Languages: THelpChatLanguages read FLanguages write FLanguages
+      default [hclEnglish, hclItalian, hclSpanish, hclFrench, hclGerman, hclPortuguese];
+    /// <summary>The language the documentation (and the application) is
+    /// written in. When it differs from the language of the chat the model
+    /// is told to translate the explanation and keep the names of screens,
+    /// buttons and fields as the documentation spells them. <c>hclAuto</c> =
+    /// not stated, no such rule.</summary>
+    property DocLanguage: THelpChatLanguage read FDocLanguage write FDocLanguage default hclAuto;
     /// <summary>JSON documentation index for docsearch and Claude grounding.</summary>
     property DocIndexFile: string read FDocIndexFile write FDocIndexFile;
     /// <summary>Prefix of the documentation links produced from the index.</summary>
@@ -829,24 +862,54 @@ end;
 
 function LanguageToConfig(const ALanguage: THelpChatLanguage): string;
 begin
-  case ALanguage of
-    hclEnglish: Result := 'en';
-    hclItalian: Result := 'it';
+  if ALanguage = hclAuto then
+    Result := 'auto'
   else
-    Result := 'auto';
-  end;
+    Result := HelpChatLanguageCode(ALanguage);
 end;
 
 function ConfigToLanguage(const AValue: string; const ADefault: THelpChatLanguage): THelpChatLanguage;
 begin
-  if SameText(AValue, 'en') or SameText(AValue, 'english') then
-    Result := hclEnglish
-  else if SameText(AValue, 'it') or SameText(AValue, 'italian') or SameText(AValue, 'italiano') then
-    Result := hclItalian
-  else if SameText(AValue, 'auto') then
-    Result := hclAuto
-  else
+  if not HelpChatLanguageFromCode(AValue, Result) then
     Result := ADefault;
+end;
+
+/// <summary>"Languages": an array of codes, or one string of codes separated
+/// by commas. Unknown codes are skipped; a value naming none keeps ADefault.</summary>
+function JsonLanguages(const AValue: TJSONValue; const ADefault: THelpChatLanguages): THelpChatLanguages;
+var
+  LCodes: TArray<string>;
+  LCode: string;
+  LItem: TJSONValue;
+  L: THelpChatLanguage;
+begin
+  Result := ADefault;
+  LCodes := nil;
+  if AValue is TJSONArray then
+  begin
+    for LItem in TJSONArray(AValue) do
+      if LItem is TJSONString then
+        LCodes := LCodes + [TJSONString(LItem).Value];
+  end
+  else if AValue is TJSONString then
+    LCodes := TJSONString(AValue).Value.Split([',', ';', ' '], TStringSplitOptions.ExcludeEmpty)
+  else
+    Exit;
+  Result := [];
+  for LCode in LCodes do
+    if HelpChatLanguageFromCode(LCode, L) and (L <> hclAuto) then
+      Include(Result, L);
+  if Result = [] then
+    Result := ADefault;
+end;
+
+function LanguagesToJson(const ALanguages: THelpChatLanguages): TJSONArray;
+var
+  L: THelpChatLanguage;
+begin
+  Result := TJSONArray.Create;
+  for L in HelpChatLanguageList(ALanguages) do
+    Result.Add(HelpChatLanguageCode(L));
 end;
 
 function HelpChatAppDataFolder: string;
@@ -1465,6 +1528,8 @@ begin
   FHistoryMaxMessages := HELPCHAT_DEF_HISTMAXMSG;
   FMaxStoredMessages := HELPCHAT_DEF_STOREDMAXMSG;
   FLanguage := hclAuto;
+  FLanguages := HELPCHAT_ALL_LANGUAGES;
+  FDocLanguage := hclAuto;
   FPersistConversation := HELPCHAT_DEF_PERSIST;
   FConversationMaxAgeDays := HELPCHAT_DEF_CONVERSATION_MAXAGE_DAYS;
   // The sections are created here and never replaced (the setters Assign into
@@ -1707,6 +1772,8 @@ begin
       FMaxStoredMessages := LSource.FMaxStoredMessages;
       FGreeting := LSource.FGreeting;
       FLanguage := LSource.FLanguage;
+      FLanguages := LSource.FLanguages;
+      FDocLanguage := LSource.FDocLanguage;
       FDocIndexFile := LSource.FDocIndexFile;
       FDocBaseUrl := LSource.FDocBaseUrl;
       FDocFolder := LSource.FDocFolder;
@@ -1769,6 +1836,25 @@ begin
     Result := HelpChatMsg(hcmGreeting, FLanguage);
 end;
 
+function THelpChatSettings.ResolveLanguage: THelpChatLanguage;
+var
+  LOffered: THelpChatLanguages;
+  LList: TArray<THelpChatLanguage>;
+begin
+  // Not HelpChatResolveLanguage: that one reads the process-wide default,
+  // which is what this result is written into.
+  Result := FLanguage;
+  if Result = hclAuto then
+    Result := HelpChatSystemLanguage;
+  LOffered := FLanguages * HELPCHAT_ALL_LANGUAGES;
+  if (LOffered = []) or (Result in LOffered) then
+    Exit;
+  if hclEnglish in LOffered then
+    Exit(hclEnglish);
+  LList := HelpChatLanguageList(LOffered);
+  Result := LList[0];
+end;
+
 function THelpChatSettings.ResolveConversationFile: string;
 begin
   Result := Trim(FConversationFile);
@@ -1823,6 +1909,8 @@ begin
     FMaxStoredMessages := JsonInt(LRoot, 'MaxStoredMessages', FMaxStoredMessages);
     FGreeting := JsonStr(LRoot, 'Greeting', FGreeting);
     FLanguage := ConfigToLanguage(JsonStr(LRoot, 'Language', ''), FLanguage);
+    FLanguages := JsonLanguages(JsonFind(LRoot, 'Languages'), FLanguages);
+    FDocLanguage := ConfigToLanguage(JsonStr(LRoot, 'DocLanguage', ''), FDocLanguage);
     FDocIndexFile := JsonStr(LRoot, 'DocIndexFile', FDocIndexFile);
     FDocBaseUrl := JsonStr(LRoot, 'DocBaseUrl', FDocBaseUrl);
     FDocFolder := JsonStr(LRoot, 'DocFolder', FDocFolder);
@@ -1856,6 +1944,8 @@ begin
     LRoot.AddPair('Assistant', FAssistant);
     LRoot.AddPair('Assistants', SaveAssistantsToJSON);
     LRoot.AddPair('Language', LanguageToConfig(FLanguage));
+    LRoot.AddPair('Languages', LanguagesToJson(FLanguages));
+    LRoot.AddPair('DocLanguage', LanguageToConfig(FDocLanguage));
     LRoot.AddPair('Greeting', FGreeting);
     LRoot.AddPair('DocIndexFile', FDocIndexFile);
     LRoot.AddPair('DocBaseUrl', FDocBaseUrl);

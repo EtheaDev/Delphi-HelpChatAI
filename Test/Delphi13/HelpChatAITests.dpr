@@ -51,7 +51,8 @@ uses
   HelpChatAI.Tests.Pdf in '..\source\HelpChatAI.Tests.Pdf.pas',
   HelpChatAI.Tests.Theme in '..\source\HelpChatAI.Tests.Theme.pas',
   HelpChatAI.Tests.Assistants in '..\source\HelpChatAI.Tests.Assistants.pas',
-  HelpChatAI.Tests.Commands in '..\source\HelpChatAI.Tests.Commands.pas';
+  HelpChatAI.Tests.Commands in '..\source\HelpChatAI.Tests.Commands.pas',
+  HelpChatAI.Tests.Conversation in '..\source\HelpChatAI.Tests.Conversation.pas';
 
 {$IFNDEF TESTINSIGHT}
 var

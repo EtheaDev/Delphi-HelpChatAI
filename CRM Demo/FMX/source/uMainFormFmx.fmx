@@ -3955,6 +3955,7 @@ object MainFormFmx: TMainFormFmx
     Settings.DocIndexFile = '..\..\Help\help-index.json'
     Settings.DocFolder = '..\..\Help'
     Settings.Language = hclEnglish
+    Settings.DocLanguage = hclEnglish
     OnGetContext = HelpChatGetContext
     OnDecryptSecret = HelpChatDecryptSecret
     Left = 540

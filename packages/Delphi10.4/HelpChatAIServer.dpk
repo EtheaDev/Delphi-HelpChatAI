@@ -41,7 +41,7 @@ package HelpChatAIServer;
 {$DESCRIPTION 'Ethea HelpChatAI Local HTTP Transport (Indy)'}
 {$LIBSUFFIX AUTO}
 {$RUNONLY}
-{$IMPLICITBUILD ON}
+{$IMPLICITBUILD OFF}
 
 requires
   rtl,

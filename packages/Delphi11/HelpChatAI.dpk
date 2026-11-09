@@ -53,7 +53,7 @@ package HelpChatAI;
 {$DESCRIPTION 'Ethea HelpChatAI Engine (framework independent)'}
 {$LIBSUFFIX AUTO}
 {$RUNONLY}
-{$IMPLICITBUILD ON}
+{$IMPLICITBUILD OFF}
 
 requires
   rtl,

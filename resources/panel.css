@@ -109,6 +109,19 @@ body {
 .hc-chat-agent-item svg { width: 22px; height: 22px; flex: 0 0 auto; }
 .hc-chat-agent-text { display: flex; flex-direction: column; min-width: 0; }
 .hc-chat-agent-name { font-weight: 600; }
+/* The flag of the language: round already, a little smaller than the icon
+   of the assistant next to it, with a hairline so a white flag shows on a
+   white header */
+.hc-chat-hbtn.hc-chat-lang svg { width: 20px; height: 20px; border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--hc-border); }
+.hc-chat-langs { min-width: 170px; }
+/* The answer of /lang: one flag per line */
+.hc-chat-system .hc-chat-bubble ul.hc-chat-langlist { list-style: none; margin-left: 0; }
+.hc-chat-langlist li { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+.hc-chat-langlist svg { width: 16px; height: 16px; border-radius: 50%; flex: 0 0 auto;
+  box-shadow: 0 0 0 1px var(--hc-border); }
+.hc-chat-langs .hc-chat-agent-item svg { width: 20px; height: 20px; border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--hc-border); }
 /* The answer of /prompt: the whole system prompt, excerpts included */
 .hc-chat-prompt {
   white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.35;

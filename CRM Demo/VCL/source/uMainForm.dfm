@@ -6474,6 +6474,7 @@ object MainForm: TMainForm
     Settings.DocIndexFile = '..\..\Help\help-index.json'
     Settings.DocFolder = '..\..\Help'
     Settings.Language = hclEnglish
+    Settings.DocLanguage = hclEnglish
     OnActionExecuted = HelpChatActionExecuted
     OnDecryptSecret = HelpChatDecryptSecret
     OnGetContext = HelpChatGetContext

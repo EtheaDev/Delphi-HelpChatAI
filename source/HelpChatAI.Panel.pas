@@ -63,6 +63,10 @@ const
   /// <summary>POST /api/ui/{command}: the page asks the host something it cannot
   /// do itself ('close'). The transport hands it to the UI layer.</summary>
   HELPCHAT_API_UI = '/api/ui/';
+  /// <summary>The UI command a local server raises by itself after the
+  /// language of the chat changed: the host rewrites the captions it owns
+  /// (its window, the hint of the bubble) while the page reloads.</summary>
+  HELPCHAT_UI_LANGUAGE = 'language';
   /// <summary>POST /api/context: the native client hands the transport the screen
   /// the user is on. Local transports keep it in memory; a remote one posts it.</summary>
   HELPCHAT_API_CONTEXT = '/api/context';
@@ -84,6 +88,18 @@ const
   /// name that is not in the list, 403 when the server does not let a client
   /// choose (a remote engine is everybody's).</summary>
   HELPCHAT_API_ASSISTANT_SELECT = '/api/assistant/select';
+  /// <summary>GET: the languages the user may pick, as JSON (<c>items</c> with
+  /// the ISO <c>code</c>, the <c>name</c> in that language, the English
+  /// <c>english</c>, the round flag as <c>svg</c> and <c>active</c>;
+  /// <c>canSelect</c> whether a POST to
+  /// <see cref="HELPCHAT_API_LANGUAGE_SELECT" /> is accepted).</summary>
+  HELPCHAT_API_LANGUAGES = '/api/languages';
+  /// <summary>POST <c>code=</c>: makes that language the language of the chat
+  /// and answers with the list as above; the page then reloads itself, since
+  /// its labels are written into it. 404 for a language that is not offered,
+  /// 403 when the server does not let a client choose (a remote engine is
+  /// everybody's, exactly as for the assistant).</summary>
+  HELPCHAT_API_LANGUAGE_SELECT = '/api/language/select';
   /// <summary>GET: every slash command, as JSON (<c>name</c>, localized
   /// <c>title</c> and <c>description</c>, <c>local</c> when the page answers
   /// it by itself, <c>enabled</c> when the user may type it). The host may
@@ -342,9 +358,11 @@ begin
     LRoot.AddPair('sendError', HelpChatMsg(hcmUiSendError, ALanguage));
     LRoot.AddPair('back', HelpChatMsg(hcmUiBack, ALanguage));
     LRoot.AddPair('changeAssistant', HelpChatMsg(hcmUiChangeAssistant, ALanguage));
+    LRoot.AddPair('changeLanguage', HelpChatMsg(hcmUiChangeLanguage, ALanguage));
     // What the page says about the commands it answers by itself.
     LRoot.AddPair('cmdUnknown', HelpChatMsg(hcmCmdUnknown, ALanguage));
     LRoot.AddPair('cmdNoAssistant', HelpChatMsg(hcmCmdNoAssistant, ALanguage));
+    LRoot.AddPair('cmdNoLanguage', HelpChatMsg(hcmCmdNoLanguage, ALanguage));
     LRoot.AddPair('cmdNoQuestion', HelpChatMsg(hcmCmdNoQuestion, ALanguage));
     LRoot.AddPair('cmdStats', HelpChatMsg(hcmCmdStatsLine, ALanguage));
     LRoot.AddPair('cmdNoStats', HelpChatMsg(hcmCmdNoStats, ALanguage));

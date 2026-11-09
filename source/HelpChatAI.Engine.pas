@@ -84,13 +84,18 @@ type
     FConversationKey: string;
     FActions: IHelpChatActionInvoker;
     FActive: Boolean;
+    /// <summary>The code of the language the user chose (now or at a past
+    /// start); empty while the configuration decides, so that a state file
+    /// never freezes a language nobody picked.</summary>
+    FChosenLanguage: string;
     FOnMessageChanged: THelpChatMessageEvent;
     procedure StoreChanged(const AKey, AMessageId: string);
     procedure EnsureActive;
     function StateFile: string;
-    function LoadAssistantState: string;
-    procedure SaveAssistantState;
+    function LoadState(const AName: string): string;
+    procedure SaveState;
     procedure ApplyAssistantState;
+    procedure ApplyLanguageState;
   public
     /// <summary>With <c>ASettings = nil</c> the engine creates and owns its own
     /// settings; otherwise it uses the given instance (owned when AOwnsSettings).</summary>
@@ -156,6 +161,20 @@ type
     function SelectAssistant(const AName: string): Boolean;
     /// <summary>True when there is more than one assistant to choose from.</summary>
     function CanSelectAssistant: Boolean;
+
+    /// <summary>The languages the panel offers (<c>Settings.Languages</c>),
+    /// in the order of the enumeration.</summary>
+    function Languages: TArray<THelpChatLanguage>;
+    /// <summary>The language the chat speaks now, never <c>hclAuto</c>.</summary>
+    function ActiveLanguage: THelpChatLanguage;
+    /// <summary>Makes ALanguage the language of the chat: the strings of the
+    /// panel (on its next load) and of the engine, and the language the
+    /// model replies in from the next question on. Remembered for the next
+    /// start when the conversation is persisted, like the assistant. False
+    /// when the language is not one of <c>Settings.Languages</c>.</summary>
+    function SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
+    /// <summary>True when there is more than one language to choose from.</summary>
+    function CanSelectLanguage: Boolean;
 
     /// <summary>The greeting bubble text (settings or localized default).</summary>
     function Greeting: string;
@@ -251,7 +270,10 @@ var
 begin
   if FActive then
     Exit;
-  HelpChatDefaultLanguage := FSettings.Language;
+  // The language the user picked last time, if it is still offered; then
+  // the one every hclAuto of this process resolves to.
+  ApplyLanguageState;
+  HelpChatDefaultLanguage := FSettings.ResolveLanguage;
   // The assistant in use decides the provider and the model before anything
   // below reads them (the excerpt size of the index comes from the model).
   ApplyAssistantState;
@@ -435,7 +457,7 @@ begin
     HELPCHAT_DEF_STATE_FILENAME);
 end;
 
-function THelpChatEngine.LoadAssistantState: string;
+function THelpChatEngine.LoadState(const AName: string): string;
 var
   LValue: TJSONValue;
 begin
@@ -446,7 +468,7 @@ begin
     LValue := TJSONObject.ParseJSONValue(TFile.ReadAllText(StateFile, TEncoding.UTF8));
     try
       if LValue is TJSONObject then
-        Result := TJSONObject(LValue).GetValue<string>('Assistant', '');
+        Result := TJSONObject(LValue).GetValue<string>(AName, '');
     finally
       LValue.Free;
     end;
@@ -456,7 +478,7 @@ begin
   end;
 end;
 
-procedure THelpChatEngine.SaveAssistantState;
+procedure THelpChatEngine.SaveState;
 var
   LRoot: TJSONObject;
 begin
@@ -464,7 +486,10 @@ begin
     Exit;
   LRoot := TJSONObject.Create;
   try
+    // Both choices of the user, always together: writing one must not lose the other.
     LRoot.AddPair('Assistant', FSettings.ActiveAssistantName);
+    if FChosenLanguage <> '' then
+      LRoot.AddPair('Language', FChosenLanguage);
     try
       TDirectory.CreateDirectory(TPath.GetDirectoryName(StateFile));
       TFile.WriteAllText(StateFile, LRoot.Format(2), TEncoding.UTF8);
@@ -484,7 +509,7 @@ begin
     Exit;
   LName := '';
   if FSettings.PersistConversation then
-    LName := LoadAssistantState;
+    LName := LoadState('Assistant');
   // The remembered one, if it is still in the list; else what the configuration names.
   if (LName = '') or not FSettings.ApplyAssistant(LName) then
     FSettings.ApplyAssistant(FSettings.ActiveAssistantName);
@@ -525,12 +550,56 @@ begin
     Exit;
   if Assigned(FDocIndex) then
     FDocIndex.ExcerptMaxChars := FSettings.ActiveModel.GroundingMaxChars;
-  SaveAssistantState;
+  SaveState;
 end;
 
 function THelpChatEngine.CanSelectAssistant: Boolean;
 begin
   Result := FSettings.Assistants.Count > 1;
+end;
+
+procedure THelpChatEngine.ApplyLanguageState;
+var
+  LLanguage: THelpChatLanguage;
+begin
+  if not FSettings.PersistConversation then
+    Exit;
+  // The remembered one, if it is still offered; else what the configuration says.
+  if HelpChatLanguageFromCode(LoadState('Language'), LLanguage) and
+     (LLanguage in FSettings.Languages * HELPCHAT_ALL_LANGUAGES) then
+  begin
+    FSettings.Language := LLanguage;
+    FChosenLanguage := HelpChatLanguageCode(LLanguage);
+  end;
+end;
+
+function THelpChatEngine.Languages: TArray<THelpChatLanguage>;
+begin
+  Result := HelpChatLanguageList(FSettings.Languages);
+end;
+
+function THelpChatEngine.ActiveLanguage: THelpChatLanguage;
+begin
+  Result := FSettings.ResolveLanguage;
+end;
+
+function THelpChatEngine.SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
+begin
+  Result := ALanguage in FSettings.Languages * HELPCHAT_ALL_LANGUAGES;
+  if not Result then
+    Exit;
+  // Written on the settings, not kept aside: every reader of the language
+  // (the snapshot of a request, the strings of a dialog, the page) reads it
+  // there. A reply being produced keeps the snapshot it started with.
+  FSettings.Language := ALanguage;
+  HelpChatDefaultLanguage := ALanguage;
+  FChosenLanguage := HelpChatLanguageCode(ALanguage);
+  SaveState;
+end;
+
+function THelpChatEngine.CanSelectLanguage: Boolean;
+begin
+  Result := Length(Languages) > 1;
 end;
 
 function THelpChatEngine.Greeting: string;

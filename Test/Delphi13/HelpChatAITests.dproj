@@ -96,6 +96,7 @@
         <DCCReference Include="..\source\HelpChatAI.Tests.Theme.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Assistants.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Commands.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.Conversation.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

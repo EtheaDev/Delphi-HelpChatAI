@@ -109,6 +109,17 @@ type
 /// <summary>Walks up from the executable to the folder holding "CRM Demo".</summary>
 function FindRepoRoot: string;
 
+/// <summary>
+///  Retrieval only, no model: runs the real <c>THelpChatDocIndex.Search</c> of
+///  AIndexFile for every question of AQuestionsFile (the questions.json of
+///  Test\LLMBench\embeddings) and writes the ranked pages to AOutFile as JSON.
+///  Each question is searched twice: with its screen as hint, exactly as
+///  BuildSystemPrompt does, and without. It is the lexical baseline the
+///  embedding measurement is compared with - measured on the Delphi code, not
+///  on a port of it.
+/// </summary>
+procedure RunRetrieval(const AIndexFile, AQuestionsFile, AOutFile: string);
+
 implementation
 
 uses
@@ -117,6 +128,8 @@ uses
   System.SyncObjs,
   System.Diagnostics,
   System.RegularExpressions,
+  System.JSON,
+  HelpChatAI.DocIndex,
   HelpChatAI.Messages,
   HelpChatAI.Provider,
   HelpChatAI.Provider.DocSearch,
@@ -145,6 +158,72 @@ begin
       Break;
   end;
   raise Exception.Create('Cannot locate the repository root (CRM Demo\Help\help-index.json)');
+end;
+
+procedure RunRetrieval(const AIndexFile, AQuestionsFile, AOutFile: string);
+const
+  // Every page that scores at all: the ranking, not only the prompt's top 3.
+  ALL_PAGES = 1000;
+
+  function Ranking(const AIndex: THelpChatDocIndex; const AQuery, AHint: string;
+    out AMs: Double): TJSONArray;
+  var
+    LPages: TArray<THelpChatDocPage>;
+    LPage: THelpChatDocPage;
+    LWatch: TStopwatch;
+  begin
+    LWatch := TStopwatch.StartNew;
+    LPages := AIndex.Search(AQuery, AHint, ALL_PAGES);
+    AMs := LWatch.Elapsed.TotalMilliseconds;
+    Result := TJSONArray.Create;
+    for LPage in LPages do
+      Result.Add(TJSONObject.Create
+        .AddPair('page', LPage.Url)
+        .AddPair('score', TJSONNumber.Create(LPage.Score)));
+  end;
+
+var
+  LIndex: THelpChatDocIndex;
+  LKeep: IHelpChatRetriever;
+  LInput, LOut, LItem: TJSONObject;
+  LQuestions: TJSONArray;
+  LResults: TJSONArray;
+  LValue: TJSONValue;
+  LText, LScreen: string;
+  LMsHint, LMsNone: Double;
+begin
+  LIndex := THelpChatDocIndex.Create;
+  LKeep := LIndex; // reference counted: the interface frees it
+  if not LIndex.LoadFromFile(AIndexFile) then
+    raise Exception.Create(LIndex.LastError);
+  LInput := TJSONObject.ParseJSONValue(TFile.ReadAllText(AQuestionsFile, TEncoding.UTF8)) as TJSONObject;
+  if LInput = nil then
+    raise Exception.CreateFmt('Not a JSON object: %s', [AQuestionsFile]);
+  LOut := TJSONObject.Create;
+  try
+    LQuestions := LInput.GetValue<TJSONArray>('questions');
+    LResults := TJSONArray.Create;
+    LOut.AddPair('index', AIndexFile);
+    LOut.AddPair('pages', TJSONNumber.Create(LIndex.Count));
+    LOut.AddPair('results', LResults);
+    for LValue in LQuestions do
+    begin
+      LText := LValue.GetValue<string>('text');
+      LScreen := LValue.GetValue<string>('screen', '');
+      LItem := TJSONObject.Create;
+      LItem.AddPair('id', LValue.GetValue<string>('id'));
+      LItem.AddPair('hint', LScreen);
+      LItem.AddPair('ranking', Ranking(LIndex, LText, LScreen, LMsHint));
+      LItem.AddPair('rankingNoHint', Ranking(LIndex, LText, '', LMsNone));
+      LItem.AddPair('ms', TJSONNumber.Create(LMsHint));
+      LResults.Add(LItem);
+    end;
+    TFile.WriteAllText(AOutFile, LOut.Format(2), TEncoding.UTF8);
+    Writeln(Format('%d questions over %d pages -> %s', [LResults.Count, LIndex.Count, AOutFile]));
+  finally
+    LOut.Free;
+    LInput.Free;
+  end;
 end;
 
 { TBenchRunner }

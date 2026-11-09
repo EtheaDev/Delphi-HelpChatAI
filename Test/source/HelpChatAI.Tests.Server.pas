@@ -60,6 +60,8 @@ type
     [Test] procedure Pdf_Disabled_Says403;
     [Test] procedure Assistants_List_AndSelect;
     [Test] procedure Assistants_Single_CannotSelect;
+    [Test] procedure Languages_List_AndSelect;
+    [Test] procedure Languages_Single_CannotSelect;
     [Test] procedure Commands_List_FollowsTheSession;
     [Test] procedure Command_Who_AndDisabledIs403;
   end;
@@ -662,6 +664,63 @@ begin
     LRoot.Free;
   end;
   Assert.AreEqual(403, Post(HELPCHAT_API_ASSISTANT_SELECT, 'name=' + TEST_PROVIDER_ECHO).StatusCode);
+end;
+
+procedure TServerTests.Languages_List_AndSelect;
+var
+  LResponse: IHTTPResponse;
+  LRoot: TJSONValue;
+  LItems: TJSONArray;
+  LSaved: THelpChatLanguage;
+begin
+  LSaved := HelpChatDefaultLanguage;
+  try
+    FSettings.Languages := [hclEnglish, hclItalian, hclGerman];
+    LResponse := Get(HELPCHAT_API_LANGUAGES);
+    Assert.AreEqual(200, LResponse.StatusCode);
+    LRoot := TJSONObject.ParseJSONValue(LResponse.ContentAsString(TEncoding.UTF8));
+    try
+      Assert.IsTrue(TJSONObject(LRoot).GetValue<Boolean>('canSelect'));
+      Assert.AreEqual('en', TJSONObject(LRoot).GetValue<string>('active'));
+      LItems := TJSONObject(LRoot).GetValue<TJSONArray>('items');
+      Assert.AreEqual(3, LItems.Count, 'only the languages offered');
+      Assert.AreEqual('it', LItems.Items[1].GetValue<string>('code'));
+      Assert.AreEqual('Italiano', LItems.Items[1].GetValue<string>('name'), 'each in its own language');
+      Assert.IsTrue(LItems.Items[2].GetValue<string>('svg').StartsWith('<svg'), 'the flag, inline');
+    finally
+      LRoot.Free;
+    end;
+
+    LResponse := Post(HELPCHAT_API_LANGUAGE_SELECT, 'code=it');
+    Assert.AreEqual(200, LResponse.StatusCode);
+    Assert.AreEqual(hclItalian, FSettings.Language, 'the switch reached the settings');
+    Assert.Contains(FClient.Get(FTransport.GetPanelUrl).ContentAsString(TEncoding.UTF8),
+      '<html lang="it">', 'the page is rendered in it');
+    Assert.Contains(FClient.Get(FTransport.GetPanelUrl).ContentAsString(TEncoding.UTF8),
+      '<title>Assistente</title>', 'and so is the default name of the assistant');
+
+    Assert.AreEqual(404, Post(HELPCHAT_API_LANGUAGE_SELECT, 'code=fr').StatusCode,
+      'French is not offered here');
+    Assert.AreEqual(404, Post(HELPCHAT_API_LANGUAGE_SELECT, 'code=klingon').StatusCode);
+    Assert.AreEqual(hclItalian, FSettings.Language, 'a refused code changes nothing');
+  finally
+    HelpChatDefaultLanguage := LSaved;
+  end;
+end;
+
+procedure TServerTests.Languages_Single_CannotSelect;
+var
+  LRoot: TJSONValue;
+begin
+  FSettings.Languages := [hclEnglish];
+  LRoot := TJSONObject.ParseJSONValue(Get(HELPCHAT_API_LANGUAGES).ContentAsString(TEncoding.UTF8));
+  try
+    Assert.IsFalse(TJSONObject(LRoot).GetValue<Boolean>('canSelect'));
+    Assert.AreEqual(1, TJSONObject(LRoot).GetValue<TJSONArray>('items').Count);
+  finally
+    LRoot.Free;
+  end;
+  Assert.AreEqual(403, Post(HELPCHAT_API_LANGUAGE_SELECT, 'code=en').StatusCode);
 end;
 
 procedure TServerTests.Commands_List_FollowsTheSession;

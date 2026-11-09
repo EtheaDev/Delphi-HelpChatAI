@@ -31,6 +31,13 @@ packages/Delphi13/       HelpChatAI, HelpChatAIServer, HelpChatAIVcl, HelpChatAI
                          dclHelpChatAIFmx (design) + groupproj
 packages/Delphi12/       the same six, for Delphi 12
 packages/Delphi11/, packages/Delphi10.4/   the four VCL and engine ones (FMX is Delphi 12+)
+packages/*.ps1           the command-line builds, shaped like those of the MarkdownProcessor:
+                         BuildPackages.ps1 (one project, one version), BuildAllPackages.ps1
+                         (every package in order, MarkdownProcessor first through its own
+                         BuildPackages.ps1, -DelphiVersion D10.4..D13 or All, a summary
+                         table), the four BuildAllPackagesD<ver>.ps1 wrappers, and
+                         BuildAndTestD13.ps1 (packages, tests, both demos, server, tool,
+                         then the test run: the check before a commit)
 packages/*.dcr           palette icons, shared by every version: per component a 32-bit DIB
                          named after the class (16, 24, 32, 128) plus the same PNGs as RCDATA
                          (<CLASS>_PNG, <CLASS>16_PNG...), the layout SVGIconImageListNew.dcr
@@ -41,11 +48,14 @@ Images/                  the icons as SVG and the PNGs rendered from them (compo
                          delphi-helpchat_*, assistant AIAssistant_* and Assistant_*); the two
                          delphi-helpchat_24/32.bmp are the flattened ones Delphi 10.4 needs,
                          and HelpChatAI-Box.svg/_256.png is where Setup\HelpChatSetup.ico
-                         comes from
+                         comes from; providers/ (lobe-icons) and flags/ (circle-flags, one
+                         per language: gb for English, pt for Portuguese) are the SVGs of
+                         HelpChatAI.Providers.res
 Setup/                   Setup.iss, BuildSetup.bat and HelpChatSetup.ico, the icon of the
                          installer and of the uninstaller; InnoSetupScripts is an svn:external
 README.htm               README.md as HTML, installed and linked as ReadMe in the Start menu:
-                         regenerate it whenever README.md changes
+                         the maintainer regenerates it after reviewing README.md, so an
+                         agent never edits it - change README.md and say the HTML is due
 Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
 "CRM Demo"/              the sample application, in two frameworks: the Windows 10 CRM demo
                          of Embarcadero with HelpChatAI in it, and one manual for both in
@@ -99,6 +109,9 @@ cmd /c "call C:\BDS\Studio\37.0\bin\rsvars.bat && msbuild Test\Delphi13\HelpChat
 Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
+All of it in one go, the MarkdownProcessor included: `packages\BuildAndTestD13.ps1`
+(`-Platform Win64`, `-Config Release`).
+
 Tests run without network. The one Claude test that would need a key skips itself when
 `ANTHROPIC_API_KEY` is set.
 
@@ -107,7 +120,7 @@ are UTF-8 **with BOM** and **CRLF**; `.dfm` and `.fmx` are **ANSI** (no BOM) and
 what the IDE writes; `.dproj` and `.groupproj` are CRLF too, for the same reason. Without the
 BOM `dcc32` reads a source as ANSI and every non-ASCII literal (Italian strings, test fixtures)
 is silently corrupted. After creating a `.pas`/`.dpr`/`.dpk`, add the BOM
-(`Tools\Build_Delphi13.cmd` does not do it):
+(`packages\BuildAndTestD13.ps1` does not do it):
 `sed -i '1s/^\xEF\xBB\xBF//;1s/^/\xEF\xBB\xBF/' file.pas`, and write it with CRLF. The
 exceptions are `Setup/InnoSetupScripts` and `Ext/MarkdownProcessor`, svn:externals shared with
 the other Ethea projects: their files are left exactly as those repositories have them.
@@ -125,7 +138,7 @@ the edit on every version, not on the one that happens to be open.
   `ProjectVersion` (19.2 / 19.5 / 20.3 / 20.4-20.5 — this is what the IDE and the installer match
   on), the `Lib/<version>` DCU folder and a couple of entries that appeared later differ
   (`<ProjectName>` and Win64x from 12, `<WelcomePageFile>` from 11). Adding a unit to a package
-  means editing all four `.dpk`/`.dproj` pairs. `Tools/Build_Packages.cmd all` builds every
+  means editing all four `.dpk`/`.dproj` pairs. `packages/BuildAllPackages.ps1` builds every
   version that is installed on the machine, and `"CRM Demo"/BuildAllDemos.ps1` does the same
   for the sample application on both platforms — do both before releasing. That matrix is
   what catches what a Delphi 13 build cannot: a `.vsf` listed in `Custom_Styles` that exists
@@ -147,13 +160,18 @@ the edit on every version, not on the one that happens to be open.
   project names them (`D10.4`, `D11`, `D12`, `D13`), not the way this one does.
   **Whoever compiles has to build it first**: it is the first `Projects`, the first target and
   the first `BuildGroupProject` of all four groupproj (the installer follows the order written
-  there), and the first msbuild of `Build_Packages.cmd` and `Build_Delphi13.cmd`. An
+  there), and the first step of `packages/BuildAllPackages.ps1`. An
   application that compiles the units instead of using the packages needs
   `Ext\MarkdownProcessor\source` on its search path — that is the one line that changed in the
-  demos, the tests and the server. Two traps, both of which cost a build: a package that
-  requires it may not be a never-build one (`{$IMPLICITBUILD ON}` in the `.dpk` and no
-  `<DCC_OutputNeverBuildDcps>` in the `.dproj`, or E2466 "Never-build package requires
-  always-build package"), and the BPL cannot be rewritten while an IDE has it loaded. The
+  demos, the tests and the server. Two traps, both of which cost a build: every package of
+  the library is never-build (`{$IMPLICITBUILD OFF}` in the `.dpk`,
+  `<DCC_OutputNeverBuildDcps>true` in the base group of the `.dproj`, all four versions),
+  and a never-build package may only require never-build ones - so the MarkdownProcessor
+  package of the same version must be one too, or E2466 "Never-build package requires
+  always-build package". Both write their DCP into the shared `Dcp` folder of the IDE, so
+  an `Ext\` external left behind (still ON) overwrites a good DCP at the next build:
+  `svn update` from the root, which updates the externals too; and the BPL cannot be
+  rewritten while an IDE has it loaded. The
   installer needed one thing, and it is not in this repository: with `FilesEmbedded` it
   extracts only the packages folder to `{tmp}` and reads the group projects there, so a
   `BuildGroupProject` pointing outside it does not exist yet, `TryLoadRADStudioProject`
@@ -219,6 +237,33 @@ the edit on every version, not on the one that happens to be open.
   get none, and the page shows no badge for a lone assistant without one. `ApplyAssistant` and
   `Assign` share a `TMonitor` lock: the switch arrives on an HTTP thread while a worker
   snapshots the settings.
+- **The language is the engine's too, and the user picks it the same way.** Six of them
+  (`THelpChatLanguage`, new members **at the end**: a DFM stores the identifier, a
+  configuration file the code). `Settings.Language` is the language of the chat - the strings
+  of the panel and of the engine, and the language the model is told to reply in;
+  `Settings.Languages` what the flag of the panel offers (fewer than two = no flag);
+  `Settings.ResolveLanguage` the concrete one among them, never `hclAuto` (English when the
+  configured or OS language is not offered, else the first offered). All three live under
+  `Settings` and in `helpchatai.json`, not on the components, for the reason `Provider`
+  does. `THelpChatEngine.SelectLanguage` **writes `Settings.Language`** - unlike an assistant,
+  which is an override - because every reader of the language reads it there (the snapshot of
+  a request, a dialog of the component, the page) - and sets `HelpChatDefaultLanguage`, which
+  is what every `hclAuto` of the process resolves to; `Start` sets it from `ResolveLanguage`.
+  The choice goes to `helpchatai-state.json` with the assistant (`SaveState` writes both, so
+  one never loses the other), **only once the user made one** (`FChosenLanguage`): a state
+  file must not freeze a language nobody picked. The page asks `GET /api/languages` (code,
+  native name, English name, the flag as inline SVG from `HelpChatFlagSvg`), posts
+  `/api/language/select` and **reloads itself**, because its labels are written into it at
+  render time; the local server then raises the UI command `language` (`HELPCHAT_UI_LANGUAGE`)
+  so that the component rewrites the captions it owns (window, bubble hint). Which is also why
+  the components send `AssistantName` **unresolved** to the session: an empty one must be
+  resolved by `RenderPage` in the language the page is rendered in. A remote server answers
+  403, as for the assistant. `DocLanguage` adds `HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE` to the
+  system prompt when the manual is in another language than the chat: explain in the user's,
+  keep the names of screens and buttons as the manual spells them - a translated caption is
+  one the user cannot find. The search is still lexical, so a question in another language
+  finds fewer pages: `Test/LLMBench/EMBEDDINGS.md` and `results/embeddings-v1.md` are where
+  a semantic search is being measured.
 - **A line that starts with "/" is a command, and the set decides which.**
   `HelpChatAI.Commands` (RTL) owns `THelpChatCommand` and the set
   `THelpChatCommands`; `EnabledCommands` on both components is that set,
@@ -231,7 +276,7 @@ the edit on every version, not on the one that happens to be open.
   command of `HELPCHAT_COMMANDS_PAGE` is answered by `panel.js` (a button from the keyboard,
   the switch of assistant, the timing it measured), the others by `HelpChatRunCommand` with
   the HTML of a system bubble - shown, never stored, never in the next prompt. Adding one =
-  a member of the enumeration, its name in `CommandNames`, its description in both tables
+  a member of the enumeration, its name in `CommandNames`, its description in every table
   of `HelpChatAI.Messages`, and a case in `HelpChatRunCommand` or a branch in `panel.js`
   with the member in `HELPCHAT_COMMANDS_PAGE`; nothing else reads the list by name.
   `/run` goes through `IHelpChatActionInvoker.Invoke` like the model does, confirmation
@@ -775,8 +820,12 @@ the edit on every version, not on the one that happens to be open.
   load/save as JSON (`helpchatai.json`: app file next to the exe, then per-user file in
   `%APPDATA%\<Exe>`); a new property must be added to `Assign`, `LoadFromJSON`, `SaveToJSON`
   and the round-trip test. **Never commit a `helpchatai.json` containing a key** (it is svn-ignored).
-- Localized strings: add the id to `THelpChatMsgId` and both `resourcestring` tables in
-  `HelpChatAI.Messages` (a test fails if one language is missing).
+- Localized strings: add the id to `THelpChatMsgId`, to the six `resourcestring` tables of
+  `HelpChatAI.Messages` and to the six case functions (a test fails if one language is
+  missing a string, another if a translation loses or adds a `%s`). A new language: a member
+  at the end of `THelpChatLanguage`, its code, names and Windows primary language id in the
+  `LANGUAGE_*` tables, a table and a case function, its flag in
+  `resources/HelpChatAI.Providers.rc`, and the member in `HELPCHAT_ALL_LANGUAGES`.
 
 ## Conventions
 
@@ -795,6 +844,10 @@ organization EtheaDev): spec `EtheaDev.HelpChatAI.dspec` in the root (id `EtheaD
 clone and pushed by `D:\ETHEA\GitHub_EtheaDev\_sync\sync_project.py Delphi-HelpChatAI --release`; `version`
 is aligned to the README release notes automatically and `repositoryCommit: '#HASH#'` is replaced
 at pack time: don't edit them by hand.
+
+**Syncing the GitHub clone and publishing (GitHub release, DPM) belong to a dedicated agent,
+not to whoever works on the code here**: never run `sync_project.py`, `--release` or a push.
+The work here ends with the SVN commit; say when something is ready to go out.
 
 **Keep the dspec aligned with the packages and the Setup**: when a package folder is added or
 removed (new Delphi version), a `.dpk` is added/renamed, a new kind of file is needed by the
