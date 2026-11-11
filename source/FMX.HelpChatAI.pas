@@ -1362,7 +1362,7 @@ begin
   // Settings decide where the engine lives: on mobile this is how the model key
   // stays out of the application (see Settings.Remote).
   if FSettings.Remote.IsConfigured then
-    Result := THelpChatRemoteTransport.Create(FSettings.Remote)
+    Result := THelpChatRemoteTransport.Create(FSettings.Remote, FSettings.Profile)
   else
     Result := THelpChatLocalServer.Create(AEngine, False);
 end;

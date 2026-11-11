@@ -46,9 +46,10 @@
 ///  not: a server that cannot be reached or refuses raises
 ///  <c>EHelpChatError</c>, at the moment the user asks for help.
 ///
-///  What stays on the client and does not travel: the actions, the enabled
-///  commands, the PDF handler and the <c>Profile</c> of the component. The
-///  server answers with its own engine and its own configuration.
+///  The <c>Profile</c> of the component travels with the session: the server
+///  answers with the engine of that profile, when its configuration defines
+///  it, else with its default one. What stays on the client and does not
+///  travel: the actions, the enabled commands and the PDF handler.
 ///
 ///  Every method is meant for the main thread, where the component calls it;
 ///  the HTTP calls block it for at most the timeout. The lock only guards the
@@ -94,6 +95,8 @@ type
     FAppKey: string;
     FUserId: string;
     FUserToken: string;
+    FProfile: string;
+    FServerProfile: string;
     FTimeoutMs: Integer;
     FUseHostChannel: Boolean;
     FLock: TCriticalSection;
@@ -133,9 +136,9 @@ type
     /// <summary>Starts the transport and opens the session when there is
     /// none. Raises <c>EHelpChatError</c> like <c>OpenSession</c>.</summary>
     procedure EnsureSession;
-    /// <summary><c>POST /session</c>: user, theme, assistant name and icon and
-    /// the address of the host channel go with it, so the first page is
-    /// already complete. Raises <c>EHelpChatError</c> naming the server when
+    /// <summary><c>POST /session</c>: user, profile, theme, assistant name and
+    /// icon and the address of the host channel go with it, so the first page
+    /// is already complete. Raises <c>EHelpChatError</c> naming the server when
     /// it is unreachable, refuses (the reason it gave, or the status) or
     /// answers something else. The context is not in the body: it is marked
     /// as not sent, for the next <c>SetContext</c>.</summary>
@@ -159,8 +162,10 @@ type
     /// an installed application moves to a server by editing helpchatai.json.
     /// The two secrets are resolved here, once, through
     /// <c>OnDecryptSecret</c> of the settings <c>ARemote</c> belongs to; the
-    /// settings are not kept.</summary>
-    constructor Create(const ARemote: THelpChatRemoteSettings); overload;
+    /// settings are not kept. <c>AProfile</c> is the <c>Profile</c> of the
+    /// component, the assistant the server is asked to be.</summary>
+    constructor Create(const ARemote: THelpChatRemoteSettings;
+      const AProfile: string = ''); overload;
     /// <summary>Ends the session (one short call to the server, best effort)
     /// and closes the host channel.</summary>
     destructor Destroy; override;
@@ -241,6 +246,13 @@ type
     /// <summary>The credential sent with <c>UserId</c>, for the
     /// <c>OnAuthenticate</c> of the server; in clear, already resolved.</summary>
     property UserToken: string read FUserToken write FUserToken;
+    /// <summary>The profile asked of the server; empty = the default
+    /// assistant. Read when the session is opened.</summary>
+    property Profile: string read FProfile write FProfile;
+    /// <summary>The profile the server answered the session with: the one
+    /// asked for when its configuration defines it, empty when its default
+    /// assistant answers instead (diagnostics).</summary>
+    property ServerProfile: string read FServerProfile;
     /// <summary>Connection, send and response timeout of every call to the
     /// server, each: the main thread waits that long at worst.</summary>
     property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs;
@@ -331,9 +343,11 @@ begin
   FMaxPolls := HELPCHAT_DEF_MAX_POLLS;
 end;
 
-constructor THelpChatRemoteTransport.Create(const ARemote: THelpChatRemoteSettings);
+constructor THelpChatRemoteTransport.Create(const ARemote: THelpChatRemoteSettings;
+  const AProfile: string);
 begin
   Create(ARemote.NormalizedBaseUrl, ARemote.ResolveAppKey);
+  FProfile := Trim(AProfile);
   FUserId := ARemote.ResolveUserId;
   FUserToken := ARemote.ResolveUserToken;
   FUseHostChannel := ARemote.UseHostChannel;
@@ -386,6 +400,7 @@ var
 begin
   LBody := 'user=' + HelpChatFormEncode(FUserId) +
     '&userToken=' + HelpChatFormEncode(FUserToken) +
+    '&profile=' + HelpChatFormEncode(FProfile) +
     '&themeCss=' + HelpChatFormEncode(FTheme.ToCss) +
     '&assistantName=' + HelpChatFormEncode(FAssistantName) +
     '&assistantIcon=' + HelpChatFormEncode(FAssistantIcon);
@@ -426,6 +441,7 @@ begin
     FToken := LRoot.GetValue<string>('token', '');
     FPollIntervalMs := LRoot.GetValue<Integer>('pollMs', HELPCHAT_DEF_POLL_MS);
     FMaxPolls := LRoot.GetValue<Integer>('maxPolls', HELPCHAT_DEF_MAX_POLLS);
+    FServerProfile := LRoot.GetValue<string>('profile', '');
   finally
     LValue.Free;
   end;

@@ -1222,7 +1222,7 @@ begin
   // Settings decide where the engine lives: an installed application moves to a
   // server by editing helpchatai.json, with no change to this component.
   if FSettings.Remote.IsConfigured then
-    Result := THelpChatRemoteTransport.Create(FSettings.Remote)
+    Result := THelpChatRemoteTransport.Create(FSettings.Remote, FSettings.Profile)
   else
     Result := THelpChatLocalServer.Create(AEngine, False);
 end;

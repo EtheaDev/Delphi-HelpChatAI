@@ -261,7 +261,7 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 `CRM Demo\BuildAllDemos.ps1` builds both with every Delphi it finds, Win32 and Win64: twelve
 builds, and the FireMonkey ones are reported `N/A` below Delphi 12 rather than failed.
 
-`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **448 tests** that runs without
+`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **452 tests** that runs without
 network: store, worker pool, cancellation, index scoring and the areas of a manual, Markdown
 safety, profiles and the configuration editor's controller, several assistants on real forms
 and the engine they share, the SSE parsing and
@@ -297,10 +297,11 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 - The configuration check: the provider of the model in use, `DocAreas` against the areas of the index, a profile no configuration file defines (`HelpChatCheckProfile`), the names of `AllowedActions` nobody registered (`HelpChatCheckActions`, in `/check`), and the per-user file at design time too
 - The configuration editor never writes over a file it could not read (`LoadError`), a renamed model keeps its encrypted key, and the models a profile takes from another file or defines itself are shown and kept; it opens on the file the configuration comes from - no longer always on the one next to the executable, empty while everything was in the shared file - and has a Help button
 - A remote session the server expired is opened again by itself, and the panel reloads; the server says at its start when no `OnAuthenticate` is set. Remote sessions are no longer freed under a request that is using them
+- The profiles on a remote server: the client sends the `Profile` of the component, and the server answers with one engine per profile of its configuration, created by the first session that names it (`OnProfileSettings`; the console server takes the `Profiles` of `helpchatai-server.json`). A profile the server does not define gets its default engine; the same user has one conversation per assistant, and one file each with disk storage; `/health` lists the profiles running
 - The texts of the panel, of the commands and of the dialogs follow the language of their own assistant, not the last one that spoke; the header button and `/who`, `/use`, `/retry` say "model" in the six languages
 - `areas:` in the front matter may be a YAML block list, and an empty one means no area; a text attachment that contains a code fence can no longer close the one around it
 - **Breaking changes**: the host of a component is the form that owns it, no longer `Application.MainForm` (`HostForm := Application.MainForm` restores it); `Assistants`, `Assistant` and `<Provider>.SystemPrompt` in a configuration file raise an error that names the new key; the key properties (`ApiKey`, `AppKey`, `UserToken`) are public and no longer published, so a form file that stored one does not load it; `OnDecryptSecret` receives only the encrypted node, never a clear value nor the environment variable - an encrypted value kept in `ApiKey` moves to `ApiKeyEncrypted`; `RawApiKey` is now `EnvironmentApiKey`; a section whose `BaseUrl` is not the service's own no longer receives the key of the environment variable - write its `ApiKey` in the configuration (Azure OpenAI, a gateway); `MaxToolRounds = 1` no longer offers actions
-- 448 tests
+- 452 tests
 
 9 Nov 2026: ver. 1.6.0
 - Six languages: Spanish, French, German and Portuguese join English and Italian (`THelpChatLanguage`), every string of the library translated - the panel, the engine messages, the answers of the commands, the texts of the confirmation of an action, the PDF

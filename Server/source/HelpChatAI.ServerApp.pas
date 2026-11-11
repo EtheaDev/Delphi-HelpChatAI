@@ -34,7 +34,11 @@
 ///  Configuration is one file, <c>helpchatai-server.json</c>: the engine reads
 ///  the settings it knows (provider, language, documentation index, Claude key)
 ///  and this unit reads the rest (port, application keys, sessions). Command
-///  line options win over the file.
+///  line options win over the file. Its <c>Profiles</c> section is what
+///  clients with a <c>Profile</c> get: the engine of a profile is created the
+///  first time a client names it, from the root of the file and that section,
+///  the way an application reads it; a profile the file does not define is
+///  answered by the default engine.
 /// </summary>
 unit HelpChatAI.ServerApp;
 
@@ -46,6 +50,7 @@ uses
   System.SysUtils,
   System.Classes,
   System.SyncObjs,
+  HelpChatAI.Messages,
   HelpChatAI.Settings,
   HelpChatAI.Engine,
   HelpChatAI.Server.Remote;
@@ -61,9 +66,26 @@ type
     FServer: THelpChatRemoteServer;
     FConfigFile: string;
     FQuiet: Boolean;
+    // The profiles the configuration file defines, as written there.
+    FProfiles: TStringList;
+    // What the command line said: it wins over the file for the engine of
+    // every profile too.
+    FCliProvider: string;
+    FCliIndex: string;
+    FCliLanguage: THelpChatLanguage;
+    FHasCliLanguage: Boolean;
     procedure Say(const AText: string); overload;
     procedure Say(const AFormat: string; const AArgs: array of const); overload;
     procedure ServerLog(Sender: TObject; const AText: string);
+    /// <summary>The settings of the engine of a profile: the configuration
+    /// file read again with the profile set, then the command line. Only the
+    /// profiles the file defines are accepted.</summary>
+    procedure ProfileSettings(Sender: TObject; const AProfile: string;
+      const ASettings: THelpChatSettings; var AAccepted: Boolean);
+    /// <summary>The options of the command line that are settings of an
+    /// engine, and the one rule of a server: conversations are its own to
+    /// persist.</summary>
+    procedure ApplyOverrides(const ASettings: THelpChatSettings);
     function ReadConfig(const AFileName: string): Boolean;
     function ParseCommandLine: Boolean;
     procedure WriteSampleConfig(const AFileName: string);
@@ -88,7 +110,6 @@ uses
   System.JSON,
   System.StrUtils,
   HelpChatAI.Types,
-  HelpChatAI.Messages,
   HelpChatAI.Provider,
   HelpChatAI.Provider.DocSearch,
   HelpChatAI.Provider.Claude,
@@ -121,6 +142,8 @@ constructor THelpChatServerApp.Create;
 begin
   inherited Create;
   FSettings := THelpChatSettings.Create;
+  FProfiles := TStringList.Create;
+  FProfiles.CaseSensitive := False;
   FConfigFile := TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), HELPCHAT_SERVER_CONFIG_FILENAME);
 end;
 
@@ -129,6 +152,7 @@ begin
   FServer.Free;
   FEngine.Free;
   FSettings.Free;
+  FProfiles.Free;
   inherited;
 end;
 
@@ -150,12 +174,40 @@ begin
   Say(AText);
 end;
 
+procedure THelpChatServerApp.ApplyOverrides(const ASettings: THelpChatSettings);
+begin
+  if FCliProvider <> '' then
+    ASettings.Provider := FCliProvider;
+  if FCliIndex <> '' then
+    ASettings.DocIndexFile := FCliIndex;
+  if FHasCliLanguage then
+    ASettings.Language := FCliLanguage;
+  // The conversations belong to the sessions here: the engine must not also
+  // write the single-conversation file of a desktop application.
+  ASettings.PersistConversation := False;
+end;
+
+procedure THelpChatServerApp.ProfileSettings(Sender: TObject; const AProfile: string;
+  const ASettings: THelpChatSettings; var AAccepted: Boolean);
+begin
+  // A profile of the file, and nothing else: a client must not be able to
+  // make the server create engines by naming profiles.
+  AAccepted := FProfiles.IndexOf(AProfile) >= 0;
+  if not AAccepted then
+    Exit;
+  // The root of the file, then the section of the profile on top: what an
+  // application with that Profile reads.
+  ASettings.LoadFromFile(FConfigFile);
+  ApplyOverrides(ASettings);
+end;
+
 function THelpChatServerApp.ReadConfig(const AFileName: string): Boolean;
 var
-  LValue, LSessions: TJSONValue;
+  LValue, LSessions, LProfiles: TJSONValue;
   LRoot: TJSONObject;
   LKeys: TJSONArray;
   LKey: TJSONValue;
+  LProfile: TJSONPair;
   LStorage: string;
 begin
   Result := TFile.Exists(AFileName);
@@ -190,6 +242,12 @@ begin
       FServer.IdleMinutes := TJSONObject(LSessions).GetValue<Integer>('IdleMinutes', FServer.IdleMinutes);
       FServer.MaxSessions := TJSONObject(LSessions).GetValue<Integer>('Max', FServer.MaxSessions);
     end;
+    // The assistants this server can be: their engines start when a client
+    // first names them.
+    if LRoot.TryGetValue<TJSONValue>('Profiles', LProfiles) and (LProfiles is TJSONObject) then
+      for LProfile in TJSONObject(LProfiles) do
+        if (LProfile.JsonValue is TJSONObject) and (Trim(LProfile.JsonString.Value) <> '') then
+          FProfiles.Add(Trim(LProfile.JsonString.Value));
   finally
     LRoot.Free;
   end;
@@ -320,6 +378,11 @@ begin
     Say('  index       : %d pages from %s', [FEngine.DocIndex.Count, FSettings.ResolveDocIndexFile])
   else
     Say('  index       : NOT FOUND at %s', [FSettings.ResolveDocIndexFile]);
+  if FProfiles.Count > 0 then
+    Say('  profiles    : %s (started when a client names them)',
+      [string.Join(', ', FProfiles.ToStringArray)])
+  else
+    Say('  profiles    : none, every client gets the default assistant');
   Say('  sessions    : %s, idle limit %d minutes, at most %d',
     [IfThen(FServer.Storage = hssDisk, 'on disk in ' + FServer.SessionFolder, 'in memory'),
      FServer.IdleMinutes, FServer.MaxSessions]);
@@ -350,6 +413,7 @@ begin
   FEngine := THelpChatEngine.Create(FSettings);
   FServer := THelpChatRemoteServer.Create(FEngine, False);
   FServer.OnLog := ServerLog;
+  FServer.OnProfileSettings := ProfileSettings;
   try
     if not ReadConfig(FConfigFile) then
       Say('no configuration file at %s (use --write-config to create one)', [FConfigFile]);
@@ -382,21 +446,22 @@ begin
       else if LOption = '--idle' then
         FServer.IdleMinutes := StrToIntDef(NextValue, FServer.IdleMinutes)
       else if LOption = '--provider' then
-        FSettings.Provider := NextValue
+        FCliProvider := NextValue
       else if LOption = '--index' then
-        FSettings.DocIndexFile := NextValue
+        FCliIndex := NextValue
       else if LOption = '--lang' then
       begin
         // auto, or any code the strings are translated into (en, it, es, fr, de, pt).
         if HelpChatLanguageFromCode(NextValue, LLanguage) then
-          FSettings.Language := LLanguage;
+        begin
+          FCliLanguage := LLanguage;
+          FHasCliLanguage := True;
+        end;
       end;
       Inc(I);
     end;
 
-    // The conversations belong to the sessions here: the engine must not also
-    // write the single-conversation file of a desktop application.
-    FSettings.PersistConversation := False;
+    ApplyOverrides(FSettings);
     HelpChatDefaultLanguage := FSettings.Language;
 
     FServer.Start;

@@ -48,7 +48,16 @@ type
     FServer: THelpChatRemoteServer;
     FClient: THTTPClient;
     FFolder: string;
-    procedure StartServer(const AStorage: THelpChatSessionStorage = hssMemory);
+    // How many engines of a profile OnProfileSettings was asked for.
+    FProfileCalls: Integer;
+    /// <summary>The OnProfileSettings of the tests: "Orders" is a profile of
+    /// the configuration and answers with the context provider, every other
+    /// name is not.</summary>
+    procedure ProfileSettings(Sender: TObject; const AProfile: string;
+      const ASettings: THelpChatSettings; var AAccepted: Boolean);
+    function HealthProfiles: TArray<string>;
+    procedure StartServer(const AStorage: THelpChatSessionStorage = hssMemory;
+      const AProfiles: Boolean = False);
     procedure StopServer;
     function Url(const APath: string): string;
     function OpenSession(const AUser: string; const AAppKey: string = TEST_APP_KEY;
@@ -76,6 +85,10 @@ type
     [Test] procedure Transport_UnreachableServer_Raises;
     [Test] procedure Transport_SessionTheServerExpired_IsOpenedAgain;
     [Test] procedure Session_EndedWhileARequestHoldsIt_IsNotFreedAtOnce;
+    [Test] procedure Profiles_EachHasItsEngine_UnknownOnesGetTheDefault;
+    [Test] procedure Profiles_WithoutAHandler_TheDefaultAnswersAll;
+    [Test] procedure Profiles_TheSameUser_HasOneConversationPerProfile;
+    [Test] procedure Transport_SendsTheProfile;
   end;
 
 implementation
@@ -112,6 +125,7 @@ end;
 
 procedure TRemoteTests.Setup;
 begin
+  FProfileCalls := 0; // the fixture is one object for every test
   FSettings := THelpChatSettings.Create;
   FSettings.Language := hclEnglish;
   FSettings.PersistConversation := False; // the server persists, not the engine
@@ -134,9 +148,38 @@ begin
     TDirectory.Delete(FFolder, True);
 end;
 
-procedure TRemoteTests.StartServer(const AStorage: THelpChatSessionStorage);
+procedure TRemoteTests.ProfileSettings(Sender: TObject; const AProfile: string;
+  const ASettings: THelpChatSettings; var AAccepted: Boolean);
+begin
+  Inc(FProfileCalls);
+  AAccepted := SameText(AProfile, 'Orders');
+  if AAccepted then
+    // What a section of the configuration would say: another expert, here
+    // told apart by the provider that answers.
+    ASettings.Provider := TEST_PROVIDER_CONTEXT;
+end;
+
+function TRemoteTests.HealthProfiles: TArray<string>;
+var
+  LValue: TJSONValue;
+  LItem: TJSONValue;
+begin
+  Result := nil;
+  LValue := TJSONObject.ParseJSONValue(FClient.Get(Url('/health')).ContentAsString(TEncoding.UTF8));
+  try
+    for LItem in TJSONObject(LValue).GetValue<TJSONArray>('profiles') do
+      Result := Result + [LItem.Value];
+  finally
+    LValue.Free;
+  end;
+end;
+
+procedure TRemoteTests.StartServer(const AStorage: THelpChatSessionStorage;
+  const AProfiles: Boolean);
 begin
   FServer := THelpChatRemoteServer.Create(FEngine, False);
+  if AProfiles then
+    FServer.OnProfileSettings := ProfileSettings;
   FServer.BindIP := HELPCHAT_SERVER_HOST; // tests never open a port to the network
   FServer.Port := 0;                      // a free one
   FServer.AppKeys.Add(TEST_APP_KEY);
@@ -605,6 +648,87 @@ begin
     begin
       LTransport.GetPanelUrl;
     end, EHelpChatError, 'opening the panel says the server is unreachable');
+end;
+
+procedure TRemoteTests.Profiles_EachHasItsEngine_UnknownOnesGetTheDefault;
+var
+  LOrders, LAgain, LUnknown, LNone: string;
+begin
+  StartServer(hssMemory, True);
+  LOrders := OpenSession('', TEST_APP_KEY, '&profile=Orders');
+  Assert.Contains(Ask(LOrders, 'hi'), 'ctx:', 'the engine of the profile answers');
+  // The same profile, written another way: the same engine, not a second one.
+  LAgain := OpenSession('', TEST_APP_KEY, '&profile=orders');
+  Assert.Contains(Ask(LAgain, 'hi'), 'ctx:');
+  Assert.AreEqual(1, FProfileCalls, 'the handler is asked once per profile');
+  Assert.AreEqual(1, Integer(Length(HealthProfiles)), 'one engine of a profile is running');
+  Assert.AreEqual('Orders', HealthProfiles[0]);
+  // A profile the configuration does not define, and no profile at all: the
+  // default assistant, and no engine is created for the unknown name.
+  LUnknown := OpenSession('', TEST_APP_KEY, '&profile=Nobody');
+  Assert.Contains(Ask(LUnknown, 'hi'), 'echo:hi', 'an unknown profile gets the default engine');
+  LNone := OpenSession('');
+  Assert.Contains(Ask(LNone, 'hi'), 'echo:hi');
+  Assert.AreEqual(1, Integer(Length(HealthProfiles)), 'no engine for a name nobody defined');
+end;
+
+procedure TRemoteTests.Profiles_WithoutAHandler_TheDefaultAnswersAll;
+var
+  LToken: string;
+begin
+  StartServer; // no OnProfileSettings
+  LToken := OpenSession('', TEST_APP_KEY, '&profile=Orders');
+  Assert.Contains(Ask(LToken, 'hi'), 'echo:hi', 'the default engine answers every profile');
+  Assert.AreEqual(0, FProfileCalls);
+  Assert.AreEqual(0, Integer(Length(HealthProfiles)));
+end;
+
+procedure TRemoteTests.Profiles_TheSameUser_HasOneConversationPerProfile;
+var
+  LDefault, LOrders: string;
+  LFiles: TArray<string>;
+begin
+  StartServer(hssDisk, True);
+  LDefault := OpenSession('bob');
+  LOrders := OpenSession('bob', TEST_APP_KEY, '&profile=Orders');
+  Assert.Contains(Ask(LDefault, 'one'), 'echo:one|n=1');
+  Assert.Contains(Ask(LOrders, 'two'), 'ctx:', 'the expert of the profile');
+  // Same user, two assistants: two conversations, neither sees the other.
+  Assert.DoesNotContain(Get(HELPCHAT_API_HISTORY, LOrders).ContentAsString(TEncoding.UTF8),
+    'echo:one');
+  Assert.DoesNotContain(Get(HELPCHAT_API_HISTORY, LDefault).ContentAsString(TEncoding.UTF8),
+    'ctx:');
+  // Ending the session of one profile leaves the other conversation alone.
+  Post(HELPCHAT_SESSION_END_PATH, '', LOrders);
+  Assert.Contains(Get(HELPCHAT_API_HISTORY, LDefault).ContentAsString(TEncoding.UTF8),
+    'echo:one', 'the conversation of the default assistant is still there');
+  StopServer;
+  LFiles := TDirectory.GetFiles(FFolder, '*.json');
+  Assert.AreEqual(2, Integer(Length(LFiles)), 'one file per assistant of bob');
+end;
+
+procedure TRemoteTests.Transport_SendsTheProfile;
+var
+  LTransport: THelpChatRemoteTransport;
+  LIntf: IHelpChatTransport;
+begin
+  StartServer(hssMemory, True);
+  LTransport := THelpChatRemoteTransport.Create(Url(''), TEST_APP_KEY);
+  LIntf := LTransport;
+  LTransport.UseHostChannel := False;
+  LTransport.Profile := 'Orders';
+  LIntf.Start;
+  LIntf.GetPanelUrl; // opens the session
+  Assert.AreEqual('Orders', LTransport.ServerProfile, 'the server answers as that profile');
+  Assert.AreEqual(1, Integer(Length(HealthProfiles)));
+  LIntf.Stop;
+  // A profile the server does not have: the session opens anyway, on the
+  // default assistant, and the transport can tell.
+  LTransport.Profile := 'Nobody';
+  LIntf.Start;
+  LIntf.GetPanelUrl;
+  Assert.AreEqual('', LTransport.ServerProfile, 'the default assistant answered');
+  LIntf.Stop;
 end;
 
 initialization

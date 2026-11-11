@@ -199,8 +199,18 @@ the edit on every version, not on the one that happens to be open.
   conversation key, the screen context, the theme as CSS), the routing and the endpoints;
   `THelpChatLocalServer` adds one session and the transport interface, `THelpChatRemoteServer`
   (`HelpChatAI.Server.Remote`) adds many, application keys and storage. A session *is* a
-  conversation key of the shared engine (`u:<user>` / `s:<session>`): one store, one worker pool,
-  one index for everybody. New endpoint = `HandleApi` in the base, and `HELPCHAT_API_*` in
+  conversation key of an engine (`u:<user>` / `s:<session>`): one store, one worker pool,
+  one index for everybody who asks that assistant. **The remote server has one engine per
+  profile**, like an application: the transport posts the `Profile` of the component with
+  `POST /session`, and the first session of a profile creates its engine from the settings
+  `OnProfileSettings` fills (a copy of the default engine's with `Profile` set; the console
+  server reloads `helpchatai-server.json`, whose `Profiles` are the only ones it accepts). A
+  profile the handler does not accept, or any without a handler, gets the default engine:
+  a client must never make the server create engines by naming profiles. The session carries
+  its engine (`THelpChatServerSession.Engine`, nil = the server's), so every endpoint asks
+  `EngineOf(ASession)`, never `Engine` - which is the default assistant's. The same key on two
+  engines is two conversations: `KeyInUse` compares both, and the file of a profile's
+  conversation carries the profile in its name. New endpoint = `HandleApi` in the base, and `HELPCHAT_API_*` in
   `HelpChatAI.Panel` where the contract lives.
 - **A destructor never calls a virtual method.** `THelpChatHttpServerBase.Destroy` calls the
   non-virtual `StopListening`, not `Stop`: a descendant's `Stop` would run after its own

@@ -37,18 +37,26 @@
 ///  one place, quotas and logs are per user, and a mobile application needs no
 ///  local server at all.
 ///
-///  One engine serves everybody: the store keys conversations, the worker pool
-///  is shared and bounded, the index is loaded once. A session is a
-///  conversation key — <c>u:&lt;user&gt;</c> when the client says who is asking
-///  (so the same person continues where they left off, from any device),
-///  <c>s:&lt;session&gt;</c> when it does not. With disk storage the
-///  conversation outlives the session and the server restart.
+///  One engine per profile, as in an application: the engine given to the
+///  constructor is the default assistant's, and the client of a component
+///  with a <c>Profile</c> names it when it opens its session. The first
+///  session of a profile creates the engine of that profile, with the
+///  settings <c>OnProfileSettings</c> gives it (the root of the configuration
+///  and its <c>Profiles.&lt;name&gt;</c> section, typically) - instructions,
+///  areas of the manual, models, allowed actions of that expert - and every
+///  later session of the same profile shares it: its store, its worker pool,
+///  its index. A profile the handler does not accept, or any profile when
+///  there is no handler, is answered by the default engine, the way a
+///  component falls back on the root of a configuration that has no section
+///  for its profile; a client cannot make the server create engines by
+///  naming profiles.
 ///
-///  One engine also means one profile: a session carries who is asking, the
-///  screen, the colours and the name of the assistant, but not the
-///  <c>Profile</c> of the component that opened it. Instructions, areas of the
-///  manual and models are those of the server's own configuration, whatever
-///  profile the client names in its own.
+///  Within an engine a session is a conversation key — <c>u:&lt;user&gt;</c>
+///  when the client says who is asking (so the same person continues where
+///  they left off, from any device), <c>s:&lt;session&gt;</c> when it does
+///  not. The same user talking to two assistants has two conversations, one
+///  per engine, kept in two files. With disk storage the conversation
+///  outlives the session and the server restart.
 ///
 ///  Threads: every route runs on a connection thread of Indy, the expiry on
 ///  the sweeper's; <c>OnAuthenticate</c> and <c>OnLog</c> are called from both,
@@ -68,6 +76,7 @@ uses
   System.Generics.Collections,
   IdCustomHTTPServer,
   HelpChatAI.Types,
+  HelpChatAI.Settings,
   HelpChatAI.Engine,
   HelpChatAI.Panel,
   HelpChatAI.Server;
@@ -98,6 +107,10 @@ const
   /// (<c>s:&lt;session id&gt;</c>): the conversation is that session's alone
   /// and cannot be found again once it ended.</summary>
   HELPCHAT_KEY_SESSION_PREFIX = 's:';
+  /// <summary>The longest profile name a client may send: a longer one is
+  /// not a profile of anybody's configuration, and is answered by the
+  /// default engine.</summary>
+  HELPCHAT_REMOTE_MAX_PROFILE_LENGTH = 64;
 
 type
   /// <summary>Where the conversations live between one session and the next.</summary>
@@ -135,6 +148,23 @@ type
   /// call back into the server.</summary>
   THelpChatServerLogEvent = procedure(Sender: TObject; const AText: string) of object;
 
+  /// <summary>
+  ///  Gives the engine of a profile its settings, the first time a client
+  ///  names that profile. <c>ASettings</c> arrive as a copy of the settings
+  ///  of the default engine with <c>Profile</c> set: the handler applies the
+  ///  section of the profile (loading the configuration again with
+  ///  <c>Profile</c> set does it, root first) and sets <c>AAccepted</c>.
+  ///  Left False - a profile the configuration does not define - the session
+  ///  is answered by the default engine and <c>ASettings</c> are dropped. The
+  ///  settings become the engine's (it owns them); conversations are never
+  ///  persisted by the engine, the server does it. Called on a connection
+  ///  thread, once per profile, under a lock of the server: the handler must
+  ///  be thread-safe, must not touch the UI and must not call back into the
+  ///  server.
+  /// </summary>
+  THelpChatProfileSettingsEvent = procedure(Sender: TObject; const AProfile: string;
+    const ASettings: THelpChatSettings; var AAccepted: Boolean) of object;
+
   THelpChatRemoteServer = class;
 
   /// <summary>Expires idle sessions without the server having to be called:
@@ -164,11 +194,12 @@ type
   /// <summary>
   ///  The multi-session server. A session is opened by <c>POST /session</c>
   ///  (application key in <c>X-HelpChat-Key</c> or in the form field
-  ///  <c>appKey</c>; optional <c>user</c>, <c>userToken</c>, <c>uiBase</c>,
-  ///  <c>uiToken</c>, <c>themeCss</c>, <c>assistantName</c>,
+  ///  <c>appKey</c>; optional <c>user</c>, <c>userToken</c>, <c>profile</c>,
+  ///  <c>uiBase</c>, <c>uiToken</c>, <c>themeCss</c>, <c>assistantName</c>,
   ///  <c>assistantIcon</c>), closed by <c>POST /session/end</c> with its token,
   ///  and expires by itself when idle. <c>GET /health</c> needs no key and
-  ///  tells version, open sessions, provider and size of the index.
+  ///  tells version, open sessions, provider, size of the index and the
+  ///  profiles whose engine is running.
   ///
   ///  The sessions live in a dictionary keyed by their token and owned by it,
   ///  guarded by one lock. What the base class does with a session it found
@@ -189,29 +220,52 @@ type
     FIdleSeconds: Integer;
     FMaxSessions: Integer;
     FSweeper: THelpChatSessionSweeper;
+    // The engines of the profiles, keyed by the profile in lower case and
+    // owned (each owns its settings). Guarded by their own lock: creating
+    // one loads an index, which must not hold up every other request.
+    FProfileEngines: TObjectDictionary<string, THelpChatEngine>;
+    FEnginesLock: TCriticalSection;
     FOnAuthenticate: THelpChatAuthenticateEvent;
     FOnLog: THelpChatServerLogEvent;
+    FOnProfileSettings: THelpChatProfileSettingsEvent;
     function GetIdleMinutes: Integer;
     procedure SetIdleMinutes(const Value: Integer);
     /// <summary>Exact, case-sensitive match against <c>AppKeys</c>; an empty
     /// key never matches.</summary>
     function CheckAppKey(const AKey: string): Boolean;
-    function ConversationFile(const AConversationKey: string): string;
+    /// <summary>The file of a conversation: the key alone for the default
+    /// assistant (the name it always had), the profile in front of it for
+    /// the others - the same user has one conversation per profile.</summary>
+    function ConversationFile(const AProfile, AConversationKey: string): string;
     /// <summary>True when a session other than <c>AExceptToken</c> works on
-    /// that conversation. Called with the lock held.</summary>
-    function KeyInUse(const AConversationKey, AExceptToken: string): Boolean;
-    /// <summary>Reads the conversation back from disk, unless it is already
-    /// in memory. Never raises: a file that cannot be read is logged and the
-    /// user starts from an empty conversation.</summary>
-    procedure LoadConversation(const AConversationKey: string);
-    /// <summary>Writes the conversation to its file when storage is on disk.
-    /// Never raises: a failure is logged.</summary>
-    procedure SaveConversation(const AConversationKey: string);
+    /// that conversation of that engine. Called with the lock held.</summary>
+    function KeyInUse(const AEngine: THelpChatEngine;
+      const AConversationKey, AExceptToken: string): Boolean;
+    /// <summary>Reads the conversation back from disk into the engine,
+    /// unless it is already in memory. Never raises: a file that cannot be
+    /// read is logged and the user starts from an empty conversation.</summary>
+    procedure LoadConversation(const AEngine: THelpChatEngine;
+      const AProfile, AConversationKey: string);
+    /// <summary>Writes the conversation of a session to its file when
+    /// storage is on disk. Never raises: a failure is logged.</summary>
+    procedure SaveConversation(const ASession: THelpChatServerSession);
     /// <summary>What happens to a conversation when a session on it ends:
-    /// saved (on disk) and removed from memory, replies in flight cancelled -
-    /// unless another session still uses it. Called with the lock held, after
-    /// the session was removed.</summary>
-    procedure ReleaseConversation(const AConversationKey, AExceptToken: string);
+    /// saved (on disk) and removed from the memory of its engine, replies in
+    /// flight cancelled - unless another session still uses it. Called with
+    /// the lock held, after the session was retired (it is still
+    /// alive).</summary>
+    procedure ReleaseConversation(const ASession: THelpChatServerSession;
+      const AExceptToken: string);
+    /// <summary>The engine that answers a profile: the default one for an
+    /// empty name, a name too long, or one <c>OnProfileSettings</c> does not
+    /// accept (or with no handler); else the engine of that profile, created
+    /// and started the first time. <c>AProfileUsed</c> is the profile of the
+    /// engine returned, empty for the default one. Raises what creating or
+    /// starting the engine raises.</summary>
+    function EngineForProfile(const AProfile: string; out AProfileUsed: string): THelpChatEngine;
+    /// <summary>The profiles whose engine is running, as they were first
+    /// named.</summary>
+    function RunningProfiles: TArray<string>;
     /// <summary>The whole of <c>POST /session</c>: False with a short English
     /// reason in <c>AError</c> ("unknown application key", "not authorized",
     /// "too many sessions"), True with the JSON the client reads (session id,
@@ -251,10 +305,10 @@ type
     /// its model for everybody. The list is still served, read-only
     /// (<c>GET /api/assistants</c>, a path that kept its name of before 1.7),
     /// and <c>POST /api/assistant/select</c> answers 403.</summary>
-    function CanSelectModel: Boolean; override;
+    function CanSelectModel(const AEngine: THelpChatEngine): Boolean; override;
     /// <summary>False, for the same reason: the language is a setting of the
     /// one engine, and the page of every session is rendered in it.</summary>
-    function CanSelectLanguage: Boolean; override;
+    function CanSelectLanguage(const AEngine: THelpChatEngine): Boolean; override;
     /// <summary>Hands a line to <c>OnLog</c>, on the calling thread; nothing
     /// when no handler is set.</summary>
     procedure Log(const AText: string); overload;
@@ -262,11 +316,12 @@ type
   public
     /// <summary>Port 8080 on every interface (<c>0.0.0.0</c>), memory storage,
     /// the session folder <c>sessions</c> next to the executable. The engine
-    /// is the one every session will share; it is started by
-    /// <c>Start</c>.</summary>
+    /// is the default assistant's, the one of every session whose client
+    /// names no profile (or one the server does not accept); it is started
+    /// by <c>Start</c>.</summary>
     constructor Create(const AEngine: THelpChatEngine; const AOwnsEngine: Boolean = False); override;
     /// <summary>Stops the server, saving the open conversations, before the
-    /// sessions are freed.</summary>
+    /// sessions and the engines of the profiles are freed.</summary>
     destructor Destroy; override;
 
     /// <summary>Starts the engine, the listener and the sweeper. Raises
@@ -276,9 +331,9 @@ type
     /// storage is on disk.</summary>
     procedure Start; override;
     /// <summary>Stops the sweeper and the listener, then saves every open
-    /// conversation (disk storage) and drops the sessions. The engine is left
-    /// running, and the conversations stay in its store. Safe to call
-    /// twice.</summary>
+    /// conversation (disk storage) and drops the sessions. The engines are
+    /// left running, and the conversations stay in their stores. Safe to
+    /// call twice.</summary>
     procedure Stop; override;
     /// <summary>Ends the sessions idle for longer than <c>IdleMinutes</c>,
     /// persisting their conversation first when storage is on disk. The
@@ -313,6 +368,12 @@ type
     /// <summary>Receives the log lines, on the thread that produced them: see
     /// <see cref="THelpChatServerLogEvent" />.</summary>
     property OnLog: THelpChatServerLogEvent read FOnLog write FOnLog;
+    /// <summary>The settings of the engine of a profile: see
+    /// <see cref="THelpChatProfileSettingsEvent" />. Without it every session
+    /// is answered by the default engine, whatever profile its client
+    /// names. Set it before <c>Start</c>.</summary>
+    property OnProfileSettings: THelpChatProfileSettingsEvent read FOnProfileSettings
+      write FOnProfileSettings;
   end;
 
 /// <summary>A file name for an arbitrary conversation key: readable when it can
@@ -414,6 +475,8 @@ begin
   // The sessions own their objects; the dictionary is keyed by their secret.
   FSessions := TObjectDictionary<string, THelpChatServerSession>.Create([doOwnsValues]);
   FRetired := TList<TPair<TDateTime, THelpChatServerSession>>.Create;
+  FProfileEngines := TObjectDictionary<string, THelpChatEngine>.Create([doOwnsValues]);
+  FEnginesLock := TCriticalSection.Create;
   FAppKeys := TStringList.Create;
   FAppKeys.CaseSensitive := True;
   FStorage := hssMemory;
@@ -432,6 +495,10 @@ begin
   Shutdown;
   FreeAndNil(FRetired);
   FreeAndNil(FSessions);
+  // After the sessions: none of them points at an engine any more. An
+  // engine waits for its workers when it is freed.
+  FreeAndNil(FProfileEngines);
+  FreeAndNil(FEnginesLock);
   FreeAndNil(FAppKeys);
   FreeAndNil(FLock);
   inherited;
@@ -532,7 +599,7 @@ begin
   try
     if FStorage = hssDisk then
       for LSession in FSessions.Values do
-        SaveConversation(LSession.ConversationKey);
+        SaveConversation(LSession);
     FSessions.Clear;
     PurgeRetired(True);
   finally
@@ -567,56 +634,143 @@ begin
   Result := False;
 end;
 
-function THelpChatRemoteServer.ConversationFile(const AConversationKey: string): string;
+function THelpChatRemoteServer.ConversationFile(const AProfile, AConversationKey: string): string;
 begin
-  Result := TPath.Combine(FSessionFolder, HelpChatKeyToFileName(AConversationKey));
+  // The default assistant keeps the names of before the profiles; another
+  // profile puts its name in front, so that the same user has one file per
+  // assistant.
+  if AProfile = '' then
+    Result := TPath.Combine(FSessionFolder, HelpChatKeyToFileName(AConversationKey))
+  else
+    Result := TPath.Combine(FSessionFolder,
+      HelpChatKeyToFileName(LowerCase(AProfile) + ':' + AConversationKey));
 end;
 
-procedure THelpChatRemoteServer.LoadConversation(const AConversationKey: string);
+procedure THelpChatRemoteServer.LoadConversation(const AEngine: THelpChatEngine;
+  const AProfile, AConversationKey: string);
 begin
   // Only when nothing is in memory for that key: a second device of the same
   // user joins the live conversation instead of reloading an older copy.
-  if (FStorage <> hssDisk) or (Engine.Store.Count(AConversationKey) > 0) then
+  if (FStorage <> hssDisk) or (AEngine.Store.Count(AConversationKey) > 0) then
     Exit;
   try
-    Engine.Store.LoadFromFile(AConversationKey, ConversationFile(AConversationKey),
-      Engine.Settings.ConversationMaxAgeDays);
+    AEngine.Store.LoadFromFile(AConversationKey, ConversationFile(AProfile, AConversationKey),
+      AEngine.Settings.ConversationMaxAgeDays);
   except
     on E: Exception do
       Log('cannot read the conversation %s: %s', [AConversationKey, E.Message]);
   end;
 end;
 
-procedure THelpChatRemoteServer.SaveConversation(const AConversationKey: string);
+procedure THelpChatRemoteServer.SaveConversation(const ASession: THelpChatServerSession);
 begin
   if FStorage <> hssDisk then
     Exit;
   try
-    Engine.Store.SaveToFile(AConversationKey, ConversationFile(AConversationKey));
+    EngineOf(ASession).Store.SaveToFile(ASession.ConversationKey,
+      ConversationFile(ASession.Profile, ASession.ConversationKey));
   except
     on E: Exception do
-      Log('cannot write the conversation %s: %s', [AConversationKey, E.Message]);
+      Log('cannot write the conversation %s: %s', [ASession.ConversationKey, E.Message]);
   end;
 end;
 
-function THelpChatRemoteServer.KeyInUse(const AConversationKey, AExceptToken: string): Boolean;
+function THelpChatRemoteServer.KeyInUse(const AEngine: THelpChatEngine;
+  const AConversationKey, AExceptToken: string): Boolean;
 var
   LPair: TPair<string, THelpChatServerSession>;
 begin
+  // The same key on another engine is another conversation: the same user
+  // talking to another assistant.
   for LPair in FSessions do
-    if (LPair.Key <> AExceptToken) and (LPair.Value.ConversationKey = AConversationKey) then
+    if (LPair.Key <> AExceptToken) and (LPair.Value.ConversationKey = AConversationKey) and
+       (EngineOf(LPair.Value) = AEngine) then
       Exit(True);
   Result := False;
 end;
 
-procedure THelpChatRemoteServer.ReleaseConversation(const AConversationKey, AExceptToken: string);
+procedure THelpChatRemoteServer.ReleaseConversation(const ASession: THelpChatServerSession;
+  const AExceptToken: string);
 begin
   // Called with the lock held. Another live session on the same conversation
   // (the same user from a second device) keeps it in memory.
-  if KeyInUse(AConversationKey, AExceptToken) then
+  if KeyInUse(EngineOf(ASession), ASession.ConversationKey, AExceptToken) then
     Exit;
-  SaveConversation(AConversationKey);
-  Engine.Clear(AConversationKey);
+  SaveConversation(ASession);
+  EngineOf(ASession).Clear(ASession.ConversationKey);
+end;
+
+function THelpChatRemoteServer.EngineForProfile(const AProfile: string;
+  out AProfileUsed: string): THelpChatEngine;
+var
+  LName: string;
+  LSettings: THelpChatSettings;
+  LAccepted: Boolean;
+begin
+  Result := Engine;
+  AProfileUsed := '';
+  LName := Trim(AProfile);
+  if (LName = '') or (LName.Length > HELPCHAT_REMOTE_MAX_PROFILE_LENGTH) then
+    Exit;
+  FEnginesLock.Enter;
+  try
+    if FProfileEngines.TryGetValue(LowerCase(LName), Result) then
+    begin
+      AProfileUsed := Result.Settings.Profile;
+      Exit;
+    end;
+    Result := Engine;
+    if not Assigned(FOnProfileSettings) then
+      Exit;
+    // A copy of the default assistant's settings with the profile set: the
+    // handler puts the section of the profile on top.
+    LSettings := THelpChatSettings.Create;
+    try
+      LSettings.Assign(Engine.Settings);
+      LSettings.Profile := LName;
+      LAccepted := False;
+      FOnProfileSettings(Self, LName, LSettings, LAccepted);
+    except
+      LSettings.Free;
+      raise;
+    end;
+    if not LAccepted then
+    begin
+      LSettings.Free;
+      Exit;
+    end;
+    LSettings.Profile := LName;
+    // The conversations belong to the sessions: the server persists them.
+    LSettings.PersistConversation := False;
+    Result := THelpChatEngine.Create(LSettings, True);
+    try
+      Result.Start;
+    except
+      Result.Free;
+      raise;
+    end;
+    FProfileEngines.Add(LowerCase(LName), Result);
+    AProfileUsed := LName;
+  finally
+    FEnginesLock.Leave;
+  end;
+  Log('profile %s: engine started (provider %s, %d pages in the index)',
+    [AProfileUsed, Result.Settings.Provider, Result.DocIndex.Count]);
+end;
+
+function THelpChatRemoteServer.RunningProfiles: TArray<string>;
+var
+  LEngine: THelpChatEngine;
+begin
+  Result := nil;
+  FEnginesLock.Enter;
+  try
+    for LEngine in FProfileEngines.Values do
+      Result := Result + [LEngine.Settings.Profile];
+  finally
+    FEnginesLock.Leave;
+  end;
+  TArray.Sort<string>(Result);
 end;
 
 function THelpChatRemoteServer.SessionByToken(const AToken: string): THelpChatServerSession;
@@ -636,8 +790,10 @@ function THelpChatRemoteServer.OpenSession(ARequestInfo: TIdHTTPRequestInfo;
   out AJson: string; out AError: string): Boolean;
 var
   LBody, LAppKey, LUserId, LUserToken, LId, LToken, LKey: string;
+  LProfile, LProfileUsed: string;
   LAllowed: Boolean;
   LSession: THelpChatServerSession;
+  LEngine: THelpChatEngine;
   LRoot: TJSONObject;
 begin
   AJson := '';
@@ -674,6 +830,20 @@ begin
     Exit(False);
   end;
 
+  // The assistant this client is: the engine of its profile, created the
+  // first time. Outside the lock of the sessions - it may load an index.
+  LProfile := Trim(FormField(LBody, 'profile'));
+  try
+    LEngine := EngineForProfile(LProfile, LProfileUsed);
+  except
+    on E: Exception do
+    begin
+      Log('profile %s cannot start: %s', [LProfile, E.Message]);
+      AError := 'profile not available';
+      Exit(False);
+    end;
+  end;
+
   FLock.Enter;
   try
     if (FMaxSessions > 0) and (FSessions.Count >= FMaxSessions) then
@@ -681,8 +851,13 @@ begin
       AError := 'too many sessions';
       Exit(False);
     end;
-    LoadConversation(LKey);
-    LSession := THelpChatServerSession.Create(LId, LToken, LUserId, LKey);
+    LoadConversation(LEngine, LProfileUsed, LKey);
+    // The default engine stays nil in the session: EngineOf finds it.
+    if LProfileUsed <> '' then
+      LSession := THelpChatServerSession.Create(LId, LToken, LUserId, LKey, LEngine,
+        LProfileUsed)
+    else
+      LSession := THelpChatServerSession.Create(LId, LToken, LUserId, LKey);
     // Where this client listens for what its page asks of it.
     LSession.SetUiEndpoint(FormField(LBody, 'uiBase'), FormField(LBody, 'uiToken'));
     LSession.SetThemeCss(FormField(LBody, 'themeCss'));
@@ -699,9 +874,12 @@ begin
     LRoot.AddPair('token', LToken);
     LRoot.AddPair('pollMs', TJSONNumber.Create(PollIntervalMs));
     LRoot.AddPair('maxPolls', TJSONNumber.Create(MaxPolls));
-    // The language of the server's engine: it is the one the page of this
-    // session will be rendered in, whatever the client is configured with.
-    LRoot.AddPair('lang', HelpChatLanguageCode(Engine.Settings.Language));
+    // The language of the engine of this session: it is the one its page
+    // will be rendered in, whatever the client is configured with.
+    LRoot.AddPair('lang', HelpChatLanguageCode(LEngine.Settings.Language));
+    // The profile the server answers with: empty when the one asked for is
+    // not among its own, and the default assistant answers.
+    LRoot.AddPair('profile', LProfileUsed);
     AJson := LRoot.ToJSON;
   finally
     LRoot.Free;
@@ -709,6 +887,10 @@ begin
   // The host channel is worth logging: without it nothing the page asks of
   // its host arrives (Escape closes nothing), and that is the first thing
   // anyone will ask about.
+  if LProfileUsed <> '' then
+    LKey := LKey + ', profile ' + LProfileUsed
+  else if LProfile <> '' then
+    LKey := LKey + ', profile ' + LProfile + ' not configured: default';
   if LSession.UiBase <> '' then
     Log('session %s opened (user "%s", conversation %s, host channel %s)',
       [LId, LUserId, LKey, LSession.UiBase])
@@ -721,16 +903,15 @@ end;
 procedure THelpChatRemoteServer.CloseSession(const AToken: string);
 var
   LSession: THelpChatServerSession;
-  LKey, LId: string;
+  LId: string;
 begin
   FLock.Enter;
   try
     if not FSessions.TryGetValue(AToken, LSession) then
       Exit;
-    LKey := LSession.ConversationKey;
     LId := LSession.Id;
     Retire(AToken);                // a request may still be using it
-    ReleaseConversation(LKey, AToken);
+    ReleaseConversation(LSession, AToken);
     PurgeRetired(False);
   finally
     FLock.Leave;
@@ -742,8 +923,7 @@ procedure THelpChatRemoteServer.Sweep;
 var
   LPair: TPair<string, THelpChatServerSession>;
   LDead: TArray<string>;
-  LKeys: TArray<string>;
-  LToken: string;
+  LSessions: TArray<THelpChatServerSession>;
   LLimit: TDateTime;
   I: Integer;
 begin
@@ -759,21 +939,20 @@ begin
   FLock.Enter;
   try
     // Collected first and removed after: a dictionary cannot lose entries
-    // while it is being enumerated. The key is copied with the token because
-    // the session leaves the dictionary.
+    // while it is being enumerated. A retired session stays alive, so it can
+    // still tell its conversation and its engine.
     SetLength(LDead, 0);
-    SetLength(LKeys, 0);
+    SetLength(LSessions, 0);
     for LPair in FSessions do
       if LPair.Value.LastAccess < LLimit then
       begin
         LDead := LDead + [LPair.Key];
-        LKeys := LKeys + [LPair.Value.ConversationKey];
+        LSessions := LSessions + [LPair.Value];
       end;
     for I := 0 to High(LDead) do
     begin
-      LToken := LDead[I];
-      Retire(LToken);
-      ReleaseConversation(LKeys[I], LToken);
+      Retire(LDead[I]);
+      ReleaseConversation(LSessions[I], LDead[I]);
     end;
   finally
     FLock.Leave;
@@ -782,15 +961,15 @@ begin
     Log('%d idle session(s) expired', [Length(LDead)]);
 end;
 
-function THelpChatRemoteServer.CanSelectModel: Boolean;
+function THelpChatRemoteServer.CanSelectModel(const AEngine: THelpChatEngine): Boolean;
 begin
   Result := False;
 end;
 
-function THelpChatRemoteServer.CanSelectLanguage: Boolean;
+function THelpChatRemoteServer.CanSelectLanguage(const AEngine: THelpChatEngine): Boolean;
 begin
-  // The language lives in the settings of the one engine every session
-  // shares: a user switching it would switch it for everybody.
+  // The language lives in the settings of an engine every session of its
+  // profile shares: a user switching it would switch it for everybody.
   Result := False;
 end;
 
@@ -805,8 +984,9 @@ end;
 function THelpChatRemoteServer.HandleRoute(const ADocument: string;
   ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo): Boolean;
 var
-  LJson, LError: string;
+  LJson, LError, LProfile: string;
   LRoot: TJSONObject;
+  LProfiles: TJSONArray;
   LErrorJson: TJSONString;
 begin
   Result := True;
@@ -845,6 +1025,10 @@ begin
       LRoot.AddPair('sessions', TJSONNumber.Create(SessionCount));
       LRoot.AddPair('provider', Engine.Settings.Provider);
       LRoot.AddPair('index', TJSONNumber.Create(Engine.DocIndex.Count));
+      LProfiles := TJSONArray.Create;
+      LRoot.AddPair('profiles', LProfiles);
+      for LProfile in RunningProfiles do
+        LProfiles.Add(LProfile);
       WriteJson(AResponseInfo, LRoot.ToJSON);
     finally
       LRoot.Free;

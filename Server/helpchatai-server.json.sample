@@ -31,5 +31,12 @@
   "Gemini": {
     "ApiKey": "",
     "Model": "gemini-3.8-flash"
+  },
+  "//profiles": "One section per assistant. A client whose component has that Profile gets the root of this file with its section on top, in an engine of its own; a Profile not listed here gets the root.",
+  "Profiles": {
+    "Orders": {
+      "Instructions": "You are the expert of orders and invoices.",
+      "DocAreas": [ "Orders" ]
+    }
   }
 }

@@ -117,9 +117,15 @@ type
     FActions: IHelpChatActionInvoker;
     FCreatedAt: TDateTime;
     FLastAccess: TDateTime;
+    FEngine: THelpChatEngine;
+    FProfile: string;
     function GetLastAccess: TDateTime;
   public
-    constructor Create(const AId, AToken, AUserId, AConversationKey: string);
+    /// <summary><c>AEngine</c> is the engine of the profile this session
+    /// talks to, not owned; nil = the engine of the server. Both are fixed
+    /// for the life of the session, so they need no lock.</summary>
+    constructor Create(const AId, AToken, AUserId, AConversationKey: string;
+      const AEngine: THelpChatEngine = nil; const AProfile: string = '');
     destructor Destroy; override;
     /// <summary>Marks the session as used now (idle expiry).</summary>
     procedure Touch;
@@ -179,6 +185,13 @@ type
     /// <summary>When it was last used: what the idle expiry of a server looks
     /// at.</summary>
     property LastAccess: TDateTime read GetLastAccess;
+    /// <summary>The engine that answers this session; nil = the server's
+    /// own. A remote server has one engine per profile, and a session talks
+    /// to the one of the profile its client named.</summary>
+    property Engine: THelpChatEngine read FEngine;
+    /// <summary>The profile of that engine, as the server knows it; empty =
+    /// the default assistant.</summary>
+    property Profile: string read FProfile;
   end;
 
   /// <summary>
@@ -201,11 +214,14 @@ type
       ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     /// <summary>Hands the engine the bytes of an upload and answers what the
     /// page needs to draw the chip - or the sentence that says why not.</summary>
-    function AttachmentJson(const AKey, AFileName: string;
+    function AttachmentJson(const AEngine: THelpChatEngine; const AKey, AFileName: string;
       const AStream: TStream): string;
     /// <summary>The attachments of the conversation, as the page draws them.</summary>
-    function AttachmentListJson(const AKey: string): string;
+    function AttachmentListJson(const AEngine: THelpChatEngine; const AKey: string): string;
   strict protected
+    /// <summary>The engine that answers a session: its own (the engine of
+    /// its profile, on a remote server), else the server's.</summary>
+    function EngineOf(const ASession: THelpChatServerSession): THelpChatEngine;
     /// <summary>Closes the listener. Not virtual and idempotent: the destructor
     /// calls it, and a destructor must never dispatch to a descendant whose
     /// fields are already gone.</summary>
@@ -237,7 +253,7 @@ type
     /// <summary>The document behind a /api/pdf request: one answer, the whole
     /// conversation or a page of the documentation folder. Without a
     /// stylesheet - the client puts its own on.</summary>
-    function BuildPdfDoc(const AKey, AKind, AId: string;
+    function BuildPdfDoc(const AEngine: THelpChatEngine; const AKey, AKind, AId: string;
       out ADoc: THelpChatPrintableDoc): Boolean;
     /// <summary>Hands that document to the host: True when there is one to
     /// hand it to. Like a UI command, only a host in this process can
@@ -249,10 +265,10 @@ type
     function HasPdfHost: Boolean; virtual;
     /// <summary>Whether a client may switch the model in use: when the
     /// engine offers more than one, and the server is this user's own.</summary>
-    function CanSelectModel: Boolean; virtual;
+    function CanSelectModel(const AEngine: THelpChatEngine): Boolean; virtual;
     /// <summary>Whether a client may switch the language of the chat: when
     /// the engine offers more than one, and the server is this user's own.</summary>
-    function CanSelectLanguage: Boolean; virtual;
+    function CanSelectLanguage(const AEngine: THelpChatEngine): Boolean; virtual;
     /// <summary>Whether a command the session does not enable may still run
     /// when the page says the application asked for it (<c>host=1</c>): only
     /// a server inside the application's own process, whose page talks to
@@ -262,9 +278,9 @@ type
     /// menu from them. The name of the method and of its endpoint
     /// (<c>/api/assistants</c>) are those of 1.6, kept because they are the
     /// contract with the page.</summary>
-    function AssistantListJson: string;
+    function AssistantListJson(const AEngine: THelpChatEngine): string;
     /// <summary>The list the page builds its flag and its menu from.</summary>
-    function LanguageListJson: string;
+    function LanguageListJson(const AEngine: THelpChatEngine): string;
     /// <summary>The Indy listener; nil while stopped.</summary>
     property Server: TIdHTTPServer read FServer;
   public
@@ -289,7 +305,9 @@ type
     /// <summary>A URL-safe random secret (a GUID without punctuation).</summary>
     class function NewSecret: string; static;
 
-    /// <summary>The engine every endpoint is answered by.</summary>
+    /// <summary>The engine of the server: the one a session with no engine
+    /// of its own is answered by (on a remote server, the default
+    /// profile's).</summary>
     property Engine: THelpChatEngine read FEngine;
     /// <summary>Address to bind; 127.0.0.1 by default (a server opens it up).</summary>
     property BindIP: string read FBindIP write FBindIP;
@@ -413,7 +431,8 @@ end;
 
 { THelpChatServerSession }
 
-constructor THelpChatServerSession.Create(const AId, AToken, AUserId, AConversationKey: string);
+constructor THelpChatServerSession.Create(const AId, AToken, AUserId, AConversationKey: string;
+  const AEngine: THelpChatEngine; const AProfile: string);
 begin
   // Everything but prompt and run until a component says otherwise:
   // a remote client has no actions here to run.
@@ -424,6 +443,8 @@ begin
   FToken := AToken;
   FUserId := AUserId;
   FConversationKey := AConversationKey;
+  FEngine := AEngine;
+  FProfile := AProfile;
   FCreatedAt := Now;
   FLastAccess := FCreatedAt;
 end;
@@ -717,7 +738,8 @@ begin
   Result.AddPair('sizeText', HelpChatFormatSize(AAttachment.OriginalSize));
 end;
 
-function THelpChatHttpServerBase.AttachmentListJson(const AKey: string): string;
+function THelpChatHttpServerBase.AttachmentListJson(const AEngine: THelpChatEngine;
+  const AKey: string): string;
 var
   LRoot: TJSONObject;
   LItems: TJSONArray;
@@ -727,7 +749,7 @@ begin
   try
     LItems := TJSONArray.Create;
     LRoot.AddPair('items', LItems);
-    for LAttachment in FEngine.Attachments.ItemsOf(AKey) do
+    for LAttachment in AEngine.Attachments.ItemsOf(AKey) do
       LItems.AddElement(AttachmentObject(LAttachment));
     Result := LRoot.ToJSON;
   finally
@@ -735,8 +757,8 @@ begin
   end;
 end;
 
-function THelpChatHttpServerBase.AttachmentJson(const AKey, AFileName: string;
-  const AStream: TStream): string;
+function THelpChatHttpServerBase.AttachmentJson(const AEngine: THelpChatEngine;
+  const AKey, AFileName: string; const AStream: TStream): string;
 var
   LRoot: TJSONObject;
   LData: TBytes;
@@ -751,7 +773,7 @@ begin
     AStream.ReadBuffer(LData[0], Length(LData));
   end;
 
-  if FEngine.AddAttachment(AKey, AFileName, LData, LAttachment, LError) then
+  if AEngine.AddAttachment(AKey, AFileName, LData, LAttachment, LError) then
   begin
     LRoot := AttachmentObject(LAttachment);
     try
@@ -765,7 +787,7 @@ begin
   LRoot := TJSONObject.Create;
   try
     if LError = '' then       // attachments are off: the page should not have asked
-      LError := HelpChatMsg(hcmAttachFailed, FEngine.ActiveLanguage);
+      LError := HelpChatMsg(hcmAttachFailed, AEngine.ActiveLanguage);
     LRoot.AddPair('error', LError);
     Result := LRoot.ToJSON;
   finally
@@ -773,29 +795,42 @@ begin
   end;
 end;
 
+function THelpChatHttpServerBase.EngineOf(
+  const ASession: THelpChatServerSession): THelpChatEngine;
+begin
+  Result := nil;
+  if Assigned(ASession) then
+    Result := ASession.Engine;
+  if not Assigned(Result) then
+    Result := FEngine;
+end;
+
 function THelpChatHttpServerBase.PanelOptionsFor(
   const ASession: THelpChatServerSession): THelpChatPanelOptions;
+var
+  LEngine: THelpChatEngine;
 begin
+  LEngine := EngineOf(ASession);
   Result := THelpChatPanelOptions.Default;
   Result.Token := ASession.Token;
-  Result.Language := FEngine.ActiveLanguage;
+  Result.Language := LEngine.ActiveLanguage;
   Result.PollIntervalMs := FPollIntervalMs;
   Result.MaxPolls := FMaxPolls;
   Result.ThemeCss := ASession.GetThemeCss;
   Result.UiBase := ASession.UiBase;
   Result.UiToken := ASession.UiToken;
   Result.HostCommands := True;
-  Result.DocsAvailable := Assigned(FEngine.DocPages);
-  Result.DocBaseUrl := FEngine.Settings.DocBaseUrl;
+  Result.DocsAvailable := Assigned(LEngine.DocPages);
+  Result.DocBaseUrl := LEngine.Settings.DocBaseUrl;
   Result.AssistantName := ASession.GetAssistantName;
   Result.AssistantIcon := ASession.GetAssistantIcon;
   // The clip is offered only when both halves agree: the application allows
   // attachments and the provider of the model in use can actually read one.
-  Result.AttachmentsEnabled := FEngine.Settings.Attachments.Enabled and
-    THelpChatProviderRegistry.SupportsDocuments(FEngine.Settings.Provider);
-  Result.AttachMaxKB := FEngine.Settings.Attachments.MaxSizeKB;
+  Result.AttachmentsEnabled := LEngine.Settings.Attachments.Enabled and
+    THelpChatProviderRegistry.SupportsDocuments(LEngine.Settings.Provider);
+  Result.AttachMaxKB := LEngine.Settings.Attachments.MaxSizeKB;
   Result.AttachAccept := HelpChatAcceptedExtensions;
-  Result.PdfEnabled := FEngine.Settings.Pdf.Enabled;
+  Result.PdfEnabled := LEngine.Settings.Pdf.Enabled;
 end;
 
 function THelpChatHttpServerBase.HandleRoute(const ADocument: string;
@@ -858,19 +893,19 @@ begin
   end;
 end;
 
-function THelpChatHttpServerBase.BuildPdfDoc(const AKey, AKind, AId: string;
-  out ADoc: THelpChatPrintableDoc): Boolean;
+function THelpChatHttpServerBase.BuildPdfDoc(const AEngine: THelpChatEngine;
+  const AKey, AKind, AId: string; out ADoc: THelpChatPrintableDoc): Boolean;
 var
   LLanguage: THelpChatLanguage;
   LMessage: THelpChatMessage;
   LPage: THelpChatRenderedDoc;
 begin
   ADoc := Default(THelpChatPrintableDoc);
-  LLanguage := FEngine.ActiveLanguage;
+  LLanguage := AEngine.ActiveLanguage;
   ADoc.LangCode := HelpChatLanguageCode(LLanguage);
   if SameText(AKind, HELPCHAT_PDF_KIND_ANSWER) then
   begin
-    if not FEngine.TryGetMessage(AKey, AId, LMessage) or not LMessage.IsCompleted or
+    if not AEngine.TryGetMessage(AKey, AId, LMessage) or not LMessage.IsCompleted or
        (LMessage.Content.Trim = '') then
       Exit(False);
     ADoc := HelpChatMarkdownDocument(HelpChatMsg(hcmPdfAnswerTitle, LLanguage),
@@ -879,14 +914,14 @@ begin
   else if SameText(AKind, HELPCHAT_PDF_KIND_CONVERSATION) then
   begin
     ADoc := HelpChatConversationDocument(
-      HelpChatMsg(hcmPdfConversationTitle, LLanguage), FEngine.Messages(AKey), '',
+      HelpChatMsg(hcmPdfConversationTitle, LLanguage), AEngine.Messages(AKey), '',
       HelpChatMsg(hcmPdfUser, LLanguage), HelpChatMsg(hcmPdfAssistant, LLanguage));
     if ADoc.BodyHtml.Trim = '' then
       Exit(False);
   end
   else if SameText(AKind, HELPCHAT_PDF_KIND_PAGE) then
   begin
-    if not FEngine.RenderDocPage(AId, LPage) then
+    if not AEngine.RenderDocPage(AId, LPage) then
       Exit(False);
     // Already HTML, and with its images inlined: a documentation page is
     // rendered the same way for the panel and for the sheet of paper.
@@ -925,7 +960,10 @@ var
   LCmdRequest: THelpChatCommandRequest;
   LLanguage: THelpChatLanguage;
   LJson: TJSONObject;
+  LEngine: THelpChatEngine;
 begin
+  // The engine of this session: on a remote server, the one of its profile.
+  LEngine := EngineOf(ASession);
   LIsPost := ARequestInfo.CommandType = hcPOST;
   if LIsPost then
     LBody := ARequestInfo.FormParams
@@ -934,7 +972,7 @@ begin
   LKey := ASession.ConversationKey;
 
   if (ADocument = HELPCHAT_API_HISTORY) and not LIsPost then
-    WriteHtml(AResponseInfo, FEngine.RenderHistoryHtml(LKey))
+    WriteHtml(AResponseInfo, LEngine.RenderHistoryHtml(LKey))
 
   else if (ADocument = HELPCHAT_API_SEND) and LIsPost then
   begin
@@ -954,7 +992,7 @@ begin
     LValue := FormField(LBody, 'helpKeyword');
     if LValue <> '' then
       LContext.HelpKeyword := LValue;
-    LResult := FEngine.Send(LKey, LMessage, LContext, ASession.GetActions);
+    LResult := LEngine.Send(LKey, LMessage, LContext, ASession.GetActions);
     if LResult.Sent then
       WriteHtml(AResponseInfo, HelpChatRenderBubble(LResult.UserMessage) +
         HelpChatRenderBubble(LResult.AssistantMessage))
@@ -965,28 +1003,28 @@ begin
   else if ADocument.StartsWith(HELPCHAT_API_POLL) and not LIsPost then
   begin
     LId := ADocument.Substring(HELPCHAT_API_POLL.Length);
-    WriteHtml(AResponseInfo, FEngine.RenderMessageHtml(LKey, LId));
+    WriteHtml(AResponseInfo, LEngine.RenderMessageHtml(LKey, LId));
   end
 
   else if ADocument.StartsWith(HELPCHAT_API_CANCEL) and LIsPost then
   begin
     LId := ADocument.Substring(HELPCHAT_API_CANCEL.Length);
     // Only a reply of this conversation: a session cannot stop another's.
-    if FEngine.RenderMessageHtml(LKey, LId) <> '' then
-      FEngine.Cancel(LId);
-    WriteHtml(AResponseInfo, FEngine.RenderMessageHtml(LKey, LId));
+    if LEngine.RenderMessageHtml(LKey, LId) <> '' then
+      LEngine.Cancel(LId);
+    WriteHtml(AResponseInfo, LEngine.RenderMessageHtml(LKey, LId));
   end
 
   else if (ADocument = HELPCHAT_API_CLEAR) and LIsPost then
   begin
-    FEngine.Clear(LKey);
-    WriteHtml(AResponseInfo, HelpChatRenderGreeting(FEngine.Greeting));
+    LEngine.Clear(LKey);
+    WriteHtml(AResponseInfo, HelpChatRenderGreeting(LEngine.Greeting));
   end
 
   else if (ADocument = HELPCHAT_API_DOC) and not LIsPost then
   begin
     // A page of the documentation folder, rendered like a reply (safe HTML).
-    if FEngine.RenderDocPage(FormField(ARequestInfo.QueryParams, HELPCHAT_DOC_QUERY), LDoc) then
+    if LEngine.RenderDocPage(FormField(ARequestInfo.QueryParams, HELPCHAT_DOC_QUERY), LDoc) then
       WriteHtml(AResponseInfo, '<article class="' + HELPCHAT_CSS_PREFIX + '-doc-page"' +
         ' data-page="' + TNetEncoding.HTML.Encode(LDoc.Page) + '"' +
         ' data-title="' + TNetEncoding.HTML.Encode(LDoc.Title) + '">' + LDoc.Html + '</article>')
@@ -1026,7 +1064,7 @@ begin
 
   else if (ADocument = HELPCHAT_API_COMMANDS) and not LIsPost then
     WriteJson(AResponseInfo, HelpChatCommandsToJson(ASession.GetEnabledCommands,
-      FEngine.ActiveLanguage))
+      LEngine.ActiveLanguage))
 
   else if (ADocument = HELPCHAT_API_COMMAND) and LIsPost then
   begin
@@ -1042,12 +1080,12 @@ begin
       LCmdRequest.Args := FormField(LBody, 'args');
       LCmdRequest.ConversationKey := LKey;
       LCmdRequest.Context := ASession.GetContext;
-      LCmdRequest.Language := FEngine.ActiveLanguage;
+      LCmdRequest.Language := LEngine.ActiveLanguage;
       LCmdRequest.Enabled := ASession.GetEnabledCommands;
       LCmdRequest.Actions := ASession.GetActions;
       LJson := TJSONObject.Create;
       try
-        LJson.AddPair('html', HelpChatRunCommand(FEngine, LCmdRequest));
+        LJson.AddPair('html', HelpChatRunCommand(LEngine, LCmdRequest));
         WriteJson(AResponseInfo, LJson.ToJSON);
       finally
         LJson.Free;
@@ -1056,34 +1094,34 @@ begin
   end
 
   else if (ADocument = HELPCHAT_API_ASSISTANTS) and not LIsPost then
-    WriteJson(AResponseInfo, AssistantListJson)
+    WriteJson(AResponseInfo, AssistantListJson(LEngine))
 
   else if (ADocument = HELPCHAT_API_ASSISTANT_SELECT) and LIsPost then
   begin
     // The switch applies to the next question: a reply being produced keeps
     // the snapshot of the settings it started with.
-    if not CanSelectModel then
+    if not CanSelectModel(LEngine) then
       WriteStatus(AResponseInfo, 403)
-    else if FEngine.SelectModel(FormField(LBody, 'name')) then
-      WriteJson(AResponseInfo, AssistantListJson)
+    else if LEngine.SelectModel(FormField(LBody, 'name')) then
+      WriteJson(AResponseInfo, AssistantListJson(LEngine))
     else
       WriteStatus(AResponseInfo, 404);
   end
 
   else if (ADocument = HELPCHAT_API_LANGUAGES) and not LIsPost then
-    WriteJson(AResponseInfo, LanguageListJson)
+    WriteJson(AResponseInfo, LanguageListJson(LEngine))
 
   else if (ADocument = HELPCHAT_API_LANGUAGE_SELECT) and LIsPost then
   begin
-    if not CanSelectLanguage then
+    if not CanSelectLanguage(LEngine) then
       WriteStatus(AResponseInfo, 403)
     else if HelpChatLanguageFromCode(FormField(LBody, 'code'), LLanguage) and
-            FEngine.SelectLanguage(LLanguage) then
+            LEngine.SelectLanguage(LLanguage) then
     begin
       // The host writes captions of its own (the window, the bubble): it is
       // told, the way the page tells it about a click, before the page reloads.
       HandleUiCommand(ASession, HELPCHAT_UI_LANGUAGE);
-      WriteJson(AResponseInfo, LanguageListJson);
+      WriteJson(AResponseInfo, LanguageListJson(LEngine));
     end
     else
       WriteStatus(AResponseInfo, 404);
@@ -1095,23 +1133,23 @@ begin
     // by hand here (Indy only parses the urlencoded kind), and the page sends
     // one file per call anyway. The name travels in the query string, where
     // it is already percent-encoded.
-    WriteJson(AResponseInfo, AttachmentJson(LKey,
+    WriteJson(AResponseInfo, AttachmentJson(LEngine, LKey,
       FormField(ARequestInfo.QueryParams, HELPCHAT_ATTACH_NAME_QUERY),
       ARequestInfo.PostStream));
   end
 
   else if (ADocument = HELPCHAT_API_ATTACHMENTS) and not LIsPost then
-    WriteJson(AResponseInfo, AttachmentListJson(LKey))
+    WriteJson(AResponseInfo, AttachmentListJson(LEngine, LKey))
 
   else if (ADocument = HELPCHAT_API_ATTACH_REMOVE) and LIsPost then
   begin
-    FEngine.RemoveAttachment(LKey, FormField(LBody, HELPCHAT_FIELD_ATTACH_ID));
+    LEngine.RemoveAttachment(LKey, FormField(LBody, HELPCHAT_FIELD_ATTACH_ID));
     WriteHtml(AResponseInfo, '');
   end
 
   else if (ADocument = HELPCHAT_API_PDF) and LIsPost then
   begin
-    if not FEngine.Settings.Pdf.Enabled then
+    if not LEngine.Settings.Pdf.Enabled then
       WriteStatus(AResponseInfo, 403)
     else if not HasPdfHost then
       // Not "there is nothing to print" but "nobody here can print": the page
@@ -1137,30 +1175,30 @@ begin
     WriteStatus(AResponseInfo, 404);
 end;
 
-function THelpChatHttpServerBase.CanSelectModel: Boolean;
+function THelpChatHttpServerBase.CanSelectModel(const AEngine: THelpChatEngine): Boolean;
 begin
-  Result := FEngine.CanSelectModel;
+  Result := AEngine.CanSelectModel;
 end;
 
-function THelpChatHttpServerBase.CanSelectLanguage: Boolean;
+function THelpChatHttpServerBase.CanSelectLanguage(const AEngine: THelpChatEngine): Boolean;
 begin
-  Result := FEngine.CanSelectLanguage;
+  Result := AEngine.CanSelectLanguage;
 end;
 
-function THelpChatHttpServerBase.LanguageListJson: string;
+function THelpChatHttpServerBase.LanguageListJson(const AEngine: THelpChatEngine): string;
 var
   LRoot, LItem: TJSONObject;
   LItems: TJSONArray;
   LActive, L: THelpChatLanguage;
 begin
-  LActive := FEngine.ActiveLanguage;
+  LActive := AEngine.ActiveLanguage;
   LRoot := TJSONObject.Create;
   try
-    LRoot.AddPair('canSelect', TJSONBool.Create(CanSelectLanguage));
+    LRoot.AddPair('canSelect', TJSONBool.Create(CanSelectLanguage(AEngine)));
     LRoot.AddPair('active', HelpChatLanguageCode(LActive));
     LItems := TJSONArray.Create;
     LRoot.AddPair('items', LItems);
-    for L in FEngine.Languages do
+    for L in AEngine.Languages do
     begin
       LItem := TJSONObject.Create;
       LItem.AddPair('code', HelpChatLanguageCode(L));
@@ -1182,7 +1220,7 @@ begin
   Result := False;
 end;
 
-function THelpChatHttpServerBase.AssistantListJson: string;
+function THelpChatHttpServerBase.AssistantListJson(const AEngine: THelpChatEngine): string;
 var
   LRoot, LItem: TJSONObject;
   LItems: TJSONArray;
@@ -1190,10 +1228,10 @@ var
 begin
   LRoot := TJSONObject.Create;
   try
-    LRoot.AddPair('canSelect', TJSONBool.Create(CanSelectModel));
+    LRoot.AddPair('canSelect', TJSONBool.Create(CanSelectModel(AEngine)));
     LItems := TJSONArray.Create;
     LRoot.AddPair('items', LItems);
-    for LInfo in FEngine.Models do
+    for LInfo in AEngine.Models do
     begin
       LItem := TJSONObject.Create;
       LItem.AddPair('name', LInfo.Name);
@@ -1456,7 +1494,7 @@ begin
     FLock.Leave;
   end;
   Result := Assigned(LHandler) and
-    BuildPdfDoc(ASession.ConversationKey, AKind, AId, LDoc);
+    BuildPdfDoc(EngineOf(ASession), ASession.ConversationKey, AKind, AId, LDoc);
   if not Result then
     Exit;
   // The document is built here, on the HTTP thread, and printed there, on the
