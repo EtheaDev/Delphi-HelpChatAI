@@ -6464,6 +6464,7 @@ object MainForm: TMainForm
     Top = 544
   end
   object HelpChat: TVclHelpChatAI
+    EnabledCommands = [hccHelp, hccWho, hccUse, hccLang, hccRetry, hccSearch, hccDoc, hccPages, hccContext, hccActions, hccCheck, hccStats, hccClear, hccPdf, hccCopy, hccAttach, hccPrompt, hccRun]
     Settings.Provider = 'claude'
     Settings.Claude.MaxToolRounds = 6
     Settings.OpenAI.MaxToolRounds = 6

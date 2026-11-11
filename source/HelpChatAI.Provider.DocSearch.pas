@@ -46,15 +46,37 @@ uses
   HelpChatAI.Provider;
 
 const
+  /// <summary>Name the provider registers under.</summary>
   HELPCHAT_PROVIDER_DOCSEARCH = 'docsearch';
-  /// <summary>Minimum score of the second page to be offered as "see also".</summary>
+  /// <summary>Minimum score of the second page to be offered as "see also".
+  /// The score is the raw one of the index (a title hit is worth six, a
+  /// keyword hit three, a body hit one), so two means the page mentions the
+  /// words of the question at least twice.</summary>
   HELPCHAT_DOCSEARCH_SEEALSO_MINSCORE = 2;
 
 type
+  /// <summary>
+  ///  The <c>docsearch</c> provider. Not streaming, no actions, no documents:
+  ///  the three defaults of the base class. It has no model and so no
+  ///  settings section of its own; what it needs is the retriever the engine
+  ///  hands every provider, which is the index filtered by the areas of the
+  ///  assistant - so two assistants of one manual answer from different
+  ///  pages. One instance per reply, on a runner worker.
+  /// </summary>
   THelpChatDocSearchProvider = class(THelpChatProviderBase)
   public
     function GetName: string; override;
+    /// <summary>The index file is all this provider has: an issue when
+    /// <c>Settings.ResolveDocIndexFile</c> does not exist. An index that
+    /// exists but is malformed, or whose pages are all of other areas, is
+    /// not seen from here.</summary>
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
+    /// <summary>The best page for the last user message, biased by the
+    /// screen the user is on: title, summary and a link, plus a "see also"
+    /// for a second page that scores enough. Never raises for a missing
+    /// index or an empty search: both are answers, in the language of the
+    /// settings, pointing at the base URL of the documentation.
+    /// <c>AOnToken</c> is not used.</summary>
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; override;

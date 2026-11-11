@@ -149,6 +149,7 @@
         <DCCReference Include="..\..\source\HelpChatAI.Provider.OpenAI.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Provider.Gemini.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Diagnostics.pas"/>
+        <DCCReference Include="..\..\source\HelpChatAI.ConfigController.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Engine.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.IndexBuilder.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Transport.pas"/>

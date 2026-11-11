@@ -50,10 +50,11 @@ function AppSecretProtect(const AClearText: string): string;
 /// passphrase is not a key with a typo in it.</summary>
 function AppSecretReveal(const AValue: string): string;
 
-/// <summary>Writes AProtectedKey into the <c>ApiKey</c> of the named section
-/// of the per-user configuration file of this application
+/// <summary>Writes AProtectedKey into the <c>ApiKeyEncrypted</c> of the named
+/// section of the per-user configuration file of this application
 /// (<c>%APPDATA%\&lt;exe&gt;\helpchatai.json</c>), leaving the rest of the
-/// file as it is. The value stored is the encrypted one.</summary>
+/// file as it is - a clear <c>ApiKey</c> of the developer included: the IDE
+/// reads that one, the running application this one.</summary>
 procedure AppSecretStoreApiKey(const ASection, AProtectedKey: string);
 
 type
@@ -312,8 +313,8 @@ begin
       LSection := TJSONObject.Create;
       LRoot.AddPair(ASection, LSection);
     end;
-    LSection.RemovePair('ApiKey').Free;
-    LSection.AddPair('ApiKey', AProtectedKey);
+    LSection.RemovePair('ApiKeyEncrypted').Free;
+    LSection.AddPair('ApiKeyEncrypted', AProtectedKey);
     TDirectory.CreateDirectory(TPath.GetDirectoryName(LFileName));
     TFile.WriteAllText(LFileName, LRoot.Format(2), TEncoding.UTF8);
   finally

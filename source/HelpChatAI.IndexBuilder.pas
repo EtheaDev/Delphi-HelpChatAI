@@ -49,49 +49,96 @@ uses
   HelpChatAI.Settings;
 
 const
+  /// <summary>Extension of a link when the manual is published as a site.</summary>
   HELPCHAT_INDEXBUILDER_DEF_URLEXT = '.html';
+  /// <summary>Characters of plain text kept per page: what the search
+  /// scores on and the excerpts are cut from. A longer page is indexed for
+  /// its beginning only.</summary>
   HELPCHAT_INDEXBUILDER_DEF_MAXTEXT = 8000;
+  /// <summary>Longest summary, in characters, cut at a word.</summary>
   HELPCHAT_INDEXBUILDER_DEF_SUMMARYMAX = 320;
+  /// <summary>A paragraph shorter than this is a caption or a note, not a
+  /// summary, as long as a longer one follows.</summary>
   HELPCHAT_INDEXBUILDER_DEF_SUMMARYMIN = 40;
+  /// <summary>Name of the table of contents, looked for at the root of the
+  /// folder without regard to case.</summary>
   HELPCHAT_INDEXBUILDER_DEF_TOCFILE = 'index.md';
 
 type
+  /// <summary>What a build needs to know. Start from <c>Default</c> and
+  /// set <c>SourceFolder</c>: a record of zeroes is another build - not
+  /// recursive, no table of contents, links in <c>.md</c>, texts and
+  /// summaries uncut.</summary>
   THelpChatIndexBuilderOptions = record
     /// <summary>Folder holding the Markdown pages.</summary>
     SourceFolder: string;
-    /// <summary>Include sub-folders (images folders hold no .md and are harmless).</summary>
+    /// <summary>Include sub-folders (images folders hold no .md and are
+    /// harmless). The first sub-folder of a page is also its area, unless
+    /// its front matter says otherwise.</summary>
     Recursive: Boolean;
     /// <summary>Table of contents file, relative to SourceFolder (case-insensitive);
-    /// gives titles and breadcrumbs and is never indexed as a page.</summary>
+    /// gives titles and breadcrumbs and is never indexed as a page. Empty
+    /// means there is none, and nothing is said about it; a name that is
+    /// not found is a warning.</summary>
     TocFile: string;
     /// <summary>Extension of the published pages ('.html'); empty keeps '.md'.</summary>
     UrlExtension: string;
     /// <summary>Prepended to every relative URL (e.g. 'manual/').</summary>
     UrlPrefix: string;
+    /// <summary>Characters of plain text kept per page (0 = the whole
+    /// page).</summary>
     MaxTextLength: Integer;
+    /// <summary>Longest summary, in characters (0 = uncut).</summary>
     SummaryMaxLength: Integer;
+    /// <summary>Shortest paragraph taken as the summary when a longer one
+    /// exists.</summary>
     SummaryMinLength: Integer;
+    /// <summary>Recursive, <c>index.md</c> as table of contents, links in
+    /// <c>.html</c> and the default sizes; the folder is left empty.</summary>
     class function Default: THelpChatIndexBuilderOptions; static;
   end;
 
+  /// <summary>One page of the index being built: what <c>ToJSON</c> writes
+  /// and <c>THelpChatDocIndex</c> reads back.</summary>
   THelpChatIndexPage = record
+    /// <summary>Relative path without the extension, forward slashes.</summary>
     Id: string;
+    /// <summary>Front matter, else first heading, else the text of its
+    /// link in the table of contents, else the file name.</summary>
     Title: string;
+    /// <summary>Prefix, relative path and the published extension.</summary>
     Url: string;
     Summary: string;
+    /// <summary>The page as plain text on one line, cut to
+    /// <c>MaxTextLength</c>.</summary>
     Text: string;
+    /// <summary>Other names the page answers to: its title in the table of
+    /// contents when it differs from its heading, and the titles of its
+    /// ancestors there.</summary>
     Keywords: TArray<string>;
+    /// <summary>The areas of the manual the page belongs to: the
+    /// <c>areas:</c> of its front matter when it has one, else the first
+    /// sub-folder of its path; none for a page at the root of the manual,
+    /// which every assistant sees.</summary>
+    Areas: TArray<string>;
     /// <summary>Relative source path, for diagnostics.</summary>
     SourceFile: string;
   end;
 
   /// <summary>A page as described by the table of contents.</summary>
   THelpChatTocEntry = record
+    /// <summary>Text of the link, emphasis markers removed.</summary>
     Title: string;
     /// <summary>Titles of the ancestors, outermost first.</summary>
     Breadcrumb: TArray<string>;
   end;
 
+  /// <summary>
+  ///  The builder. An instance holds nothing but the warnings of its last
+  ///  <c>Build</c>; every step of the work is a static class function, so
+  ///  that each can be tested, and reused, on its own (the attachments
+  ///  borrow <c>IsValidUtf8</c>). Not thread-safe: one instance per build.
+  /// </summary>
   THelpChatIndexBuilder = class
   strict private
     FWarnings: TStrings;
@@ -102,10 +149,27 @@ type
     /// <summary>Reads a text file detecting its encoding: BOM if present, else
     /// UTF-8 when the bytes are valid UTF-8, else the ANSI code page.</summary>
     class function ReadTextFile(const AFileName: string): string; static;
-    /// <summary>True when ABytes is a well-formed UTF-8 sequence.</summary>
+    /// <summary>True when ABytes is a well-formed UTF-8 sequence, as far as
+    /// lead and continuation bytes go (overlong forms and surrogates are
+    /// not looked for). Pure ASCII and an empty array are valid. It is the
+    /// test that tells a UTF-8 file without BOM from an ANSI one.</summary>
     class function IsValidUtf8(const ABytes: TBytes): Boolean; static;
-    /// <summary>Removes a leading YAML front matter block, returning it in AFrontMatter.</summary>
+    /// <summary>Removes a leading YAML front matter block - between a first
+    /// line of three dashes and the next line starting with three - and
+    /// returns it, trimmed, in AFrontMatter. A page without one, or whose
+    /// block is never closed, comes back unchanged.</summary>
     class function StripFrontMatter(const AMarkdown: string; out AFrontMatter: string): string; static;
+    /// <summary>The areas of a page: the front matter <c>areas:</c> - a list
+    /// in brackets or separated by commas, on the line of the key, an empty
+    /// one for none - else the first folder of ARelative
+    /// ("Orders/New-Order.md" -> Orders; only the first, however deep the
+    /// page is). <c>ARelative</c> must use forward slashes, as <c>Build</c>
+    /// passes it. A key that is there decides, even with no value: the
+    /// folder is not consulted, which is how a page inside a folder is made
+    /// everybody's. Names are returned as written; the index compares them
+    /// without case. A YAML block list on the following lines
+    /// ("areas:" alone, then "- Orders" lines) is read as well.</summary>
+    class function ExtractAreas(const AFrontMatter, ARelative: string): TArray<string>; static;
     /// <summary>Title from the front matter "title:" or the first heading (any level).</summary>
     class function ExtractTitle(const AMarkdown, AFrontMatter: string): string; static;
     /// <summary>Markdown to plain text: code fences, images, link targets,
@@ -126,11 +190,22 @@ type
     /// <summary>Cleans a TOC/heading title: emphasis markers, surrounding spaces.</summary>
     class function CleanTitle(const ATitle: string): string; static;
 
-    /// <summary>Builds the pages of every Markdown file under the source folder.</summary>
+    /// <summary>Builds the pages of every Markdown file under the source
+    /// folder, in the order of their paths (case-insensitive), so that two
+    /// builds of the same manual give the same file. The table of contents
+    /// is not a page; a page with no text is skipped with a warning.
+    /// Raises <c>EDirectoryNotFoundException</c> when the folder is not
+    /// there, and whatever reading a file raises.</summary>
     function Build(const AOptions: THelpChatIndexBuilderOptions): TArray<THelpChatIndexPage>;
-    /// <summary>Serializes pages to the JSON array THelpChatDocIndex loads.</summary>
+    /// <summary>Serializes pages to the JSON array THelpChatDocIndex loads.
+    /// <c>areas</c> is written only for the pages that have some, so the
+    /// index of a manual without areas is what it was before they
+    /// existed.</summary>
     class function ToJSON(const APages: TArray<THelpChatIndexPage>; const APretty: Boolean = True): string; static;
-    /// <summary>Build + ToJSON + write (UTF-8). Returns the number of pages.</summary>
+    /// <summary>Build + ToJSON + write (UTF-8, with BOM), creating the
+    /// folder of the file when it is missing. Returns the number of pages;
+    /// a file is written even when that is zero. Raises what
+    /// <c>Build</c> raises and what writing the file does.</summary>
     function BuildToFile(const AOptions: THelpChatIndexBuilderOptions; const AOutputFile: string): Integer;
 
     /// <summary>Non-fatal findings of the last Build (pages without title or text...).</summary>
@@ -168,17 +243,28 @@ type
     Warnings: string;
     /// <summary>Nothing is in the way.</summary>
     function CanBuild: Boolean;
-    /// <summary>The plan in four lines, for whoever has to confirm it.</summary>
+    /// <summary>The plan in four lines, for whoever has to confirm it:
+    /// English, like every text of the design-time tools, and with what was
+    /// deduced - the extension of the links - said in words.</summary>
     function Describe: string;
   end;
 
 /// <summary>Works out what rebuilding the index of these settings would do,
-/// and changes nothing. Read <c>Problem</c> first.</summary>
+/// and changes nothing. Read <c>Problem</c> first. The folder and the file
+/// are the resolved ones (<c>ResolveDocFolder</c>,
+/// <c>ResolveDocIndexFile</c>), so the settings must already be those of the
+/// application and not of the IDE. The one thing deduced is the extension
+/// of the links: <c>.md</c> without a <c>DocBaseUrl</c>, <c>.html</c> with
+/// one. The index is one for the whole manual: <c>DocAreas</c> plays no
+/// part here, the areas are read back from the pages. Never raises for
+/// settings that are nil or incomplete.</summary>
 function HelpChatPlanIndexBuild(const ASettings: THelpChatSettings): THelpChatIndexPlan;
 
 /// <summary>Runs the plan, writing the index. False, with <c>Problem</c> set,
 /// when it could not: a plan that cannot be built, a folder that is read-only,
-/// a file somebody has open.</summary>
+/// a file somebody has open, or a manual that produced no page (the empty
+/// index is written all the same). Never raises. An engine that is running
+/// keeps the index it loaded: the new one is read at the next start.</summary>
 function HelpChatRunIndexBuild(var APlan: THelpChatIndexPlan): Boolean;
 
 implementation
@@ -296,6 +382,49 @@ begin
   // Trailing closing hashes of ATX headings ("## Title ##").
   Result := TRegEx.Replace(Result, '\s+#+\s*$', '');
   Result := TNetEncoding.HTML.Decode(Result).Trim;
+end;
+
+class function THelpChatIndexBuilder.ExtractAreas(const AFrontMatter, ARelative: string): TArray<string>;
+var
+  LMatch, LBlock: TMatch;
+  LValue, LItem: string;
+  LSlash: Integer;
+begin
+  Result := nil;
+  if AFrontMatter <> '' then
+  begin
+    // Blanks and tabs, not \s: \s also matches the end of the line, and
+    // "areas:" with nothing after it then took the whole next line as its
+    // value - a page said to be everybody's ended up in an area called
+    // "title: Welcome", which no assistant has.
+    LMatch := TRegEx.Match(AFrontMatter, '^[ \t]*areas[ \t]*:[ \t]*(.*?)[ \t\r]*$',
+      [roMultiLine, roIgnoreCase]);
+    if LMatch.Success then
+    begin
+      // Said explicitly, even empty: that is the answer.
+      LValue := LMatch.Groups[1].Value.Trim(['[', ']', ' ']);
+      for LItem in LValue.Split([',']) do
+        if LItem.Trim([' ', '"', '''']) <> '' then
+          Result := Result + [LItem.Trim([' ', '"', ''''])];
+      // Nothing on the line at all (not even "[]"): the block form of YAML,
+      // one "- Area" per line right below the key.
+      if LMatch.Groups[1].Value = '' then
+      begin
+        LBlock := TRegEx.Match(AFrontMatter.Substring(LMatch.Index - 1 + LMatch.Length),
+          '\A(?:\r?\n[ \t]*-[ \t]*[^\r\n]*)+');
+        if LBlock.Success then
+          for LItem in LBlock.Value.Split([#10]) do
+            if LItem.Trim([' ', #9, #13, '-', '"', '''']) <> '' then
+              Result := Result + [LItem.Trim([' ', #9, #13, '-', '"', ''''])];
+      end;
+      Exit;
+    end;
+  end;
+  // No key at all: the folder decides. A page at the root has no slash and
+  // no area, which makes it a page of every assistant.
+  LSlash := ARelative.IndexOf('/');
+  if LSlash > 0 then
+    Result := [ARelative.Substring(0, LSlash)];
 end;
 
 class function THelpChatIndexBuilder.ExtractTitle(const AMarkdown, AFrontMatter: string): string;
@@ -506,6 +635,8 @@ begin
     begin
       if LHasToc and SameText(LFile, LTocPath) then
         Continue;
+      // Forward slashes from here on: the id, the URL, the key of the table
+      // of contents and the area are all read off this one string.
       LRelative := LFile.Substring(LSource.Length).TrimLeft(['\', '/']).Replace('\', '/');
       LKey := LRelative.ToLower;
 
@@ -537,6 +668,7 @@ begin
         FWarnings.Add(Format('%s: no title found, using the file name', [LRelative]));
       end;
       LPage.Keywords := LKeywords.ToArray;
+      LPage.Areas := ExtractAreas(LFrontMatter, LRelative);
 
       LPlain := MarkdownToPlainText(LBody);
       if LPlain = '' then
@@ -577,6 +709,15 @@ begin
       for K in LPage.Keywords do
         LKeywords.Add(K);
       LItem.AddPair('keywords', LKeywords);
+      // Only when there is something to say: a manual without areas keeps the
+      // index it always had.
+      if Length(LPage.Areas) > 0 then
+      begin
+        LKeywords := TJSONArray.Create;
+        for K in LPage.Areas do
+          LKeywords.Add(K);
+        LItem.AddPair('areas', LKeywords);
+      end;
       LItem.AddPair('text', LPage.Text);
       LArray.AddElement(LItem);
     end;

@@ -45,6 +45,16 @@
 ///    never started, never streamed, never touched.</item>
 ///  </list>
 ///
+///  The copy is a real component, so it goes where every active assistant
+///  goes: it acquires an engine from <c>THelpChatEngines</c> (released when
+///  the preview closes, which frees it - the preview is modal, so there is
+///  never a second holder), and it joins the process-wide coordinator of
+///  <c>Vcl.HelpChatAI</c>, with F1 and the help viewer off so that nothing of
+///  the IDE is answered by it. What it carries of the component is its
+///  settings - with the profile section of the files already applied to
+///  them -, <c>FollowVclStyle</c> and <c>VoiceEngine</c>; the rest (name,
+///  icon, stylesheets, commands, actions) is the default of a new component.
+///
 ///  What cannot work says so instead of opening an empty panel: the check of
 ///  <c>HelpChatAI.Diagnostics</c> runs first and its findings stay visible under
 ///  the chat for the whole preview.
@@ -62,22 +72,45 @@ uses
 
 /// <summary>Folder the relative paths of the active project resolve against:
 /// its output folder when it exists, else the folder of the project file.
-/// Empty when no project is open.</summary>
+/// Empty when no project is open. With a trailing delimiter. It is the
+/// active project of the IDE, whichever project the form being designed
+/// belongs to, and the output folder as the project options give it: one
+/// that still holds a macro the IDE does not expand does not exist, and the
+/// project folder is returned instead.</summary>
 function HelpChatDesignBaseFolder: string;
+
+/// <summary>The executable of the active project: its folder holds the
+/// configuration file of the application, its name the per-user folder.
+/// Never bds.exe. It is deduced, not asked: the base folder of the design
+/// time (the output folder when it exists, else the project folder) plus
+/// the name of the project file with .exe - so it is the active project of
+/// the group that counts, not the one the form belongs to. Empty when no
+/// project is open: the editor then offers the shared file alone.</summary>
+function HelpChatDesignExeFile: string;
 
 /// <summary>Everything the design-time check found: the configuration ones
 /// plus what only matters inside the IDE (no project open, no WebView2
-/// loader). Loads the loader when it finds it.</summary>
+/// loader). Loads the loader when it finds it - a side effect the preview
+/// relies on. Never raises for a configuration that cannot be read: a named
+/// file that is missing comes back as an error finding. <c>AChat</c> is only
+/// read: its settings, its profile (inside them) and its
+/// <c>ConfigFileName</c>.</summary>
 function HelpChatDesignCheck(const AChat: TVclHelpChatAI): THelpChatIssues;
 
 /// <summary>Shows the findings and, unless one of them is an error, the live
 /// chat in a modal window. Offers to build the documentation index when it is
-/// not there: without it there is nothing to preview an answer from.</summary>
+/// not there: without it there is nothing to preview an answer from. Returns
+/// when the window is closed; by then the copy that ran is stopped and
+/// freed, and the engine it held with it. <c>AChat</c> itself is never
+/// activated or changed. The conversation of a preview is a real one: it is
+/// answered by the configured provider, with the key of the developer.</summary>
 procedure HelpChatDesignPreview(const AChat: TVclHelpChatAI);
 
 /// <summary>Rebuilds the documentation index of the application being
 /// designed, from the folder and to the file the settings name. Shows what it
-/// is about to do, and how it went. True when the index was written.</summary>
+/// is about to do - the deductions included - and asks before doing it, then
+/// says how it went. True when the index was written; False when there was
+/// nothing to build from, when the developer said no, or when it failed.</summary>
 function HelpChatDesignRebuildIndex(const AChat: TVclHelpChatAI): Boolean;
 
 implementation
@@ -139,8 +172,11 @@ type
     /// of its own for the WebView, and it gets one when the form is shown.</summary>
     procedure DoShow; override;
   public
+    /// <summary>Builds the window in code (no DFM): the findings in a
+    /// read-only memo at the foot, the panel for the chat above it.</summary>
     constructor CreatePreview(const ACaption: string; const AIssues: THelpChatIssues;
       const AWidth, AHeight: Integer); reintroduce;
+    /// <summary>Esc closes the window, unless the key belongs to the page.</summary>
     procedure KeyDownHandler(Sender: TObject; var Key: Word; Shift: TShiftState);
     /// <summary>Where the chat is parented.</summary>
     property ChatPanel: TPanel read FChatPanel;
@@ -148,6 +184,9 @@ type
     property Chat: TVclHelpChatAI read FChat write FChat;
   end;
 
+/// <summary>Expands the macros the IDE knows at its root - $(BDS), the
+/// environment variables, $(HELPCHATAIDIR) once the installer defined it. A
+/// macro it does not know comes back as it was written.</summary>
 function ExpandIdeMacro(const AValue: string): string;
 var
   LServices: IOTAServices;
@@ -209,6 +248,8 @@ var
   LLibrary: string;
 begin
   AFrom := '';
+  // Already in the process, or on the search path. The module is never
+  // released: it has to stay for as long as the IDE may open a panel.
   if LoadLibrary(PChar(HELPCHAT_DESIGN_LOADER_DLL)) <> 0 then
   begin
     AFrom := HELPCHAT_DESIGN_LOADER_DLL;
@@ -228,12 +269,31 @@ end;
 
 /// <summary>The settings of the component as the built application would see
 /// them: the shared helpchatai.json and the one of the output folder are the
-/// two files it would read next to its executable.</summary>
+/// two files it would read next to its executable - or the one file
+/// <c>ConfigFileName</c> names, which must exist (EHelpChatConfigError
+/// otherwise). The profile travels inside the settings of the component, so
+/// each file is applied with its root and then its section of that profile.
+/// The per-user file is the one of the project's executable. The caller
+/// frees the result.</summary>
 function DesignSettings(const AChat: TVclHelpChatAI; const ABaseFolder: string;
   out AConfigFiles: TArray<string>): THelpChatSettings;
 begin
   Result := HelpChatSettingsForFolder(AChat.Settings, ABaseFolder,
-    AChat.ConfigFileName, AConfigFiles);
+    AChat.ConfigFileName, AConfigFiles, HelpChatDesignExeFile);
+end;
+
+function HelpChatDesignExeFile: string;
+var
+  LProject: IOTAProject;
+  LFolder: string;
+begin
+  Result := '';
+  LProject := GetActiveProject;
+  LFolder := HelpChatDesignBaseFolder;
+  if (LProject = nil) or (LFolder = '') then
+    Exit;
+  Result := IncludeTrailingPathDelimiter(LFolder) +
+    ChangeFileExt(ExtractFileName(LProject.FileName), '.exe');
 end;
 
 function HelpChatDesignCheck(const AChat: TVclHelpChatAI): THelpChatIssues;
@@ -279,6 +339,7 @@ begin
   try
     for LFile in LConfigFiles do
       Result := Result + [THelpChatIssue.Create(hikInfo, 'Configuration file', LFile)];
+    Result := Result + HelpChatCheckProfile(AChat.Profile, LConfigFiles);
     Result := Result + HelpChatCheckSettings(LSettings);
     // "Nobody registered it" means something else here than at run time.
     if (Trim(LSettings.Provider) <> '') and
@@ -380,6 +441,8 @@ type
   /// would be both wrong and rude.</summary>
   THelpChatPreviewChat = class(TVclHelpChatAI)
   protected
+    /// <summary>Does nothing: the settings the copy was given already are
+    /// the configuration.</summary>
     procedure LoadConfiguration; override;
   end;
 
@@ -391,6 +454,9 @@ type
     FComponentName: string;
   public
     constructor Create(const AComponentName: string);
+    /// <summary>The <c>OnGetContext</c> of the copy: replaces whatever was
+    /// computed from the focused window with the name of the component and
+    /// the word "Preview".</summary>
     procedure GetContext(Sender: TObject; var AContext: THelpChatContext);
   end;
 
@@ -542,6 +608,15 @@ begin
     // A copy, not the component on the form: that one is in csDesigning and
     // must stay exactly as the developer left it.
     LClone := THelpChatPreviewChat.Create(nil);
+    // Which assistant it is, before the settings: assigning them puts the
+    // Profile of the copy on them, and an empty one made the preview of every
+    // expert acquire the engine of the default assistant and write its
+    // conversation and state files.
+    LClone.Profile := AChat.Profile;
+    LClone.AssistantName := AChat.AssistantName;
+    LClone.Caption := AChat.Caption;
+    LClone.EnabledCommands := AChat.EnabledCommands;
+    // Assigned, not shared: the copy keeps settings of its own.
     LClone.Settings := LSettings;
     LClone.ShowBubble := False;        // the window is the preview itself
     LClone.RegisterHelpViewer := False;
@@ -569,6 +644,9 @@ begin
   finally
     if Assigned(LClone) then
     begin
+      // The only holder of its engine, so releasing it frees it: nothing of
+      // the preview keeps running inside the IDE. The window goes after the
+      // copy, whose panel is parented to it.
       LClone.Active := False;          // stops the server, the workers, the engine
       LClone.Free;
     end;

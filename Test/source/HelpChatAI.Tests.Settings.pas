@@ -247,7 +247,10 @@ begin
     LSource.Claude.MaxTokens := 555;
     LSource.Claude.GroundingMaxPages := 1;
     LSource.Claude.GroundingMaxChars := 1234;
-    LSource.Claude.SystemPrompt := 'Sei Bob.';
+    LSource.SystemPrompt := 'Sei Bob.';
+    LSource.Instructions := 'Esperto di ordini.';
+    LSource.Profile := 'Orders';
+    LSource.AssistantName := 'Giulio';
     LSource.Claude.BaseUrl := 'https://proxy/';
     LSource.Claude.ApiVersion := '2099-01-01';
     LSource.Claude.ConnectTimeoutMs := 11;
@@ -296,7 +299,10 @@ begin
     Assert.AreEqual(555, LCopy.Claude.MaxTokens);
     Assert.AreEqual(1, LCopy.Claude.GroundingMaxPages);
     Assert.AreEqual(1234, LCopy.Claude.GroundingMaxChars);
-    Assert.AreEqual('Sei Bob.', LCopy.Claude.SystemPrompt);
+    Assert.AreEqual('Sei Bob.', LCopy.SystemPrompt);
+    Assert.AreEqual('Esperto di ordini.', LCopy.Instructions);
+    Assert.AreEqual('', LCopy.Profile, 'the component names its profile: a file never does');
+    Assert.AreEqual('Giulio', LCopy.AssistantName);
     Assert.AreEqual('https://proxy/', LCopy.Claude.BaseUrl);
     Assert.AreEqual('2099-01-01', LCopy.Claude.ApiVersion);
     Assert.AreEqual(11, LCopy.Claude.ConnectTimeoutMs);
@@ -528,8 +534,8 @@ begin
     Assert.AreEqual(HELPCHAT_GEMINI_DEF_BASEURL, LSettings.Gemini.NormalizedBaseUrl);
     Assert.AreEqual('OpenAI', THelpChatOpenAISettings.SectionName);
     Assert.AreEqual(HELPCHAT_OPENAI_APIKEY_ENVVAR, THelpChatOpenAISettings.ApiKeyEnvVar);
-    // The shared default of the prompt is the same text for everybody.
-    Assert.AreEqual(LSettings.Claude.ResolveSystemPrompt, LSettings.Gemini.ResolveSystemPrompt);
+    // The prompt belongs to the assistant, not to a provider: one text.
+    Assert.AreEqual(HELPCHAT_MODEL_DEF_SYSTEMPROMPT, LSettings.ResolveSystemPrompt);
     LSettings.Gemini.MaxToolRounds := 0;
     Assert.AreEqual(1, LSettings.Gemini.ResolveMaxToolRounds, 'never below one round');
   finally
@@ -593,13 +599,13 @@ begin
   LSettings := THelpChatSettings.Create;
   try
     LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
-    LSettings.Claude.ApiKey := 'enc:tset-ks';
+    LSettings.Claude.ApiKeyEncrypted := 'enc:tset-ks';
     Assert.AreEqual('sk-test', LSettings.Claude.ResolveApiKey);
     // The name tells one secret from another, and carries the section.
     Assert.AreEqual('Claude.ApiKey', LSpy.Names);
     // What the configuration holds is still the encrypted value: the clear
     // text exists for the request and nowhere else.
-    Assert.AreEqual('enc:tset-ks', LSettings.Claude.ApiKey);
+    Assert.AreEqual('enc:tset-ks', LSettings.Claude.ApiKeyEncrypted);
   finally
     LSettings.Free;
     LSpy.Free;
@@ -618,7 +624,7 @@ begin
   LSettings := THelpChatSettings.Create;
   try
     LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
-    LSettings.OpenAI.ApiKey := 'sk-openai';
+    LSettings.OpenAI.ApiKeyEncrypted := 'sk-openai';
     Assert.AreEqual('sk-openai', LSettings.OpenAI.ResolveApiKey);
     Assert.AreEqual(1, LSpy.Calls);
     // And an empty secret is not worth a call.
@@ -639,11 +645,11 @@ begin
   LSettings := THelpChatSettings.Create;
   try
     LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
-    LSettings.Claude.ApiKey := 'enc:1';
-    LSettings.OpenAI.ApiKey := 'enc:2';
-    LSettings.Gemini.ApiKey := 'enc:3';
-    LSettings.Remote.AppKey := 'enc:4';
-    LSettings.Remote.UserToken := 'enc:5';
+    LSettings.Claude.ApiKeyEncrypted := 'enc:1';
+    LSettings.OpenAI.ApiKeyEncrypted := 'enc:2';
+    LSettings.Gemini.ApiKeyEncrypted := 'enc:3';
+    LSettings.Remote.AppKeyEncrypted := 'enc:4';
+    LSettings.Remote.UserTokenEncrypted := 'enc:5';
     Assert.AreEqual('1', LSettings.Claude.ResolveApiKey);
     Assert.AreEqual('2', LSettings.OpenAI.ResolveApiKey);
     Assert.AreEqual('3', LSettings.Gemini.ResolveApiKey);
@@ -669,7 +675,7 @@ begin
   LSnapshot := THelpChatSettings.Create;
   try
     LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
-    LSettings.Claude.ApiKey := 'enc:tohspans';
+    LSettings.Claude.ApiKeyEncrypted := 'enc:tohspans';
     LSnapshot.Assign(LSettings);
     Assert.AreEqual('snapshot', LSnapshot.Claude.ResolveApiKey);
   finally
@@ -685,17 +691,18 @@ var
   LSpy: TSecretHandlerSpy;
   LSaved: string;
 begin
-  // The key may come from the environment, and that one deserves protecting
-  // as much as the one in the file. Whatever this machine has there is put
-  // back: another test reads it to decide whether to skip itself.
+  // 1.7: only the encrypted node reaches the handler. The environment
+  // variable is a clear key, used as it is. Whatever this machine has there
+  // is put back: another test reads it to decide whether to skip itself.
   LSaved := GetEnvironmentVariable(HELPCHAT_CLAUDE_APIKEY_ENVVAR);
   Assert.IsTrue(SetEnvironmentVariable(PChar(HELPCHAT_CLAUDE_APIKEY_ENVVAR),
-    PChar('enc:vne-ks')), 'cannot set the environment variable');
+    PChar('sk-env')), 'cannot set the environment variable');
   LSpy := TSecretHandlerSpy.Create;
   LSettings := THelpChatSettings.Create;
   try
     LSettings.SetSecretHandler(LSpy.Decrypt, LSpy);
     Assert.AreEqual('sk-env', LSettings.Claude.ResolveApiKey);
+    Assert.AreEqual(0, LSpy.Calls, 'nothing to decrypt');
   finally
     LSettings.Free;
     LSpy.Free;

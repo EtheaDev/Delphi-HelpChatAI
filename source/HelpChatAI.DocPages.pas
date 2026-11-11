@@ -37,6 +37,12 @@
 ///  like a model reply; images of the folder are inlined as data: URIs (the
 ///  page needs no token-less route and its CSP already allows data: images),
 ///  everything else keeps the URL the sanitizer let through.
+///
+///  The folder is the whole manual, whatever <c>Settings.DocAreas</c> says:
+///  the areas narrow what an assistant searches, not what a link may open,
+///  so a link across areas still opens in the panel. The engine keeps one
+///  <see cref="THelpChatDocPages" /> from its first start to its destructor
+///  and shares it with every assistant of its profile.
 /// </summary>
 unit HelpChatAI.DocPages;
 
@@ -56,7 +62,10 @@ const
 type
   /// <summary>Lets the application adjust the Markdown of a page before it is
   /// rendered (placeholders, variables). Called on an HTTP thread: it must not
-  /// touch the UI.</summary>
+  /// touch the UI. <c>APage</c> is the normalized name; the Markdown still
+  /// has its front matter. What the filter writes is rendered in safe mode
+  /// like the rest. One filter per engine, so the assistants of one profile
+  /// share it.</summary>
   THelpChatDocPageFilter = reference to procedure(const APage: string; var AMarkdown: string);
 
   /// <summary>A rendered documentation page.</summary>
@@ -69,12 +78,20 @@ type
     Html: string;
   end;
 
+  /// <summary>
+  ///  The pages of one folder. It holds the folder name and nothing else -
+  ///  no cache, no state - so any number of threads may render at once, and
+  ///  a page edited on disk is the page the next request shows.
+  /// </summary>
   THelpChatDocPages = class
   strict private
     FFolder: string;
   public
-    /// <summary>AFolder is the root of the pages; relative paths are resolved
-    /// against the current directory by the caller, not here.</summary>
+    /// <summary>AFolder is the root of the pages. The engine passes an
+    /// absolute path (<c>Settings.ResolveDocFolder</c>, against the
+    /// executable); a relative one given by other code is resolved against
+    /// the current directory at each request, which is seldom what is
+    /// wanted. The folder need not exist yet.</summary>
     constructor Create(const AFolder: string);
     /// <summary>A relative path cleaned of query, fragment, "." and ".."
     /// segments, with forward slashes and no leading slash; empty when it is
@@ -84,14 +101,24 @@ type
     /// extension, only .md/.markdown accepted. Empty when not a page.</summary>
     class function NormalizePage(const APage: string): string; static;
     /// <summary>Full name of a normalized relative path when the file exists
-    /// inside the folder.</summary>
+    /// inside the folder. The path is checked a second time here, on the
+    /// expanded name the file system will open: pass it through
+    /// <c>NormalizePath</c> first all the same. Used for pages and for the
+    /// images they show.</summary>
     function ResolveFile(const ARelative: string; out AFileName: string): Boolean;
     /// <summary>True when the folder exists.</summary>
     function IsAvailable: Boolean;
     /// <summary>Renders APage (a link as written in a page or a reply). False
-    /// when it is not a page of the folder.</summary>
+    /// when it is not a page of the folder. The file is read with the
+    /// encoding detection of the index builder, <c>AFilter</c> (nil = none)
+    /// sees the Markdown before the front matter is taken off, and the
+    /// images of the folder up to
+    /// <c>HELPCHAT_DOCPAGE_IMAGE_MAXBYTES</c> are inlined. Thread-safe. A
+    /// file that exists and cannot be read raises.</summary>
     function Render(const APage: string; const AFilter: THelpChatDocPageFilter;
       out ADoc: THelpChatRenderedDoc): Boolean;
+    /// <summary>The root, without a trailing delimiter, as it was
+    /// given.</summary>
     property Folder: string read FFolder;
   end;
 
@@ -177,8 +204,12 @@ var
   LQuoted, LUrl, LRelative, LFileName, LMime: string;
   LEncoder: TBase64Encoding;
 begin
+  // Every early exit below leaves the tag as the sanitizer left it: an image
+  // that is not inlined is an image the page cannot load, not a broken page.
   Result := AMatch.Value;
   LQuoted := AMatch.Groups[2].Value;
+  // The attribute is HTML-encoded and the URL inside it percent-encoded
+  // ("My%20image.png"): both undone before it is taken for a file name.
   LUrl := TNetEncoding.URL.Decode(TNetEncoding.HTML.Decode(LQuoted.Substring(1, LQuoted.Length - 2)));
   // Only a path of the folder: "/x" from the root, "x" from the page's folder.
   if (LUrl = '') or LUrl.StartsWith('#') or LUrl.StartsWith('//') or LUrl.Contains(':') then

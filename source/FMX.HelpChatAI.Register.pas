@@ -59,30 +59,57 @@ type
   /// package alone is enough.</summary>
   TFmxHelpChatProviderProperty = class(TStringProperty)
   public
+    /// <summary>A drop-down that still takes typed text: a provider the
+    /// application registers at run time is a legitimate value this IDE
+    /// cannot list.</summary>
     function GetAttributes: TPropertyAttributes; override;
+    /// <summary>The providers registered in the IDE process: the ones the
+    /// design package links, see the uses clause.</summary>
     procedure GetValues(Proc: TGetStrProc); override;
   end;
 
   /// <summary>Which face the assistant wears: the icons compiled into the
   /// component. A drop-down and not a free string, because nothing else would
   /// tell anybody what the four names are. It stays editable: with an image
-  /// list of the application the name is that list's, not ours.</summary>
+  /// list of the application the name is that list's, not ours. Unlike the
+  /// VCL editor it draws no image next to the name, and there is no editor
+  /// for <c>ImageIndex</c>.</summary>
   TFmxHelpChatImageNameProperty = class(TStringProperty)
   public
+    /// <summary>Editable text, no <c>paValueList</c>.</summary>
     function GetAttributes: TPropertyAttributes; override;
+    /// <summary>The names of <c>HelpChatAssistantIconNames</c>.</summary>
     procedure GetValues(Proc: TGetStrProc); override;
   end;
 
-  /// <summary>Verbs of the component: check it, read about it.</summary>
+  /// <summary>Verbs of the component, in this order: the configuration
+  /// editor (verb 0, so a double click on the component opens it), the
+  /// configuration check, the rebuild of the documentation index, and the
+  /// version line that opens the documentation on the web. One verb fewer
+  /// than the VCL editor: there is no design-time preview in FireMonkey.
+  /// Everything is resolved against the active project of the IDE, never
+  /// against bds.exe.</summary>
   TFmxHelpChatComponentEditor = class(TComponentEditor)
   strict private
+    /// <summary>The component being edited, nil when it is not a
+    /// <c>TFmxHelpChatAI</c>.</summary>
     function GetChat: TComponent;
   public
     function GetVerbCount: Integer; override;
     function GetVerb(Index: Integer): string; override;
+    /// <summary>Runs a verb. The configuration editor writes the profile it
+    /// is given back into the component and marks the designer modified;
+    /// the check first offers to build an index that is missing; neither
+    /// starts the component.</summary>
     procedure ExecuteVerb(Index: Integer); override;
   end;
 
+/// <summary>Called by the IDE when the design package is loaded: marks the
+/// process as design time (<c>HelpChatDesignTime</c>, so secrets are read
+/// in clear and no <c>OnDecryptSecret</c> is expected), puts the component
+/// on the palette and registers its editors. The provider editor is
+/// registered on <c>THelpChatSettings</c>, as the VCL package does: with
+/// both packages installed the two registrations name the same list.</summary>
 procedure Register;
 
 implementation
@@ -111,19 +138,24 @@ uses
   HelpChatAI.Provider.Claude,
   HelpChatAI.Provider.OpenAI,
   HelpChatAI.Provider.Gemini,
-  FMX.HelpChatAI;
+  FMX.HelpChatAI,
+  FMX.HelpChatAI.ConfigEditor;
 
 const
   HELPCHAT_PALETTE_PAGE = 'Ethea HelpChat';
   HELPCHAT_DOCS_URL = 'https://ethea.it/docs/helpchatai/';
 
 resourcestring
+  SHelpChatVerbConfig = 'C&onfiguration...';
   SHelpChatVerbCheck = '&Check configuration...';
   SHelpChatVerbIndex = '&Rebuild documentation index...';
   SHelpChatVerbAbout = 'Ver. %s - (c) Ethea S.r.l. - Open Web Help...';
   SHelpChatCheckOk = 'HelpChat is ready to run with this configuration.';
   SHelpChatCheckFailed = 'HelpChat cannot run with this configuration:';
 
+/// <summary>Expands the root macros of the IDE in a path
+/// (<c>IOTAServices.ExpandRootMacro</c>); the value as it is when the IDE
+/// cannot.</summary>
 function ExpandIdeMacro(const AValue: string): string;
 var
   LServices: IOTAServices;
@@ -165,6 +197,31 @@ begin
     Result := IncludeTrailingPathDelimiter(TPath.GetFullPath(LOutput));
 end;
 
+/// <summary>The executable of the active project: its folder holds the
+/// configuration file of the application, its name the per-user folder.
+/// Deduced, not read: the output folder plus the name of the project file
+/// with .exe, so a project that renames its target, or one for another
+/// platform, is not followed. Empty when no project is open.</summary>
+function DesignExeFile: string;
+var
+  LProject: IOTAProject;
+  LFolder: string;
+begin
+  Result := '';
+  LProject := GetActiveProject;
+  LFolder := DesignBaseFolder;
+  if (LProject = nil) or (LFolder = '') then
+    Exit;
+  Result := IncludeTrailingPathDelimiter(LFolder) +
+    ChangeFileExt(ExtractFileName(LProject.FileName), '.exe');
+end;
+
+/// <summary>"Would this work?" for the application being designed: the
+/// settings of the component merged with the configuration files the built
+/// application would read from its output folder, then
+/// <c>HelpChatCheckSettings</c>. Never raises: a configuration file that was
+/// named and is missing becomes an error line. Nothing is started and no
+/// service is called.</summary>
 function DesignCheck(const AChat: TFmxHelpChatAI): THelpChatIssues;
 var
   LSettings: THelpChatSettings;
@@ -183,7 +240,7 @@ begin
   Result := Result + [THelpChatIssue.Create(hikInfo, 'Project folder', LBaseFolder)];
   try
     LSettings := HelpChatSettingsForFolder(AChat.Settings, LBaseFolder,
-      AChat.ConfigFileName, LConfigFiles);
+      AChat.ConfigFileName, LConfigFiles, DesignExeFile);
   except
     // A configuration that was asked for and is not there is an error the
     // developer has to see, not an exception out of a check.
@@ -196,6 +253,7 @@ begin
   try
     for LFile in LConfigFiles do
       Result := Result + [THelpChatIssue.Create(hikInfo, 'Configuration file', LFile)];
+    Result := Result + HelpChatCheckProfile(AChat.Profile, LConfigFiles);
     Result := Result + HelpChatCheckSettings(LSettings);
     // "Nobody registered it" means something else here than at run time.
     if (Trim(LSettings.Provider) <> '') and
@@ -233,7 +291,7 @@ begin
   end;
   try
     LSettings := HelpChatSettingsForFolder(AChat.Settings, LBaseFolder,
-      AChat.ConfigFileName, LConfigFiles);
+      AChat.ConfigFileName, LConfigFiles, DesignExeFile);
   except
     on E: Exception do
     begin
@@ -250,6 +308,9 @@ begin
   Result := APlan.CanBuild;
 end;
 
+/// <summary>Builds the index APlan describes and says how it went, with the
+/// VCL message box: this package runs inside the IDE, which is a VCL
+/// application.</summary>
 function RunAndReport(var APlan: THelpChatIndexPlan): Boolean;
 var
   LText: string;
@@ -267,6 +328,9 @@ begin
   MessageDlg(LText, mtInformation, [mbOK], 0);
 end;
 
+/// <summary>The verb: shows the plan - the deductions included, such as the
+/// link extension - and builds only on a Yes. A design-time action that
+/// guesses in silence is worse than one that asks.</summary>
 function DesignRebuildIndex(const AChat: TFmxHelpChatAI): Boolean;
 var
   LPlan: THelpChatIndexPlan;
@@ -317,15 +381,16 @@ end;
 
 function TFmxHelpChatComponentEditor.GetVerbCount: Integer;
 begin
-  Result := 3;
+  Result := 4;
 end;
 
 function TFmxHelpChatComponentEditor.GetVerb(Index: Integer): string;
 begin
   case Index of
-    0: Result := SHelpChatVerbCheck;
-    1: Result := SHelpChatVerbIndex;
-    2: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
+    0: Result := SHelpChatVerbConfig;
+    1: Result := SHelpChatVerbCheck;
+    2: Result := SHelpChatVerbIndex;
+    3: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
   else
     Result := '';
   end;
@@ -340,9 +405,33 @@ begin
   case Index of
     0:
       if Assigned(LChat) then
+        TFmxHelpChatConfigEditor.Execute(TFmxHelpChatAI(LChat).Settings,
+          TFmxHelpChatAI(LChat).Profile, DesignExeFile,
+          TFmxHelpChatAI(LChat).ConfigFileName,
+          procedure(AProfile: string)
+          begin
+            TFmxHelpChatAI(LChat).Profile := AProfile;
+            Designer.Modified;
+          end,
+          procedure
+          begin
+            // "To component" writes into Settings, and the name of the
+            // assistant is not a published property there: it lives on the
+            // component, which is what the form file stores.
+            if TFmxHelpChatAI(LChat).Settings.AssistantName <> '' then
+            begin
+              TFmxHelpChatAI(LChat).AssistantName := TFmxHelpChatAI(LChat).Settings.AssistantName;
+              TFmxHelpChatAI(LChat).Settings.AssistantName := '';
+            end;
+            Designer.Modified;
+          end,
+          // No design-time preview in FireMonkey: the Test button stays off.
+          nil);
+    1:
+      if Assigned(LChat) then
       begin
-        // The double click lands here: an index that is missing is worth
-        // offering to build before reporting it as a finding.
+        // An index that is missing is worth offering to build before
+        // reporting it as a finding.
         OfferIndexBeforeCheck(TFmxHelpChatAI(LChat));
         LIssues := DesignCheck(TFmxHelpChatAI(LChat));
         if HelpChatHasErrors(LIssues) then
@@ -352,10 +441,10 @@ begin
           MessageDlg(SHelpChatCheckOk + sLineBreak + sLineBreak +
             HelpChatIssuesToText(LIssues), mtInformation, [mbOK], 0);
       end;
-    1:
+    2:
       if Assigned(LChat) then
         DesignRebuildIndex(TFmxHelpChatAI(LChat));
-    2:
+    3:
       ShellExecute(0, 'open', PChar(HELPCHAT_DOCS_URL), nil, nil, SW_SHOWNORMAL);
   end;
 end;
@@ -377,8 +466,10 @@ end;
 
 function TFmxHelpChatImageNameProperty.GetAttributes: TPropertyAttributes;
 begin
-  // No paValueList: the list is a suggestion, not the only thing allowed.
-  Result := [paMultiSelect, paRevertable];
+  // paValueList is what makes the Object Inspector call GetValues at all: it
+  // shows the list and still lets a name be typed, which an image list of
+  // the application needs.
+  Result := [paMultiSelect, paValueList, paRevertable];
 end;
 
 procedure TFmxHelpChatImageNameProperty.GetValues(Proc: TGetStrProc);
@@ -391,6 +482,9 @@ end;
 
 procedure Register;
 begin
+  // Inside the IDE every secret is read in clear: no OnDecryptSecret of the
+  // application runs here.
+  HelpChatDesignTime := True;
   RegisterComponents(HELPCHAT_PALETTE_PAGE, [TFmxHelpChatAI]);
   RegisterComponentEditor(TFmxHelpChatAI, TFmxHelpChatComponentEditor);
   RegisterPropertyEditor(TypeInfo(string),

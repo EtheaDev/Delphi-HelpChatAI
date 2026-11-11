@@ -34,7 +34,7 @@
 ///  <see cref="HelpChatRunCommand" /> with an HTML fragment the page shows as a
 ///  system bubble - never stored, never part of the next prompt.
 ///  Adding a command: a member here, its name in <see cref="HelpChatCommandName" />,
-///  its description in <c>HelpChatAI.Messages</c> (both languages), and either
+///  its description and its title in <c>HelpChatAI.Messages</c> (every language), and either
 ///  a case in <see cref="HelpChatRunCommand" /> or a branch in <c>panel.js</c>
 ///  with the member in <see cref="HELPCHAT_COMMANDS_PAGE" />. Nothing else:
 ///  the components, the server and the page read the set.
@@ -47,6 +47,7 @@ uses
   System.SysUtils,
   HelpChatAI.Types,
   HelpChatAI.Messages,
+  HelpChatAI.Actions,
   HelpChatAI.Engine;
 
 type
@@ -55,14 +56,14 @@ type
   THelpChatCommand = (
     /// <summary>The enabled commands, with a line each.</summary>
     hccHelp,
-    /// <summary>The assistant in use: name, model, provider, endpoint.</summary>
+    /// <summary>The model in use: name, model, provider, endpoint.</summary>
     hccWho,
-    /// <summary>Switches to the named assistant (what the badge menu does).</summary>
+    /// <summary>Switches to the named model (what the badge menu does).</summary>
     hccUse,
     /// <summary>Lists the languages of the chat, or switches to the named one
     /// (what the menu of the flag does).</summary>
     hccLang,
-    /// <summary>Asks the last question again, to another assistant if named.</summary>
+    /// <summary>Asks the last question again, to another model if named.</summary>
     hccRetry,
     /// <summary>The pages the retriever would ground an answer on.</summary>
     hccSearch,
@@ -72,7 +73,8 @@ type
     hccPages,
     /// <summary>The screen context the host sent (what F1 knows).</summary>
     hccContext,
-    /// <summary>The actions the application registered.</summary>
+    /// <summary>The actions this assistant may run: its own and the shared
+    /// ones, after the narrowing of its profile.</summary>
     hccActions,
     /// <summary>The configuration check of the engine, as the IDE shows it.</summary>
     hccCheck,
@@ -102,6 +104,10 @@ type
     Language: THelpChatLanguage;
     /// <summary>The commands enabled for the user: what <c>help</c> lists.</summary>
     Enabled: THelpChatCommands;
+    /// <summary>The actions of the assistant that asks: an engine is shared by
+    /// the assistants of one profile, and each brings its own. nil = those
+    /// of the engine.</summary>
+    Actions: IHelpChatActionInvoker;
   end;
 
 const
@@ -147,9 +153,11 @@ function HelpChatCommandHeading(const ACommand: THelpChatCommand; const AArgs: s
 function HelpChatCommandsToJson(const AEnabled: THelpChatCommands;
   const ALanguage: THelpChatLanguage): string;
 
-/// <summary>The commands as a comma-separated list of names, and back:
-/// for a configuration file or a log line.</summary>
+/// <summary>The commands as a comma-separated list of names: for a
+/// configuration file or a log line.</summary>
 function HelpChatCommandsToText(const ACommands: THelpChatCommands): string;
+/// <summary>The way back: names separated by commas, semicolons or blanks,
+/// with or without the slash; a word that names no command is skipped.</summary>
 function HelpChatCommandsFromText(const AText: string): THelpChatCommands;
 
 /// <summary>Splits "/name the rest" into the command and its arguments.
@@ -187,7 +195,6 @@ uses
   HelpChatAI.Settings,
   HelpChatAI.DocIndex,
   HelpChatAI.Html,
-  HelpChatAI.Actions,
   HelpChatAI.Provider,
   HelpChatAI.Diagnostics;
 
@@ -372,9 +379,9 @@ end;
 
 function AnswerWho(const AEngine: THelpChatEngine; const ALang: THelpChatLanguage): string;
 var
-  LInfo: THelpChatAssistantInfo;
+  LInfo: THelpChatModelInfo;
 begin
-  LInfo := AEngine.ActiveAssistant;
+  LInfo := AEngine.ActiveModelInfo;
   Result := '<p><b>' + Esc(LInfo.Name) + '</b>';
   if LInfo.Model <> '' then
     Result := Result + ' &middot; ' + Esc(LInfo.Model);
@@ -450,7 +457,15 @@ begin
   Result := Result + '</ul>';
 end;
 
-function AnswerActions(const AEngine: THelpChatEngine; const ALang: THelpChatLanguage): string;
+function ActionsOf(const AEngine: THelpChatEngine;
+  const ARequest: THelpChatCommandRequest): IHelpChatActionInvoker;
+begin
+  Result := ARequest.Actions;
+  if Result = nil then
+    Result := AEngine.Actions;
+end;
+
+function AnswerActions(const AActions: IHelpChatActionInvoker; const ALang: THelpChatLanguage): string;
 var
   LValue: TJSONValue;
   LTool, LSchema, LProps, LParam: TJSONObject;
@@ -459,9 +474,9 @@ var
   LItem: TJSONValue;
   LLine: string;
 begin
-  if not Assigned(AEngine.Actions) or not AEngine.Actions.HasActions then
+  if not Assigned(AActions) or not AActions.HasActions then
     Exit(Line(HelpChatMsg(hcmCmdNoActions, ALang)));
-  LValue := TJSONObject.ParseJSONValue(AEngine.Actions.ToolsJson);
+  LValue := TJSONObject.ParseJSONValue(AActions.ToolsJson);
   try
     if not (LValue is TJSONArray) then
       Exit(Line(HelpChatMsg(hcmCmdNoActions, ALang)));
@@ -503,12 +518,22 @@ begin
   end;
 end;
 
-function AnswerCheck(const AEngine: THelpChatEngine): string;
+function AnswerCheck(const AEngine: THelpChatEngine;
+  const AActions: IHelpChatActionInvoker): string;
+var
+  LIssues: THelpChatIssues;
+  LTools: string;
 begin
   // The same report the IDE shows, with the same words: it is not localized
   // (see HelpChatAI.Diagnostics), and that is fine for a report a user pastes
-  // into a message to the developer.
-  Result := HelpChatTextToHtml(HelpChatIssuesToText(HelpChatCheckSettings(AEngine.Settings)));
+  // into a message to the developer. One thing only the running application
+  // can tell: whether the actions its profile allows exist.
+  LIssues := HelpChatCheckSettings(AEngine.Settings);
+  LTools := '';
+  if Assigned(AActions) then
+    LTools := AActions.ToolsJson;
+  LIssues := LIssues + HelpChatCheckActions(AEngine.Settings, LTools);
+  Result := HelpChatTextToHtml(HelpChatIssuesToText(LIssues));
 end;
 
 function AnswerPrompt(const AEngine: THelpChatEngine; const ARequest: THelpChatCommandRequest): string;
@@ -523,7 +548,7 @@ begin
   // screen of now: the excerpts the retriever picks are the same.
   LPrompt := THelpChatProviderBase.BuildSystemPrompt(LHistory, ARequest.Context,
     AEngine.Settings, AEngine.Retriever);
-  if Assigned(AEngine.Actions) and AEngine.Actions.HasActions then
+  if Assigned(ActionsOf(AEngine, ARequest)) and ActionsOf(AEngine, ARequest).HasActions then
     LPrompt := LPrompt + sLineBreak + sLineBreak + HELPCHAT_MODEL_ACTIONS_RULE;
   Result := '<pre class="hc-chat-prompt">' + Esc(LPrompt) + '</pre>';
 end;
@@ -587,14 +612,16 @@ function AnswerRun(const AEngine: THelpChatEngine; const ARequest: THelpChatComm
 var
   LName, LJson, LResult: string;
   LOutcome: THelpChatActionOutcome;
+  LActions: IHelpChatActionInvoker;
 begin
-  if not Assigned(AEngine.Actions) or not AEngine.Actions.HasActions then
+  LActions := ActionsOf(AEngine, ARequest);
+  if not Assigned(LActions) or not LActions.HasActions then
     Exit(Line(HelpChatMsg(hcmCmdNoActions, ARequest.Language)));
   if not ParseRunArgs(ARequest.Args, LName, LJson) then
     Exit(Line(HelpChatMsg(hcmCmdRunUsage, ARequest.Language)));
   // The same path the model takes, confirmation included: the host runs it
   // on its main thread while this request waits.
-  LOutcome := AEngine.Actions.Invoke(LName, LJson, nil, LResult);
+  LOutcome := LActions.Invoke(LName, LJson, nil, LResult);
   Result := HelpChatTextToHtml(HelpChatActionOutcomeText(LOutcome, LName, LResult));
 end;
 
@@ -624,8 +651,8 @@ begin
       hccSearch: Result := Result + AnswerSearch(AEngine, ARequest);
       hccPages: Result := Result + AnswerPages(AEngine, ARequest.Language);
       hccContext: Result := Result + AnswerContext(ARequest);
-      hccActions: Result := Result + AnswerActions(AEngine, ARequest.Language);
-      hccCheck: Result := Result + AnswerCheck(AEngine);
+      hccActions: Result := Result + AnswerActions(ActionsOf(AEngine, ARequest), ARequest.Language);
+      hccCheck: Result := Result + AnswerCheck(AEngine, ActionsOf(AEngine, ARequest));
       hccPrompt: Result := Result + AnswerPrompt(AEngine, ARequest);
       hccRun: Result := Result + AnswerRun(AEngine, ARequest);
     else

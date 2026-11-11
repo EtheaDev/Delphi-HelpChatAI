@@ -31,8 +31,9 @@
 ///  the default stylesheet (first load) or applied at runtime through
 ///  <c>window.hcApplyTheme</c> (style change). Colours are <c>#rrggbb</c>
 ///  strings so that VCL and FMX can each produce a theme from their own style
-///  engine; a producer fills the seven base colours and calls <c>Complete</c>
-///  to derive the rest.
+///  engine; a producer fills the five base colours (background, surface,
+///  text, border, accent - as many as it knows) and <c>Complete</c> derives
+///  the rest.
 /// </summary>
 unit HelpChatAI.Theme;
 
@@ -44,48 +45,111 @@ uses
   System.SysUtils;
 
 type
+  /// <summary>
+  ///  A set of values for the <c>--hc-*</c> variables of the page. A record
+  ///  of strings: copied by value, so a transport can keep one under a lock
+  ///  and hand out copies. It never reaches a server as a record - a remote
+  ///  client sends <see cref="ToCss" />, a running page is given
+  ///  <see cref="ToJson" /> - and nothing here depends on a framework: VCL
+  ///  and FMX each fill one from their own style engine.
+  /// </summary>
   THelpChatTheme = record
     /// <summary>Name of the source style (informational).</summary>
     Name: string;
+    /// <summary>Decides the <c>color-scheme</c> of the page (scroll bars,
+    /// form controls) and which defaults <c>Complete</c> picks for the
+    /// system and error bubbles and the shadow. The producer sets it: it is
+    /// not deduced from the background.</summary>
     IsDark: Boolean;
     // ---- base colours (set by the producer) ----------------------------------
     /// <summary>Page background.</summary>
     Background: string;
     /// <summary>Header, footer and assistant bubbles.</summary>
     Surface: string;
+    /// <summary>Text on the background and on the surface; black or white,
+    /// whichever contrasts with the background, when empty.</summary>
     Text: string;
+    /// <summary>Every line of the page - under the header, around a bubble,
+    /// the input, the cells of a table; a blend of surface and text when
+    /// empty.</summary>
     Border: string;
     /// <summary>Send button and user bubbles.</summary>
     Accent: string;
     // ---- derived by Complete when empty ---------------------------------------
+    /// <summary>Text drawn on the accent; black or white, whichever
+    /// contrasts with it.</summary>
     AccentText: string;
+    /// <summary>Secondary text: the greeting, the small buttons, a
+    /// quotation; a blend of text and background when empty.</summary>
     Muted: string;
+    /// <summary>Bubble of the user and its text; the accent and its contrast
+    /// by default.</summary>
     UserBubble: string;
     UserText: string;
+    /// <summary>Bubble of the assistant and its text; the surface and the
+    /// text by default.</summary>
     AssistantBubble: string;
     AssistantText: string;
+    /// <summary>Bubble of a system message (the answer to a command) and of
+    /// an error, with their texts: fixed warm and red tones, light or dark,
+    /// because a style has no colour for either.</summary>
     SystemBubble: string;
     SystemText: string;
     ErrorBubble: string;
     ErrorText: string;
+    /// <summary>Background of code, inline and in blocks.</summary>
     CodeBackground: string;
     /// <summary>Colour of the shadow the header and the footer cast on the
     /// conversation, so that the bars read as the frame and not as a bubble
     /// that touched the edge.</summary>
     Shadow: string;
+    /// <summary>Links, and the accent wherever it is drawn as a foreground
+    /// (a focus ring, the tick of a copied answer). The accent itself when it
+    /// reads on the assistant bubble; otherwise the accent moved towards the
+    /// text until it does - Windows10 gives #cccccc as its accent, which on a
+    /// light bubble is a link nobody can see.</summary>
+    Link: string;
     /// <summary>CSS font-family list.</summary>
     FontFamily: string;
+    /// <summary>CSS of the application, added to the page after its own
+    /// stylesheet: the place for what a colour cannot say - a radius, a
+    /// spacing, a hidden button. The components fill it from
+    /// <c>PanelStyleSheet</c> before <c>OnGetTheme</c>, which may change it.
+    /// It is written before the <c>:root</c> rule of the colours, so the
+    /// <c>--hc-*</c> variables stay the theme's: a rule here that sets one is
+    /// overridden whenever a colour is set. Not a colour, so it does not make
+    /// a theme non-empty.</summary>
+    StyleSheet: string;
 
-    /// <summary>True when no base colour is set (the page keeps its defaults).</summary>
+    /// <summary>True when none of background, surface, text and accent is
+    /// set (the page keeps its defaults, light or dark from the OS). A
+    /// border or a derived colour alone does not make a theme and is not
+    /// written; the stylesheet is not a colour and is written either
+    /// way.</summary>
     function IsEmpty: Boolean;
-    /// <summary>Fills every empty derived colour from the base ones.</summary>
+    /// <summary>Normalizes the five base colours and fills every empty
+    /// colour from them; a colour the producer set is kept. Changes the
+    /// record it is called on, and can be called again. Two things it does
+    /// beyond filling in: it moves the two bubbles apart when both were
+    /// derived and came out the same colour, and it moves the link towards
+    /// the text until it can be read on the assistant bubble.</summary>
     procedure Complete;
-    /// <summary>A ":root{...}" rule assigning every --hc-* variable (plus color-scheme).</summary>
+    /// <summary>The <c>StyleSheet</c>, then a ":root{...}" rule assigning every
+    /// --hc-* variable (plus color-scheme) when a colour is set. Works on a
+    /// completed copy: the record is left as it is. This string is what a
+    /// session keeps and what a remote client posts; the values are written
+    /// as they are, so the caller answers for them.</summary>
     function ToCss: string;
-    /// <summary>A JSON object {"--hc-bg":"#...", ...} for window.hcApplyTheme.</summary>
+    /// <summary>A JSON object {"--hc-bg":"#...", ...} for window.hcApplyTheme,
+    /// plus "css" with the <c>StyleSheet</c> when there is one. An empty
+    /// theme gives an object without colours, which the page reads as "back
+    /// to the defaults".</summary>
     function ToJson: string;
-    /// <summary>The built-in light and dark themes (the values of panel.css).</summary>
+    /// <summary>The built-in light theme (the values of panel.css), already
+    /// completed: what FireMonkey's <c>ThemeMode</c> uses, having no style
+    /// to read colours from.</summary>
     class function Light: THelpChatTheme; static;
+    /// <summary>The built-in dark theme, already completed.</summary>
     class function Dark: THelpChatTheme; static;
   end;
 
@@ -96,9 +160,11 @@ function HelpChatNormalizeColor(const AColor: string): string;
 function HelpChatRgbToHex(const R, G, B: Integer): string;
 /// <summary>Components of a "#rrggbb" colour; False when it cannot be parsed.</summary>
 function HelpChatHexToRgb(const AColor: string; out R, G, B: Integer): Boolean;
-/// <summary>Linear blend of two colours: 0 = A, 1 = B.</summary>
+/// <summary>Linear blend of two colours: 0 = A, 1 = B. When one of them is
+/// not a colour the other is returned, normalized.</summary>
 function HelpChatBlend(const AColorA, AColorB: string; const ARatio: Double): string;
-/// <summary>Perceived luminance 0..1 (0.299 R + 0.587 G + 0.114 B).</summary>
+/// <summary>Perceived luminance 0..1 (0.299 R + 0.587 G + 0.114 B). 1 for
+/// what is not a colour: an unknown background counts as light.</summary>
 function HelpChatLuminance(const AColor: string): Double;
 /// <summary>True when the colour reads as dark (luminance below 0.5).</summary>
 function HelpChatIsDarkColor(const AColor: string): Boolean;
@@ -117,10 +183,16 @@ uses
   System.JSON;
 
 const
+  /// The font of the page when the producer names none: the one of the
+  /// system, whichever system the WebView runs on.
   HELPCHAT_DEF_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   /// Below this, the bubble of the user and the one of the assistant read as
   /// one colour (0..1, the scale of HelpChatColorDistance).
   HELPCHAT_BUBBLE_MIN_DISTANCE = 0.12;
+  /// Below this difference of luminance (0..1) a link does not read on the
+  /// bubble it sits in. The dark defaults of the page (#3b82f6 on #22252b)
+  /// are just above it.
+  HELPCHAT_LINK_MIN_LUMA = 0.33;
   HELPCHAT_DEF_SHADOW_LIGHT = 'rgba(0,0,0,0.16)';
   HELPCHAT_DEF_SHADOW_DARK = 'rgba(0,0,0,0.55)';
 
@@ -245,6 +317,7 @@ end;
 procedure THelpChatTheme.Complete;
 var
   LUserDerived, LAssistantDerived: Boolean;
+  LStep: Integer;
 begin
   Background := HelpChatNormalizeColor(Background);
   Surface := HelpChatNormalizeColor(Surface);
@@ -295,6 +368,20 @@ begin
     AssistantText := Text;
   if CodeBackground = '' then
     CodeBackground := HelpChatBlend(Surface, Text, 0.08);
+  // The accent as a foreground: towards the text of the bubble, a tenth at a
+  // time, until it stands out from the bubble. The text always does, so the
+  // loop ends; an accent that already reads is left exactly as it is.
+  if Link = '' then
+  begin
+    Link := Accent;
+    LStep := 0;
+    while (LStep < 10) and
+      (Abs(HelpChatLuminance(Link) - HelpChatLuminance(AssistantBubble)) < HELPCHAT_LINK_MIN_LUMA) do
+    begin
+      Inc(LStep);
+      Link := HelpChatBlend(Accent, AssistantText, LStep / 10);
+    end;
+  end;
   if IsDark then
   begin
     if SystemBubble = '' then SystemBubble := '#3a2a1a';
@@ -318,7 +405,10 @@ begin
     FontFamily := HELPCHAT_DEF_FONT;
 end;
 
-// The variable names are the contract with panel.css.
+// The variable names are the contract with panel.css. ToCss and ToJson both
+// go through here, so the page loads and is re-themed with the same list; a
+// new variable is added here, in panel.css and in the names of hcApplyTheme
+// in panel.js, which is what removes it again when a theme no longer sets it.
 procedure ForEachVariable(const ATheme: THelpChatTheme;
   const AProc: TProc<string, string>);
 begin
@@ -338,6 +428,7 @@ begin
   AProc('--hc-error-bg', ATheme.ErrorBubble);
   AProc('--hc-error-text', ATheme.ErrorText);
   AProc('--hc-code-bg', ATheme.CodeBackground);
+  AProc('--hc-link', ATheme.Link);
   AProc('--hc-shadow', ATheme.Shadow);
   AProc('--hc-font', ATheme.FontFamily);
 end;
@@ -348,11 +439,14 @@ var
   LTheme: THelpChatTheme;
 begin
   if IsEmpty then
-    Exit('');
+    Exit(StyleSheet);
   LTheme := Self;
   LTheme.Complete;
   LSb := TStringBuilder.Create;
   try
+    // First, so that the colours below win over a variable it sets.
+    if StyleSheet <> '' then
+      LSb.Append(StyleSheet).Append(sLineBreak);
     LSb.Append(':root{');
     ForEachVariable(LTheme,
       procedure(AName, AValue: string)
@@ -393,6 +487,8 @@ begin
       else
         LRoot.AddPair('color-scheme', 'light');
     end;
+    if StyleSheet <> '' then
+      LRoot.AddPair('css', StyleSheet);
     Result := LRoot.ToJSON;
   finally
     LRoot.Free;

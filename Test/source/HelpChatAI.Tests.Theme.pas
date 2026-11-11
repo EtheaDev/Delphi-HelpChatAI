@@ -21,13 +21,23 @@ type
     [Test] procedure Bubbles_OfTheSameColour_AreSeparated;
     [Test] procedure Bubbles_SetByTheProducer_AreLeftAlone;
     [Test] procedure Shadow_FollowsTheMode;
+    [Test] procedure Link_IsTheAccent_WhenItReads;
+    [Test] procedure Link_MovesTowardsTheText_WhenTheAccentDoesNotRead;
+    [Test] procedure StyleSheet_ComesBeforeTheColours;
+    [Test] procedure StyleSheet_Alone_IsTheWholeCss;
+    [Test] procedure StyleSheet_TravelsInTheJson;
+    [Test] procedure CssForStyleTag_CannotCloseTheElement;
+    [Test] procedure PanelCss_EmptyName_MissingFile_AndAFile;
   end;
 
 implementation
 
 uses
   System.SysUtils,
-  System.JSON;
+  System.IOUtils,
+  System.JSON,
+  HelpChatAI.Panel,
+  HelpChatAI.Types;
 
 procedure TThemeTests.NormalizeColor;
 begin
@@ -111,7 +121,7 @@ begin
     Assert.AreEqual('#f6f7f9', LJson.GetValue<string>('--hc-bg'));
     Assert.AreEqual('#2563eb', LJson.GetValue<string>('--hc-accent'));
     Assert.AreEqual('light', LJson.GetValue<string>('color-scheme'));
-    Assert.AreEqual(19, LJson.Count, '18 variables + color-scheme');
+    Assert.AreEqual(20, LJson.Count, '19 variables + color-scheme');
   finally
     LJson.Free;
   end;
@@ -204,6 +214,120 @@ begin
   Assert.AreEqual('rgba(0,0,0,0.16)', THelpChatTheme.Light.Shadow);
   Assert.AreEqual('rgba(0,0,0,0.55)', THelpChatTheme.Dark.Shadow);
   Assert.Contains(THelpChatTheme.Light.ToCss, '--hc-shadow:rgba(0,0,0,0.16);');
+end;
+
+procedure TThemeTests.Link_IsTheAccent_WhenItReads;
+var
+  LTheme: THelpChatTheme;
+begin
+  LTheme := THelpChatTheme.Light;
+  LTheme.Complete;
+  Assert.AreEqual(LTheme.Accent, LTheme.Link, 'light defaults');
+  LTheme := THelpChatTheme.Dark;
+  LTheme.Complete;
+  Assert.AreEqual(LTheme.Accent, LTheme.Link, 'dark defaults');
+  Assert.Contains(THelpChatTheme.Light.ToCss, '--hc-link:');
+end;
+
+procedure TThemeTests.Link_MovesTowardsTheText_WhenTheAccentDoesNotRead;
+var
+  LTheme: THelpChatTheme;
+begin
+  // Windows10: one grey for the accent and for the surface.
+  LTheme := Default(THelpChatTheme);
+  LTheme.IsDark := False;
+  LTheme.Background := '#ffffff';
+  LTheme.Surface := '#cccccc';
+  LTheme.Text := '#000000';
+  LTheme.Accent := '#cccccc';
+  LTheme.Complete;
+  Assert.AreNotEqual(LTheme.Accent, LTheme.Link);
+  Assert.IsTrue(Abs(HelpChatLuminance(LTheme.Link) - HelpChatLuminance(LTheme.AssistantBubble)) >= 0.33,
+    LTheme.Link + ' on ' + LTheme.AssistantBubble);
+  Assert.IsTrue(HelpChatLuminance(LTheme.Link) < HelpChatLuminance(LTheme.Accent), 'darker on a light bubble');
+  // Carbon: a dark accent on a dark surface goes the other way.
+  LTheme := Default(THelpChatTheme);
+  LTheme.IsDark := True;
+  LTheme.Background := '#3a3a3a';
+  LTheme.Surface := '#3a3a3a';
+  LTheme.Text := '#c0c0c0';
+  LTheme.Accent := '#3e3e3e';
+  LTheme.Complete;
+  Assert.IsTrue(HelpChatLuminance(LTheme.Link) > HelpChatLuminance(LTheme.Accent), 'lighter on a dark bubble');
+end;
+
+procedure TThemeTests.StyleSheet_ComesBeforeTheColours;
+var
+  LTheme: THelpChatTheme;
+  LCss: string;
+begin
+  LTheme := THelpChatTheme.Dark;
+  LTheme.StyleSheet := '.hc-chat-bubble{border-radius:2px}';
+  LCss := LTheme.ToCss;
+  Assert.StartsWith('.hc-chat-bubble{border-radius:2px}', LCss);
+  Assert.IsTrue(LCss.IndexOf('.hc-chat-bubble') < LCss.IndexOf(':root{'),
+    'the colours come last, so a variable set by the stylesheet is the theme''s');
+  Assert.Contains(LCss, '--hc-bg:#17191d;');
+end;
+
+procedure TThemeTests.StyleSheet_Alone_IsTheWholeCss;
+var
+  LTheme: THelpChatTheme;
+begin
+  LTheme := Default(THelpChatTheme);
+  LTheme.StyleSheet := '#hc-copy{display:none}';
+  Assert.IsTrue(LTheme.IsEmpty, 'a stylesheet is not a colour');
+  Assert.AreEqual('#hc-copy{display:none}', LTheme.ToCss);
+end;
+
+procedure TThemeTests.StyleSheet_TravelsInTheJson;
+var
+  LTheme: THelpChatTheme;
+  LJson: TJSONObject;
+begin
+  LTheme := Default(THelpChatTheme);
+  LTheme.StyleSheet := '#hc-copy{display:none}';
+  LJson := TJSONObject.ParseJSONValue(LTheme.ToJson) as TJSONObject;
+  try
+    Assert.AreEqual(1, LJson.Count, 'no colour, only the stylesheet');
+    Assert.AreEqual('#hc-copy{display:none}', LJson.GetValue<string>('css'));
+  finally
+    LJson.Free;
+  end;
+  LJson := TJSONObject.ParseJSONValue(THelpChatTheme.Light.ToJson) as TJSONObject;
+  try
+    Assert.IsNull(LJson.GetValue('css'), 'no stylesheet, no key');
+  finally
+    LJson.Free;
+  end;
+end;
+
+procedure TThemeTests.CssForStyleTag_CannotCloseTheElement;
+var
+  LCss: string;
+begin
+  LCss := THelpChatPanel.CssForStyleTag('a{}</style><script>alert(1)</script>');
+  Assert.AreEqual(-1, LCss.IndexOf('</'), LCss);
+  Assert.AreEqual('.x{color:red}', THelpChatPanel.CssForStyleTag('.x{color:red}'));
+end;
+
+procedure TThemeTests.PanelCss_EmptyName_MissingFile_AndAFile;
+var
+  LFile: string;
+begin
+  Assert.AreEqual('', THelpChatPanel.PanelCss('  '));
+  Assert.WillRaise(
+    procedure
+    begin
+      THelpChatPanel.PanelCss(TPath.Combine(TPath.GetTempPath, 'hc-no-such-file.css'));
+    end, EHelpChatConfigError);
+  LFile := TPath.Combine(TPath.GetTempPath, 'hc-panel-test.css');
+  TFile.WriteAllText(LFile, '.hc-chat-bubble{border-radius:2px}', TEncoding.UTF8);
+  try
+    Assert.AreEqual('.hc-chat-bubble{border-radius:2px}', THelpChatPanel.PanelCss(LFile).Trim([#$FEFF]));
+  finally
+    TFile.Delete(LFile);
+  end;
 end;
 
 end.

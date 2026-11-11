@@ -66,63 +66,130 @@ uses
   HelpChatAI.Provider.Sse;
 
 const
+  /// <summary>Name the provider registers under: what
+  /// <c>Settings.Provider</c> and the <c>Provider</c> of a model of the
+  /// catalogue say to get it.</summary>
   HELPCHAT_PROVIDER_CLAUDE = 'claude';
+  /// <summary>Path of the Messages API, appended to
+  /// <c>Settings.Claude.NormalizedBaseUrl</c> (which never ends with a
+  /// slash).</summary>
   HELPCHAT_CLAUDE_MESSAGES_PATH = '/v1/messages';
 
 type
   /// <summary>
-  ///  Write-only TStream receiving the Anthropic SSE body as THTTPClient streams
-  ///  it. Accumulates bytes, splits on newlines and, for each complete
-  ///  <c>data:</c> line, decodes the JSON event: a <c>content_block_delta</c> /
-  ///  <c>text_delta</c> appends its text and invokes the token callback; an
-  ///  <c>error</c> event is kept and raised at the end. The full decoded body is
-  ///  also kept, since a non-2xx response is a plain JSON error, not a stream.
+  ///  The Anthropic half of the stream: the base class cuts the body into
+  ///  lines, this one decodes the JSON event of each <c>data:</c> line. A
+  ///  <c>content_block_delta</c> / <c>text_delta</c> appends its text and
+  ///  invokes the token callback; a <c>content_block_start</c> of type
+  ///  <c>tool_use</c> opens an action call whose arguments then arrive as
+  ///  <c>input_json_delta</c> fragments, tied to it by the index of the
+  ///  content block; <c>message_delta</c> carries the stop reason; an
+  ///  <c>error</c> event is kept in <c>Error</c> for the provider to raise
+  ///  once the transfer is over. Lives for one round of one reply, on the
+  ///  worker thread that runs it.
   /// </summary>
   THelpChatSseStream = class(THelpChatSseStreamBase)
   strict private
     FStopReason: string;
     FToolCalls: TList<THelpChatToolCall>;
     FToolBlocks: TDictionary<Integer, Integer>; // content block index -> tool call
+    /// <summary>Opens a tool call when the block that begins is a
+    /// <c>tool_use</c>; any other block (text, thinking) is ignored here.</summary>
     procedure StartBlock(const AIndex: Integer; const ABlock: TObject);
+    /// <summary>Adds a fragment of JSON text to the arguments of the call
+    /// opened for the block <c>AIndex</c>; a fragment for an unknown block is
+    /// dropped.</summary>
     procedure AppendToolInput(const AIndex: Integer; const APartial: string);
     function GetToolCalls: TArray<THelpChatToolCall>;
   strict protected
     procedure ProcessLine(const ALine: string); override;
   public
+    /// <summary><c>AOnToken</c> receives every text delta, on the thread the
+    /// HTTP client writes from; nil when nobody is listening.</summary>
     constructor Create(const AOnToken: THelpChatTokenProc);
     destructor Destroy; override;
     /// <summary>stop_reason of the message_delta event (end_turn, max_tokens,
     /// tool_use...).</summary>
     property StopReason: string read FStopReason;
-    /// <summary>The actions the model asked for in this reply, in order.</summary>
+    /// <summary>The actions the model asked for in this reply, in order. A
+    /// copy: the arguments of a call are complete only once the stream is
+    /// (<c>InputJson</c> is empty for an action without parameters).</summary>
     property ToolCalls: TArray<THelpChatToolCall> read GetToolCalls;
   end;
 
+  /// <summary>
+  ///  The <c>claude</c> provider. One instance per reply, created by the
+  ///  registry on a runner worker and never shared: everything it reads comes
+  ///  from the settings snapshot of the request, and from its
+  ///  <c>Settings.Claude</c> section through <c>ResolveModel</c>,
+  ///  <c>NormalizedBaseUrl</c> and <c>ResolveApiKey</c> - never through
+  ///  <c>Model</c>, <c>BaseUrl</c> or <c>ApiKey</c>, which do not know the
+  ///  model the user picked in the panel. The class functions that build the
+  ///  request are static and touch no network, which is what the tests use.
+  /// </summary>
   THelpChatClaudeProvider = class(THelpChatProviderBase)
   strict private
     /// <summary>Runs what the model asked for and builds the user turn that
-    /// carries the results back to it.</summary>
+    /// carries the results back to it: one <c>tool_result</c> block per call,
+    /// in the order of the calls, flagged <c>is_error</c> when the action
+    /// failed, timed out or does not exist. Blocks while the application
+    /// runs each action on its main thread. Raises
+    /// <see cref="EHelpChatCancelled" /> when the request is cancelled before
+    /// or during a call; a refusal of the user is not an error, it is the
+    /// sentence the model reads.</summary>
     function ExecuteToolCalls(const ACalls: TArray<THelpChatToolCall>;
       const ACancel: IHelpChatCancelToken): string;
-    /// <summary>One request/response round; returns the stream it parsed.</summary>
+    /// <summary>One request/response round; returns the stream it parsed,
+    /// which the caller owns. Raises <see cref="EHelpChatCancelled" /> when
+    /// the token flipped during the transfer, <see cref="EHelpChatError" />
+    /// with the message of the service for a status of 400 and above or an
+    /// <c>error</c> event in the stream, and whatever the HTTP client raises
+    /// (no network, a timeout) otherwise; nothing is returned in any of those
+    /// cases.</summary>
     function PostRound(const ABody: string; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): THelpChatSseStream;
   public
     function GetName: string; override;
+    /// <summary>The one thing this provider needs is a key: the encrypted or
+    /// the clear node of the section, the key of the model picked in the
+    /// panel, or the <c>ANTHROPIC_API_KEY</c> environment variable. Asked
+    /// through <c>ResolveApiKey</c>, so at run time the application's
+    /// <c>OnDecryptSecret</c> handler runs for an encrypted key.</summary>
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
     function SupportsStreaming: Boolean; override;
     function SupportsActions: Boolean; override;
     function SupportsDocuments: Boolean; override;
+    /// <summary>The reply, streamed through <c>AOnToken</c> as it arrives and
+    /// returned whole. With actions registered it is a loop of at most
+    /// <c>Settings.Claude.MaxToolRounds</c> requests (never fewer than one):
+    /// the text of every round is concatenated, a paragraph break between
+    /// two, and that same break goes through <c>AOnToken</c>, so the stream
+    /// and the result are the same string. Actions asked for in the last
+    /// round are not run. Runs on a worker thread and blocks it. Raises
+    /// <see cref="EHelpChatConfigError" /> without a key,
+    /// <see cref="EHelpChatCancelled" /> on cancellation and
+    /// <see cref="EHelpChatError" /> for what the service refuses; an empty
+    /// answer becomes the localized "no content" sentence.</summary>
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; override;
 
-    /// <summary>Builds the JSON body of the Messages API request. Public for tests.</summary>
+    /// <summary>Builds the JSON body of the Messages API request: the model
+    /// of <c>ASettings.ResolveModel</c>, <c>stream: true</c>, the system
+    /// prompt in the top-level <c>system</c> field, and the history without
+    /// its system and empty messages. Public for tests.</summary>
     class function BuildRequestBody(const AHistory: TArray<THelpChatMessage>;
       const ASystemPrompt: string; const ASettings: THelpChatClaudeSettings): string; overload; static;
     /// <summary>The same, declaring the actions as tools and continuing a
     /// conversation that already contains tool calls and their results
-    /// (<c>AExtraMessagesJson</c>: a JSON array of message objects).</summary>
+    /// (<c>AExtraMessagesJson</c>: a JSON array of message objects, appended
+    /// after the history). <c>AToolsJson</c> is the array the action broker
+    /// produces, which is already in the shape this API wants; empty or
+    /// <c>[]</c> declares no tool. <c>AAttachments</c> go on the last
+    /// non-empty user turn of the history, in <c>ALanguage</c> for the
+    /// heading of the text ones. The fallback user turn for a history with
+    /// nothing to send is added only when <c>AExtraMessagesJson</c> is the
+    /// empty string, not <c>[]</c>.</summary>
     class function BuildRequestBody(const AHistory: TArray<THelpChatMessage>;
       const ASystemPrompt: string; const ASettings: THelpChatClaudeSettings;
       const AToolsJson, AExtraMessagesJson: string;
@@ -131,15 +198,22 @@ type
     /// <summary>The content of the user turn the attachments belong to: a
     /// <c>document</c> block per PDF, an <c>image</c> block per picture, and
     /// the text last - the order Anthropic recommends, because a question
-    /// read after its documents is answered against them.</summary>
+    /// read after its documents is answered against them. The text
+    /// attachments are not blocks: they are part of that last text. The
+    /// caller owns the array.</summary>
     class function BuildUserContent(const AText: string;
       const AAttachments: TArray<THelpChatAttachment>;
       const ALanguage: THelpChatLanguage): TJSONArray; static;
     /// <summary>The assistant turn that asked for the actions, as the API wants
-    /// it back: the text it produced plus one tool_use block per call.</summary>
+    /// it back: the text it produced (left out when blank, an empty text
+    /// block is refused) plus one tool_use block per call. Arguments that are
+    /// missing or are not a JSON object become <c>{}</c>.</summary>
     class function BuildAssistantToolMessage(const AText: string;
       const ACalls: TArray<THelpChatToolCall>): string; static;
-    /// <summary>Extracts a readable message from a non-2xx response body.</summary>
+    /// <summary>Extracts a readable message from a non-2xx response body:
+    /// the <c>error.message</c> of the JSON the service answers with, else
+    /// the localized "HTTP status" sentence in the language of
+    /// <c>ASettings</c> (which may be nil). Never raises.</summary>
     class function ExtractApiError(const ARaw: string; const AStatus: Integer;
       const AStatusText: string; const ASettings: THelpChatSettings): string; static;
   end;
@@ -290,6 +364,8 @@ begin
     LMsg.AddPair('role', 'assistant');
     LContent := TJSONArray.Create;
     LMsg.AddPair('content', LContent);
+    // A turn that only asked for actions has no text, and the API refuses an
+    // empty text block: the tool_use blocks alone are a valid turn.
     if Trim(AText) <> '' then
     begin
       LBlock := TJSONObject.Create;
@@ -373,9 +449,14 @@ begin
     begin
       CheckCancelled(ACancel);
       // Invoke never raises: whatever happened is told to the model as text.
+      // InvokeAction, not Actions.Invoke: after a refusal the base class
+      // answers every later call of this reply without asking again.
       LOutcome := InvokeAction(ACalls[I].Name, ACalls[I].InputJson, ACancel, LResult);
       if LOutcome = aoCancelled then
         raise EHelpChatCancelled.Create(Msg(hcmCancelled));
+      // Every tool_use must get its tool_result, in the same user turn, or
+      // the next request is refused: a refused or failed action is a result
+      // too.
       LBlock := TJSONObject.Create;
       LBlock.AddPair('type', 'tool_result');
       LBlock.AddPair('tool_use_id', ACalls[I].Id);
@@ -567,7 +648,7 @@ begin
       LLang := ASettings.Language
     else
       LLang := hclAuto;
-    Result := HelpChatMsgFmt(hcmApiError, [AStatus, AStatusText], LLang);
+    Result := HelpChatMsgFmt(hcmApiError, [HelpChatServiceName(ASettings, 'claude'), AStatus, AStatusText], LLang);
   end;
 end;
 
@@ -612,6 +693,9 @@ begin
       Result.Finish;
       CheckCancelled(ACancel);
 
+      // A refused request is a plain JSON object, not a stream: it went
+      // through the same sink, so it is in Raw. An error event inside a
+      // stream that started well (overloaded, for instance) is in Error.
       if LResponse.StatusCode >= 400 then
         raise EHelpChatError.Create(ExtractApiError(Result.Raw, LResponse.StatusCode,
           LResponse.StatusText, Settings));
@@ -645,18 +729,20 @@ begin
        TPath.GetDirectoryName(THelpChatSettings.UserConfigFile)]));
 
   CheckCancelled(ACancel);
+  // The prompt every provider shares: the instruction of the settings, the
+  // language, the screen and the documentation excerpts.
   LSystem := BuildSystemPrompt(AHistory, AContext, Settings, Retriever);
+  LMaxRounds := Settings.Claude.ResolveMaxToolRounds;
   LTools := '';
-  if Assigned(Actions) and Actions.HasActions then
+  if OffersActions(LMaxRounds) then
   begin
+    // The broker describes the actions in the shape of this API, so the
+    // array goes out as it is; the other providers translate it.
     LTools := Actions.ToolsJson;
     LSystem := LSystem + sLineBreak + sLineBreak + HELPCHAT_CLAUDE_ACTIONS_RULE;
   end;
   CheckCancelled(ACancel);
 
-  LMaxRounds := Settings.Claude.MaxToolRounds;
-  if LMaxRounds < 1 then
-    LMaxRounds := 1;
   LText := TStringBuilder.Create;
   LExtra := TStringBuilder.Create; // the tool turns, as a JSON array body
   try
@@ -670,8 +756,16 @@ begin
         LCalls := LStream.ToolCalls;
         // Nothing to do, or nobody to do it: this is the reply.
         if (LStream.StopReason <> 'tool_use') or (Length(LCalls) = 0) or
-           (LTools = '') or (LRound = LMaxRounds) then
+           (LTools = '') then
           Break;
+        // The last round ends here as well, with the actions it asked for
+        // not run - running them would need one more request to tell the
+        // model how they went - and the reply says so.
+        if LRound = LMaxRounds then
+        begin
+          NoteActionsNotRun(LText, AOnToken);
+          Break;
+        end;
         if LExtra.Length > 0 then
           LExtra.Append(',');
         LExtra.Append(BuildAssistantToolMessage(LStream.Text, LCalls));

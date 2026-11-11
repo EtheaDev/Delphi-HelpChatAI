@@ -33,6 +33,14 @@
 ///  <c>Pending = True</c>, its id is returned at once and later filled token by
 ///  token, then completed or failed. Unlike its KittoX ancestor it prunes old
 ///  messages and serializes to/from JSON for on-disk persistence.
+///
+///  An engine owns one store, and since there is one engine per profile two
+///  windows of the same assistant read and write the same conversation here:
+///  both poll the same key, and a message is identified by its id, never by
+///  its position, so neither can mistake the other's question for its own.
+///  Which file a conversation is saved to is the engine's business
+///  (<c>Settings.ResolveConversationFile</c>, one per profile); the store
+///  only reads and writes the file it is given.
 /// </summary>
 unit HelpChatAI.Store;
 
@@ -59,17 +67,37 @@ type
   /// empty for a clear/load.</summary>
   THelpChatStoreChangeEvent = procedure(const AKey, AMessageId: string) of object;
 
+  /// <summary>
+  ///  Every conversation of one engine, each a list of message records
+  ///  under a key. Keys are compared exactly, case included. Every method
+  ///  is safe from any thread and returns copies: a message handed out
+  ///  never changes afterwards, the next read does. Nothing here raises for
+  ///  a key or an id that does not exist - a reply that completes after its
+  ///  conversation was cleared is simply dropped.
+  /// </summary>
   THelpChatStore = class
   strict private
     FLock: TCriticalSection;
     FConversations: TObjectDictionary<string, TList<THelpChatMessage>>;
     FMaxMessages: Integer;
     FOnChange: THelpChatStoreChangeEvent;
+    /// <summary>The list of AKey, created when missing. Under the lock.</summary>
     function EnsureList(const AKey: string): TList<THelpChatMessage>;
+    /// <summary>Position of the message AId, -1 when it is not there.
+    /// Searched from the end: the message being filled is the last or
+    /// close to it. Under the lock.</summary>
     function IndexOfId(const AList: TList<THelpChatMessage>; const AId: string): Integer;
+    /// <summary>Drops the oldest messages past <c>MaxMessages</c>, pending
+    /// ones excepted. Under the lock.</summary>
     procedure PruneList(const AList: TList<THelpChatMessage>);
+    /// <summary>The one writer of an existing message: replaces or appends
+    /// to its content and sets its two flags. False, and nothing done, when
+    /// the conversation or the message is gone. Takes the lock itself and
+    /// fires nothing: the caller raises the change.</summary>
     function UpdateMessage(const AKey, AId: string; const AContent: string;
       const APending, AIsError, AAppend: Boolean): Boolean;
+    /// <summary>Raises <c>OnChange</c>. Always called after the lock is
+    /// released, so a handler may read the store.</summary>
     procedure DoChange(const AKey, AMessageId: string);
   public
     constructor Create;
@@ -79,45 +107,80 @@ type
     function AddUserMessage(const AKey, AContent: string): THelpChatMessage;
     /// <summary>Appends a system message (shown, never sent to the provider) and returns it.</summary>
     function AddSystemMessage(const AKey, AContent: string): THelpChatMessage;
-    /// <summary>Appends an empty pending assistant message and returns its id.</summary>
+    /// <summary>Appends an empty pending assistant message and returns its
+    /// id: the handle the runner fills the reply through and the page polls
+    /// with. Nothing is pruned here: the next user or system message
+    /// does it.</summary>
     function AddPendingAssistant(const AKey: string): string;
-    /// <summary>Appends a token to the pending assistant message, leaving it pending.</summary>
+    /// <summary>Appends a token to the pending assistant message, leaving it
+    /// pending. Called by a runner worker for every piece of the stream; an
+    /// empty token, or a message that is no longer there, changes nothing
+    /// and raises no event.</summary>
     procedure AppendAssistantToken(const AKey, AId, AToken: string);
-    /// <summary>Completes the pending assistant message with its final content.</summary>
+    /// <summary>Completes the pending assistant message with its final
+    /// content, which replaces whatever the tokens had built: the provider
+    /// returns the whole reply, and that is the one kept.</summary>
     procedure CompleteAssistant(const AKey, AId, AContent: string);
     /// <summary>Completes the pending assistant message as failed; AError becomes its content.</summary>
     procedure FailAssistant(const AKey, AId, AError: string);
-    /// <summary>Returns a copy of the message AId, if present.</summary>
+    /// <summary>Returns a copy of the message AId, if present. This is what
+    /// a panel polls while a reply is pending: two panels on the same
+    /// conversation read the same growing content.</summary>
     function TryGetMessage(const AKey, AId: string; out AMessage: THelpChatMessage): Boolean;
-    /// <summary>The whole conversation, in order.</summary>
+    /// <summary>The whole conversation, in order: a copy, pending and failed
+    /// messages included. Empty for a key that has none.</summary>
     function GetMessages(const AKey: string): TArray<THelpChatMessage>;
     /// <summary>Completed user/assistant messages to feed the provider, most recent
     /// AMaxMessages kept (0 = all). System, pending and failed messages are excluded.</summary>
     function GetHistory(const AKey: string; const AMaxMessages: Integer): TArray<THelpChatMessage>;
     /// <summary>Number of messages in the conversation.</summary>
     function Count(const AKey: string): Integer;
-    /// <summary>Ids of the assistant messages still pending.</summary>
+    /// <summary>Ids of the assistant messages still pending: more than one
+    /// when a second question was sent, from this window or from another on
+    /// the same conversation, before the first was answered.</summary>
     function PendingIds(const AKey: string): TArray<string>;
-    /// <summary>Removes the conversation.</summary>
+    /// <summary>Removes the conversation, pending messages included: the
+    /// worker still filling one finds nothing to write to and its reply is
+    /// lost, so the caller cancels the pending requests first. The change
+    /// is raised even when there was nothing to remove.</summary>
     procedure Clear(const AKey: string);
-    /// <summary>Removes every conversation.</summary>
+    /// <summary>Removes every conversation, raising one change per key.</summary>
     procedure ClearAll;
 
-    /// <summary>Serializes the conversation (pending messages excluded).</summary>
+    /// <summary>Serializes the conversation (pending messages excluded):
+    /// version, key, the time it was saved and the messages with their ids,
+    /// so that a reload keeps the links between a page and its
+    /// messages.</summary>
     function ToJSON(const AKey: string): string;
     /// <summary>Replaces the conversation with the messages of AJson. Returns
     /// False (and leaves the store untouched) when the JSON is invalid or the
-    /// snapshot is older than AMaxAgeDays (0 = no expiry).</summary>
+    /// snapshot is older than AMaxAgeDays (0 = no expiry; a snapshot that
+    /// does not say when it was saved never expires). The key written in
+    /// the JSON is not checked: the messages go under <c>AKey</c>. Messages
+    /// of an unknown role are skipped, and the result is pruned to
+    /// <c>MaxMessages</c>.</summary>
     function FromJSON(const AKey, AJson: string; const AMaxAgeDays: Integer = 0): Boolean;
-    /// <summary>Writes ToJSON to AFileName (UTF-8). Failures are swallowed: a
-    /// read-only folder must not break the chat.</summary>
+    /// <summary>Writes ToJSON to AFileName (UTF-8), creating its folder.
+    /// Failures are swallowed: a read-only folder must not break the chat.
+    /// Two saves at the same instant - a worker completing a reply while an
+    /// HTTP thread adds a question - may collide on the file, and the loser
+    /// is silently skipped until the next change saves again.</summary>
     procedure SaveToFile(const AKey, AFileName: string);
-    /// <summary>Loads AFileName if it exists. Returns True when a conversation was restored.</summary>
+    /// <summary>Loads AFileName if it exists. Returns True when a
+    /// conversation was restored; False, never an exception, for a file
+    /// that is missing, unreadable, malformed or too old.</summary>
     function LoadFromFile(const AKey, AFileName: string; const AMaxAgeDays: Integer = 0): Boolean;
 
     /// <summary>Messages kept per conversation; the oldest completed ones are
-    /// dropped when exceeded (0 = unlimited). Pending messages are never pruned.</summary>
+    /// dropped when exceeded (0 = unlimited). Pending messages are never
+    /// pruned. To be set before the store is shared: it is read without the
+    /// lock.</summary>
     property MaxMessages: Integer read FMaxMessages write FMaxMessages;
+    /// <summary>The one listener of the store (the engine). Called outside
+    /// the lock, on whichever thread made the change - a runner worker for
+    /// every token - so the handler must be thread-safe and quick, and a UI
+    /// layer behind it marshals. Assign it before the workers start and
+    /// clear it after they stopped: the field itself is not protected.</summary>
     property OnChange: THelpChatStoreChangeEvent read FOnChange write FOnChange;
   end;
 

@@ -81,6 +81,7 @@ contains
   HelpChatAI.Provider.OpenAI in '..\..\source\HelpChatAI.Provider.OpenAI.pas',
   HelpChatAI.Provider.Gemini in '..\..\source\HelpChatAI.Provider.Gemini.pas',
   HelpChatAI.Diagnostics in '..\..\source\HelpChatAI.Diagnostics.pas',
+  HelpChatAI.ConfigController in '..\..\source\HelpChatAI.ConfigController.pas',
   HelpChatAI.Engine in '..\..\source\HelpChatAI.Engine.pas',
   HelpChatAI.IndexBuilder in '..\..\source\HelpChatAI.IndexBuilder.pas',
   HelpChatAI.Transport in '..\..\source\HelpChatAI.Transport.pas',

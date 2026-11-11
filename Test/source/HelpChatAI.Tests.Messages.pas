@@ -50,7 +50,7 @@ end;
 procedure TMessagesTests.Fmt_FormatsArguments;
 begin
   Assert.AreEqual('Claude API error (HTTP 401 Unauthorized).',
-    HelpChatMsgFmt(hcmApiError, [401, 'Unauthorized'], hclEnglish));
+    HelpChatMsgFmt(hcmApiError, ['Claude', 401, 'Unauthorized'], hclEnglish));
   Assert.AreEqual('How do I use the "Orders" screen?',
     HelpChatMsgFmt(hcmContextQuestion, ['Orders'], hclEnglish));
   Assert.AreEqual('Come si usa la schermata "Ordini"?',

@@ -554,7 +554,7 @@ begin
   AppSecretStoreApiKey('Claude', LProtected);
   // Quella che resta in memoria e' la cifrata, come se fosse appena stata
   // letta dal file: la chiave in chiaro vive quanto la richiesta.
-  HelpChat.Settings.Claude.ApiKey := LProtected;
+  HelpChat.Settings.Claude.ApiKeyEncrypted := LProtected;
 end;
 
 procedure TMainForm.HelpChatGetContext(Sender: TObject; var AContext: THelpChatContext);

@@ -238,7 +238,7 @@ begin
     SetLength(LHistory, 1);
     LHistory[0].Role := hcrUser;
     LHistory[0].Content := 'export grid';
-    LSettings.Claude.SystemPrompt := 'You are Bob.';
+    LSettings.SystemPrompt := 'You are Bob.';
     LSettings.Claude.GroundingMaxPages := 0;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, LRetriever);
     Assert.StartsWith('You are Bob. The language of this chat is ', LPrompt,

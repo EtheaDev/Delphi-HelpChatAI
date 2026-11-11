@@ -70,6 +70,9 @@ const
 
   /// <summary>Media type of a PDF, the one document every model reads.</summary>
   HELPCHAT_MEDIA_PDF = 'application/pdf';
+  /// <summary>Media type of the text files that have no better one of
+  /// their own (.txt, .log, .ini). It is informative: a text attachment
+  /// travels inside the question, where no provider declares a type.</summary>
   HELPCHAT_MEDIA_TEXT = 'text/plain';
 
 type
@@ -93,11 +96,17 @@ type
     FileName: string;
     /// <summary>IANA media type, as the provider must declare it.</summary>
     MediaType: string;
+    /// <summary>How it travels, decided by the media type when it was
+    /// accepted.</summary>
     Kind: THelpChatAttachmentKind;
-    /// <summary>The bytes, for a document or an image. Empty for text.</summary>
+    /// <summary>The bytes, for a document or an image. Empty for text.
+    /// Copying the record shares this array, it does not duplicate it:
+    /// nobody writes into it after <c>TryAdd</c>, which is what makes the
+    /// copy handed to a worker safe.</summary>
     Data: TBytes;
     /// <summary>The decoded content, for a text attachment. Empty otherwise.</summary>
     Text: string;
+    /// <summary>When it was accepted (local time).</summary>
     Created: TDateTime;
     /// <summary>Bytes of the file as it arrived (before any decoding).</summary>
     OriginalSize: Int64;
@@ -105,7 +114,9 @@ type
     class function NewId: string; static;
     /// <summary>True when nothing was ever put in it.</summary>
     function IsEmpty: Boolean;
-    /// <summary>The bytes as the JSON of every provider wants them.</summary>
+    /// <summary>The bytes as the JSON of every provider wants them: base64
+    /// on one line, no breaks. Empty for a text attachment. Computed at
+    /// every call - a provider asks once per request round.</summary>
     function Base64: string;
     /// <summary>Extension without the dot, lowercase ("pdf"); empty when none.</summary>
     function Extension: string;
@@ -116,9 +127,16 @@ type
   ///  depend on the settings: <c>THelpChatAttachmentSettings</c> produces one.
   /// </summary>
   THelpChatAttachmentLimits = record
+    /// <summary>Attachments a conversation may hold at a time (0 = no
+    /// limit).</summary>
     MaxCount: Integer;
+    /// <summary>Largest single file, in bytes as it arrives (0 = no
+    /// limit).</summary>
     MaxSizeBytes: Int64;
+    /// <summary>Largest total of a conversation, in bytes as the files
+    /// arrived (0 = no limit). What goes up is a third larger: base64.</summary>
     MaxTotalBytes: Int64;
+    /// <summary>The limits of the <c>HELPCHAT_DEF_ATTACH_*</c> constants.</summary>
     class function Default: THelpChatAttachmentLimits; static;
   end;
 
@@ -129,33 +147,49 @@ type
   ///
   ///  They live here and not in the conversation store on purpose: the bytes
   ///  of a PDF have no business in the JSON file the conversation is persisted
-  ///  to. An attachment lasts as long as the panel is open, and
-  ///  <c>Clear</c> - the ↺ of the page - takes it away with the conversation.
+  ///  to. An attachment lasts as long as the engine that owns the set - the
+  ///  process, usually - and <c>Clear</c>, the ↺ of the page, takes it away
+  ///  with the conversation.
+  ///
+  ///  The key is the conversation, not the window: two panels of the same
+  ///  assistant share one conversation and therefore one list, and a file
+  ///  attached in one goes out with the questions of both.
   /// </summary>
   THelpChatAttachmentSet = class
   strict private
     FLock: TCriticalSection;
     FItems: TObjectDictionary<string, TList<THelpChatAttachment>>;
+    /// <summary>The list of AKey; nil, or a new one, when there is none.
+    /// Under the lock.</summary>
     function ListOf(const AKey: string; const ACreate: Boolean): TList<THelpChatAttachment>;
   public
     constructor Create;
     destructor Destroy; override;
     /// <summary>Accepts a file for the conversation AKey. False with a
     /// localized sentence in AError when the type is not one a model reads, or
-    /// a limit is reached: the page shows it as it is.</summary>
+    /// a limit is reached: the page shows it as it is. Only the name of
+    /// <c>AFileName</c> is kept, any path is dropped, and the type is decided
+    /// by the extension alone - the bytes are not inspected. The count and
+    /// the total are checked and the file added under one lock, so two
+    /// uploads arriving together cannot both take the last place. Never
+    /// raises; safe from any thread.</summary>
     function TryAdd(const AKey, AFileName: string; const AData: TBytes;
       const ALimits: THelpChatAttachmentLimits; const ALanguage: THelpChatLanguage;
       out AAttachment: THelpChatAttachment; out AError: string): Boolean;
-    /// <summary>Copy of the attachments of AKey, oldest first.</summary>
+    /// <summary>Copy of the attachments of AKey, oldest first: what a
+    /// request takes with it, so that a worker never reads the live list.
+    /// Empty for a conversation that has none.</summary>
     function ItemsOf(const AKey: string): TArray<THelpChatAttachment>;
     /// <summary>The one with this id, if the conversation has it.</summary>
     function TryGet(const AKey, AId: string; out AAttachment: THelpChatAttachment): Boolean;
-    /// <summary>Drops one attachment; True when it was there.</summary>
+    /// <summary>Drops one attachment; True when it was there. A reply
+    /// already being produced keeps the copy it took.</summary>
     function Remove(const AKey, AId: string): Boolean;
     /// <summary>Drops every attachment of a conversation (what Clear does).</summary>
     procedure ClearKey(const AKey: string);
     /// <summary>Drops everything, of every conversation.</summary>
     procedure ClearAll;
+    /// <summary>Attachments the conversation holds now.</summary>
     function Count(const AKey: string): Integer;
     /// <summary>Bytes held by the conversation, as they arrived.</summary>
     function TotalSize(const AKey: string): Int64;
@@ -165,7 +199,8 @@ type
 /// one of the types a model can be given.</summary>
 function HelpChatMediaTypeOf(const AFileName: string): string;
 /// <summary>How a media type travels. Meaningless when the type is not one of
-/// the accepted ones - ask <c>HelpChatIsAcceptedType</c> first.</summary>
+/// the accepted ones - ask <c>HelpChatIsAcceptedFile</c> first: anything
+/// that is neither a PDF nor an image answers "text".</summary>
 function HelpChatKindOf(const AMediaType: string): THelpChatAttachmentKind;
 /// <summary>True when a model can be given a file of this name.</summary>
 function HelpChatIsAcceptedFile(const AFileName: string): Boolean;
@@ -178,7 +213,9 @@ function HelpChatAcceptedExtensions: string;
 /// pages of a manual, and for the same reason: a .txt written by Notepad in
 /// 2003 is still a .txt.</summary>
 function HelpChatDecodeText(const AData: TBytes): string;
-/// <summary>A size as the panel shows it next to the file name ("1,4 MB").</summary>
+/// <summary>A size as the panel shows it next to the file name ("1,4 MB"),
+/// with the decimal separator of the machine: B, KB without decimals, MB
+/// with one.</summary>
 function HelpChatFormatSize(const ABytes: Int64): string;
 /// <summary>The text attachments as one block, to put in front of the
 /// question: a heading, then every file between two fences carrying its name.
@@ -191,7 +228,10 @@ function HelpChatAttachmentsText(const AAttachments: TArray<THelpChatAttachment>
 /// image): what a provider that cannot read documents has to report.</summary>
 function HelpChatHasBinary(const AAttachments: TArray<THelpChatAttachment>): Boolean;
 /// <summary>The question as the model receives it: the text attachments, then
-/// what the user typed.</summary>
+/// what the user typed; the question unchanged when no attachment is
+/// textual. <c>ALanguage</c> is the language of the two headings, and
+/// <c>hclAuto</c> there is the language of the process, not of an
+/// assistant.</summary>
 function HelpChatQuestionWithText(const AQuestion: string;
   const AAttachments: TArray<THelpChatAttachment>;
   const ALanguage: THelpChatLanguage): string;
@@ -310,10 +350,32 @@ begin
     Result := IntToStr(ABytes) + ' B';
 end;
 
+
+// A Markdown fence no run of backticks in AText can close: three, or one
+// more than the longest run.
+function HelpChatFenceFor(const AText: string): string;
+var
+  I, LRun, LLongest: Integer;
+begin
+  LRun := 0;
+  LLongest := 0;
+  for I := 1 to Length(AText) do
+    if AText[I] = '`' then
+    begin
+      Inc(LRun);
+      if LRun > LLongest then
+        LLongest := LRun;
+    end
+    else
+      LRun := 0;
+  Result := StringOfChar('`', Max(3, LLongest + 1));
+end;
+
 function HelpChatAttachmentsText(const AAttachments: TArray<THelpChatAttachment>;
   const ALanguage: THelpChatLanguage): string;
 var
   LBuilder: TStringBuilder;
+  LFence: string;
   I: Integer;
 begin
   Result := '';
@@ -330,10 +392,14 @@ begin
       LBuilder.AppendLine(Format(HelpChatMsg(hcmAttachedTextFile, ALanguage),
         [AAttachments[I].FileName]));
       // Fenced, so the model cannot mistake the content of a file for an
-      // instruction of the user - and a CSV keeps its columns.
-      LBuilder.AppendLine('```');
+      // instruction of the user - and a CSV keeps its columns. The fence is
+      // one backtick longer than the longest run in the text: a file that
+      // contains ``` (any Markdown page does) would otherwise close it and
+      // put the rest of itself outside, where it reads as the user's words.
+      LFence := HelpChatFenceFor(AAttachments[I].Text);
+      LBuilder.AppendLine(LFence);
       LBuilder.AppendLine(AAttachments[I].Text);
-      LBuilder.AppendLine('```').AppendLine;
+      LBuilder.AppendLine(LFence).AppendLine;
     end;
     Result := LBuilder.ToString;
   finally

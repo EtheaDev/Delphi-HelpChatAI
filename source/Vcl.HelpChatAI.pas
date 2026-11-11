@@ -25,9 +25,9 @@
 {******************************************************************************}
 
 /// <summary>
-///  The VCL component. Drop a <see cref="TVclHelpChatAI" /> on the main form, set
+///  The VCL component. Drop a <see cref="TVclHelpChatAI" /> on a form, set
 ///  <c>Active</c>, and the application gets a help bubble in the bottom-right
-///  corner of the form, the chat as the help system of the application (F1 and
+///  corner of that form, the chat as the help system of the application (F1 and
 ///  <c>Application.HelpKeyword/HelpContext</c> reach it through the standard
 ///  <c>ICustomHelpViewer</c> / <c>IExtendedHelpViewer</c> registration, like
 ///  any Delphi help viewer), and the chat panel (<see cref="TVclHelpChatAIPanel" />,
@@ -37,6 +37,27 @@
 ///  like recent Office apps do). The engine and the local HTTP server run
 ///  in-process; the component builds the screen context, follows the VCL style
 ///  and confines the browser to the panel origin.
+///
+///  Several components may be active at once, each an assistant on its own
+///  form (<c>Profile</c> says which one: its section of the configuration,
+///  its files, its engine). What belongs to the application and not to a
+///  form - F1, the help viewer, the style change, the idle turn - lives in
+///  one coordinator per process, in the implementation of this unit, which
+///  hands each of them to the assistant it belongs to.
+///
+///  How the component is layered, which is what makes its user interface
+///  reusable. The browser control (<c>Vcl.HelpChatAI.Panel</c>) knows a URL
+///  and an origin and nothing else. Everything that is of this panel goes
+///  through <see cref="IHelpChatTransport" />: the screen context, the theme,
+///  the name and the icon, the enabled commands, the actions, the commands
+///  of the page and the documents to print - and <c>CreateTransport</c> is
+///  virtual. The engine is reached directly only for what the application
+///  does from code: <c>THelpChatEngines.Acquire</c>/<c>Release</c> and
+///  <c>Start</c> at activation, <c>RunSettings</c> (the settings of the
+///  engine), <c>ContextQuestion</c>, <c>ExplainCommand</c>,
+///  <c>ClearConversation</c>, <c>Models</c>/<c>SelectModel</c>,
+///  <c>SelectLanguage</c> and <c>AttachFile</c>. The component never sees a
+///  provider, the runner or the store.
 /// </summary>
 unit Vcl.HelpChatAI;
 
@@ -110,6 +131,8 @@ type
     procedure DoClose(var Action: TCloseAction); override;
   public
     constructor CreateNew(AOwner: TComponent; Dummy: Integer = 0); override;
+    /// <summary>The user closed the window (it is only hidden): the component
+    /// saves where it was and fires its hide events.</summary>
     property OnClosedByUser: TNotifyEvent read FOnClosedByUser write FOnClosedByUser;
   end;
 
@@ -124,6 +147,14 @@ type
   /// Windows page where the consent lives.</summary>
   TVclHelpChatVoiceConsentEvent = procedure(Sender: TObject; var AHandled: Boolean) of object;
 
+  /// <summary>One assistant of the application: the bubble on its host form,
+  /// the chat panel in its own window or in a container, the screen context,
+  /// the actions of its form. It lives on the form that owns it
+  /// (<c>HostForm</c> to say otherwise), and while <c>Active</c> it holds the
+  /// engine of its <c>Profile</c> - shared with the other assistants of that
+  /// profile - and its own transport. Main thread only; what arrives from
+  /// other threads (a command of the page, an action the model calls, a
+  /// document to print) is queued to it.</summary>
   [ComponentPlatformsAttribute(pidWin32 or pidWin64)]
   TVclHelpChatAI = class(TComponent, IHelpChatHelpTarget)
   strict private
@@ -143,9 +174,6 @@ type
     FOnVoiceText: TVclHelpChatVoiceTextEvent;
     FImageIndex: TImageIndex;
     FImageName: TImageName;
-    FAppEvents: TApplicationEvents;
-    FHelpViewer: THelpChatHelpViewer;
-    FHelpViewerIntf: ICustomHelpViewer;
     FActive: Boolean;
     FStreamedActive: Boolean;
     FHandleF1: Boolean;
@@ -153,12 +181,15 @@ type
     FShowBubble: Boolean;
     FConfigFileName: TFileName;
     FPdfStyleSheet: TFileName;
+    FPanelStyleSheet: TFileName;
+    FPanelCss: string;
     FPdfHeaderFile: TFileName;
     FPdfFooterFile: TFileName;
     FOnPdfInfo: THelpChatPdfInfoEvent;
     FOnDecryptSecret: THelpChatSecretEvent;
     FCaption: string;
     FAssistantName: string;
+    FProfile: string;
     FEnabledCommands: THelpChatCommands;
     FFollowVclStyle: Boolean;
     FRememberPanelPosition: Boolean;
@@ -172,6 +203,7 @@ type
     FActions: THelpChatActionBroker;
     FActionsRef: IHelpChatActionInvoker; // owns the broker (it is reference counted)
     FActionsEnabled: Boolean;
+    FUseSharedActions: Boolean;
     FOnActionConfirm: THelpChatActionConfirmEvent;
     FOnActionExecuted: THelpChatActionExecutedEvent;
     FOnBeforeShowHelp: TVclHelpChatShowEvent;
@@ -180,14 +212,30 @@ type
     FOnAfterHideHelp: TNotifyEvent;
     FOnOpenLink: THelpChatOpenLinkEvent;
     procedure SetActionsEnabled(const Value: Boolean);
+    /// <summary>The broker has a call to run - told on the worker thread that
+    /// waits for it: queued to the main thread, with a reference that keeps
+    /// the broker alive should the component go first.</summary>
     procedure ActionsPending(Sender: TObject);
+    /// <summary>An action that asks first: <c>OnActionConfirm</c> when the
+    /// application handles it, else the dialog of
+    /// <c>Vcl.HelpChatAI.ConfirmDialog</c>, owned by the host form.</summary>
     procedure ActionConfirm(Sender: TObject; const AName: string;
       const AArgs: THelpChatActionArgs; var AAllow: Boolean);
     procedure ActionExecuted(Sender: TObject; const AName: string;
       const AOutcome: THelpChatActionOutcome; const AResult: string);
+    /// <summary>Assigns the values; the secret handler and the profile stay
+    /// the component's.</summary>
     procedure SetSettings(const Value: THelpChatSettings);
     procedure SetOnDecryptSecret(const Value: THelpChatSecretEvent);
     procedure SetContainer(const Value: TWinControl);
+    /// <summary>Activation: reads the configuration (the profile on top of
+    /// the root), acquires the engine of the profile and starts it unless it
+    /// is remote, creates the transport and gives it what is of this panel
+    /// (actions, handlers), joins the coordinator, shows the bubble. A
+    /// failure on the way leaves nothing behind. Deactivation undoes it in
+    /// the opposite order and releases the engine, which stops only when the
+    /// last assistant of the profile lets it go. At design time and while
+    /// loading only the flag is kept.</summary>
     procedure SetActive(const Value: Boolean);
     procedure SetShowBubble(const Value: Boolean);
     procedure SetImages(const Value: TCustomImageList);
@@ -195,6 +243,15 @@ type
     procedure SetImageName(const Value: TImageName);
     procedure SetCaption(const Value: string);
     procedure SetAssistantName(const Value: string);
+    procedure SetProfile(const Value: string);
+    /// <summary>The name as the application wrote it - the configuration's
+    /// first, then the property - unresolved: the page resolves an empty one
+    /// in the language it is rendered in.</summary>
+    function ConfiguredAssistantName: string;
+    /// <summary>The settings in force: the engine's while active - an engine is
+    /// shared by the assistants of a profile, and what the user changes in
+    /// the panel (the language, the model) changes there - else Settings.</summary>
+    function RunSettings: THelpChatSettings;
     procedure SetEnabledCommands(const Value: THelpChatCommands);
     procedure ApplyBubbleIcon;
     function EnsureVoice: Boolean;
@@ -207,40 +264,84 @@ type
     procedure VoiceState(Sender: TObject; const AListening: Boolean);
     procedure VoiceError(Sender: TObject; const AMessage: string);
     procedure SetHostForm(const Value: TCustomForm);
+    /// <summary><c>HostForm</c>, else the form that owns the component -
+    /// through a frame if need be - else the main form (a component on a data
+    /// module).</summary>
     function ResolveHostForm: TCustomForm;
+    /// <summary>Creates the bubble on the host form, once the form has a
+    /// window; called again at idle until it does.</summary>
     procedure EnsureBubble;
     procedure DestroyBubble;
     procedure BubbleClick(Sender: TObject);
+    /// <summary>Creates the browser control, hidden and with no parent yet:
+    /// <c>OpenWithContext</c> decides where it goes.</summary>
     procedure EnsureView;
+    /// <summary>Creates the tool window the chat opens in when the
+    /// application gives it no container.</summary>
     procedure EnsureOwnForm;
+    /// <summary>Where the user left the own window, if that is still on a
+    /// monitor, else the bottom-right corner of the host form, sized for the
+    /// DPI of its monitor.</summary>
     procedure PositionOwnForm;
     /// <summary>Gives the own window the right owner before showing it: the
     /// active modal form when there is one, the host form otherwise.</summary>
     procedure UpdateOwnFormOwner;
     procedure OwnFormClosedByUser(Sender: TObject);
     procedure ViewCloseRequested(Sender: TObject);
+    /// <summary>What the page asked of its host through the server, delivered
+    /// here on the main thread: <c>close</c>, the microphone
+    /// (<c>mic-start</c>, <c>mic-stop</c>) and the change of language.</summary>
     procedure UiCommand(const ACommand: string);
     /// <summary>The language of the chat changed (from the flag of the page
     /// or from SelectLanguage): the captions this side writes follow it.</summary>
     procedure LanguageChanged;
+    /// <summary>A document the engine built (an answer, the conversation, a
+    /// page of the manual, or what the <c>export_pdf</c> action wrote) is to
+    /// be saved: the stylesheet, the sheet and the bands are put on it here,
+    /// the user is asked where it goes, and it is printed with the browser
+    /// environment of the panel.</summary>
     procedure PdfRequest(const ADoc: THelpChatPrintableDoc);
+    /// <summary>Registers <c>export_pdf</c> among the actions of this
+    /// assistant when <c>Settings.Pdf.Action</c> asks for it; removed again at
+    /// deactivation.</summary>
     procedure RegisterPdfAction;
     procedure ViewStyleChanged(Sender: TObject);
+    /// <summary>The page (re)loaded: the theme, the microphone button and the
+    /// caret are given to it again.</summary>
     procedure ViewPageReady(Sender: TObject);
     procedure ViewOpenLink(Sender: TObject; const AUrl: string; var AHandled: Boolean);
     procedure DeferredApplyTheme;
+    /// <summary>Hides the chat wherever it is, between
+    /// <c>OnBeforeHideHelp</c> and <c>OnAfterHideHelp</c>.</summary>
     procedure HideView;
-    procedure AppMessage(var Msg: tagMSG; var Handled: Boolean);
-    procedure AppIdle(Sender: TObject; var Done: Boolean);
-    procedure AppModalEnd(Sender: TObject);
-    procedure HookApplication;
-    procedure UnhookApplication;
-    function IsOurWindow(const AHandle: HWND): Boolean;
+    /// <summary>The file the own window remembers its place in:
+    /// <c>helpchatai-ui.json</c> in the per-user folder, with the profile in
+    /// its name so that two assistants do not share one.</summary>
     function UiStateFile: string;
     procedure SavePanelBounds;
     function LoadPanelBounds(out ABounds: TRect; out APPI: Integer): Boolean;
+    /// <summary>The one way the panel opens: activates if needed, hands the
+    /// context to the transport, decides the container (<c>Container</c>,
+    /// then <c>OnBeforeShowHelp</c>, else the own window), parents the
+    /// browser there and loads the page - or just gives it the caret when it
+    /// is already loaded.</summary>
     procedure OpenWithContext(const AContext: THelpChatContext);
+    /// <summary>Puts AQuestion in the question box of the page and sends it
+    /// when ASend; the same question within
+    /// <c>HELPCHAT_VCL_ASK_DEBOUNCE_MS</c> is not sent twice.</summary>
     procedure Ask(const AQuestion: string; const ASend: Boolean);
+  private
+    // What the coordinator of the process calls: it owns the one
+    // TApplicationEvents and the one help viewer every component shares.
+    procedure CoordinatorStyleChanged;
+    procedure CoordinatorIdle;
+    procedure CoordinatorModalEnd;
+    function IsOurWindow(const AHandle: HWND): Boolean;
+    /// <summary>True when AForm is where this assistant lives: its host form,
+    /// its own window, or the form of the container it is embedded in.</summary>
+    function LivesOn(const AForm: TCustomForm): Boolean;
+    function TakesF1: Boolean;
+    function TakesHelp: Boolean;
   protected
     procedure Loaded; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
@@ -265,6 +366,12 @@ type
     /// included) declares a HelpKeyword or HelpContext: the VCL will route F1
     /// to the help system, and so to this component.</summary>
     class function ActiveControlHasHelp: Boolean; static;
+    /// <summary>The assistant F1 goes to now: the one whose form is active,
+    /// else the one whose form was active last; nil when no assistant of
+    /// the process takes F1. Several assistants may be active at once, each
+    /// on its own form; this is how the application asks which one is in
+    /// front of the user.</summary>
+    class function CurrentAssistant: TVclHelpChatAI; static;
     /// <summary>IHelpChatHelpTarget: the help system may route requests here.</summary>
     function IsHelpViewerActive: Boolean;
     /// <summary>Opens the panel (starts the engine and the server if needed).</summary>
@@ -292,21 +399,24 @@ type
     function ExplainCommand(const ACommand: THelpChatCommand; const AArgs: string = ''): string;
     /// <summary>Clears the conversation: the ↺ of the panel.</summary>
     procedure ClearConversation;
-    /// <summary>The assistants the panel offers, with the one in use marked.</summary>
-    function Assistants: TArray<THelpChatAssistantInfo>;
-    /// <summary>Makes AName the assistant in use, like the list of the badge;
-    /// False when there is no such assistant or the engine is remote.</summary>
-    function SelectAssistant(const AName: string): Boolean;
+    /// <summary>The models the panel offers, with the one in use marked.</summary>
+    function Models: TArray<THelpChatModelInfo>;
+    /// <summary>Makes AName the model in use, like the list of the badge;
+    /// False when there is no such model or the engine is remote. The engine
+    /// is the profile's: the switch is for every assistant that shares it.</summary>
+    function SelectModel(const AName: string): Boolean;
     /// <summary>The languages the flag of the panel offers (<c>Settings.Languages</c>).</summary>
     function Languages: TArray<THelpChatLanguage>;
-    /// <summary>The language the chat speaks now, never <c>hclAuto</c>.</summary>
+    /// <summary>The language the chat speaks now, never <c>hclAuto</c>: the
+    /// one the user picked in the panel when there is one - it is kept by
+    /// the engine, not by <c>Settings</c>.</summary>
     function ActiveLanguage: THelpChatLanguage;
     /// <summary>Makes ALanguage the language of the chat, like the menu of
     /// the flag, and reloads the panel with it; False when the language is
     /// not offered or the engine is remote.</summary>
     function SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
-    /// <summary>Asks the last question again, to AAssistant when named: /retry.</summary>
-    procedure RetryLastQuestion(const AAssistant: string = '');
+    /// <summary>Asks the last question again, to AModel when named: /retry.</summary>
+    procedure RetryLastQuestion(const AModel: string = '');
     /// <summary>Saves the conversation as PDF, asking where: the PDF button.</summary>
     procedure SaveConversationPdf;
     /// <summary>Copies the last answer to the clipboard: its copy button.</summary>
@@ -314,8 +424,14 @@ type
     /// <summary>Attaches a file to the conversation, like the clip; False with
     /// the reason in AError when it is refused (type, size, attachments off).</summary>
     function AttachFile(const AFileName: string; out AError: string): Boolean;
+    /// <summary>Hides the panel (the chat stays loaded, the conversation
+    /// stays).</summary>
     procedure Close;
+    /// <summary>Opens the panel when it is hidden, hides it when it is shown:
+    /// what the bubble does.</summary>
     procedure Toggle;
+    /// <summary>True when the chat is shown, in the own window or in a
+    /// container.</summary>
     function IsPanelVisible: Boolean;
     /// <summary>The theme the panel gets: from the active VCL style when
     /// FollowVclStyle, else empty (page defaults); then OnGetTheme.</summary>
@@ -337,8 +453,20 @@ type
     /// Called when any of Caption, AssistantName, Images, ImageIndex or
     /// ImageName changes, and when the component activates.</summary>
     procedure ApplyAssistant;
+    /// <summary>The form this assistant lives on: <c>HostForm</c>, else the
+    /// form that owns the component, else the main form.</summary>
+    function ResolvedHostForm: TCustomForm;
 
+    /// <summary>The engine of the profile of this assistant while
+    /// <c>Active</c>, nil otherwise. It is shared with the other assistants of
+    /// the same profile and not owned: never free it, and expect
+    /// <c>Engine.Settings</c> - not <c>Settings</c> - to carry what the user
+    /// changed in the panel. With <c>Settings.Remote</c> it exists but is not
+    /// started.</summary>
     property Engine: THelpChatEngine read FEngine;
+    /// <summary>What serves the panel of this assistant while <c>Active</c>:
+    /// the local server over the engine, or the client of a remote
+    /// one.</summary>
     property Transport: IHelpChatTransport read FTransport;
     /// <summary>What the assistant may do in this application, beyond
     /// answering: the application registers its actions here (see
@@ -352,26 +480,46 @@ type
     /// <summary>The container currently hosting the chat: the application's one,
     /// or the own window.</summary>
     property ActiveContainer: TWinControl read FActiveContainer;
-    /// <summary>Form hosting the bubble and anchoring the panel; nil =
-    /// Application.MainForm. Set it in code: at design time the form of
-    /// another unit is not a component of this one, so there would be nothing
-    /// to choose from.</summary>
+    /// <summary>Form hosting the bubble and anchoring the panel, and the form
+    /// whose activation makes this the assistant F1 goes to. nil = the form
+    /// that owns the component (on a frame, the form that owns the frame),
+    /// else - for a component on a data module - Application.MainForm. Set it
+    /// in code: at design time the form of another unit is not a component
+    /// of this one, so there would be nothing to choose from.</summary>
     property HostForm: TCustomForm read FHostForm write SetHostForm;
   published
+    /// <summary>The settings of this assistant as the form file has them. At
+    /// activation the configuration files are merged on top - their root, then
+    /// the section of <c>Profile</c> - and a copy becomes the settings of the
+    /// engine: changing a value here while active affects the next
+    /// activation.</summary>
     property Settings: THelpChatSettings read FSettings write SetSettings;
     /// <summary>Starts engine, server and hooks. Set at design time, it activates
     /// when the owner form is loaded at runtime.</summary>
     property Active: Boolean read FActive write SetActive default False;
-    /// <summary>Register the chat as the help viewer of the application: F1 on a
-    /// control with HelpKeyword/HelpContext, Application.HelpKeyword/HelpContext
-    /// and HelpShowTableOfContents open the chat.</summary>
+    /// <summary>Answer the help system of the application: F1 on a control
+    /// with HelpKeyword/HelpContext, Application.HelpKeyword/HelpContext and
+    /// HelpShowTableOfContents open the chat. One viewer is registered for
+    /// the whole process, and it hands each request to the assistant of the
+    /// form the request comes from (else to the current one); False keeps
+    /// this assistant out of it.</summary>
     property RegisterHelpViewer: Boolean read FRegisterHelpViewer write FRegisterHelpViewer default True;
     /// <summary>F1 opens the chat also where no control declares any help (the
-    /// VCL would do nothing): a question about the current screen is asked.</summary>
+    /// VCL would do nothing): a question about the current screen is asked.
+    /// With several assistants it goes to the one of the active form, else to
+    /// the one whose form was active last; False keeps this one out of it.</summary>
     property HandleF1: Boolean read FHandleF1 write FHandleF1 default True;
     /// <summary>Title of the window the chat opens in when it is not embedded
     /// in a container of yours. Empty (the default) = the localized "Help".</summary>
     property Caption: string read FCaption write SetCaption;
+    /// <summary>Which assistant this is: the name of its section under
+    /// <c>"Profiles"</c> in the configuration, where what this assistant
+    /// changes is written (its instructions, its part of the manual, its
+    /// models), and part of the name of its conversation, state and window
+    /// files. Never shown to the user - that is <c>AssistantName</c> - and
+    /// never translated: renaming the assistant must not break the tie with
+    /// the file. Empty = the default assistant.</summary>
+    property Profile: string read FProfile write SetProfile;
     /// <summary>What the assistant is called, written in the header of the
     /// chat panel next to its icon - and the title of the page itself. Empty
     /// (the default) = the localized "Assistant". It is a name, not a window
@@ -411,9 +559,18 @@ type
     /// Named here, that file is the configuration and nothing else is looked
     /// at; a relative path is resolved against the executable. Left empty, the
     /// usual three are merged in order: the shared per-user one
-    /// (%APPDATA%\HelpChat), the one next to the executable, then the per-user
+    /// (%APPDATA%\HelpChatAI), the one next to the executable, then the per-user
     /// one of this application - which is where an API key belongs.</summary>
     property ConfigFileName: TFileName read FConfigFileName write FConfigFileName;
+    /// <summary>A CSS file of the application, added to the page of the
+    /// chat after its own stylesheet - a radius, a spacing, a button hidden;
+    /// the colours belong to the theme (<c>OnGetTheme</c>). Empty = none; a
+    /// relative path resolves against the executable, and a named file that
+    /// is not there stops the activation. Read once, when the component
+    /// activates; it reaches <c>OnGetTheme</c> as <c>ATheme.StyleSheet</c>,
+    /// which is also where code writes CSS of its own. The classes of the
+    /// page (<c>hc-chat-*</c>) are what such a file may rely on.</summary>
+    property PanelStyleSheet: TFileName read FPanelStyleSheet write FPanelStyleSheet;
     /// <summary>The stylesheet a saved PDF is laid out with. Empty = the one
     /// built into the library; a relative path resolves against the
     /// executable. It is a property of the component and not a setting
@@ -458,6 +615,10 @@ type
     /// <summary>Offer the registered actions to the model. False keeps them
     /// registered but invisible: the assistant can only answer.</summary>
     property ActionsEnabled: Boolean read FActionsEnabled write SetActionsEnabled default True;
+    /// <summary>Offer also the actions every assistant of the application may
+    /// use (<c>HelpChatSharedActions</c>). Read when the component activates.
+    /// <c>Settings.AllowedActions</c> narrows both the own and the shared.</summary>
+    property UseSharedActions: Boolean read FUseSharedActions write FUseSharedActions default True;
     /// <summary>Asked before running an action marked as needing confirmation.
     /// Set AAllow to False to refuse: the model is told the user said no.</summary>
     property OnActionConfirm: THelpChatActionConfirmEvent read FOnActionConfirm write FOnActionConfirm;
@@ -475,8 +636,15 @@ type
     property Container: TWinControl read FContainer write SetContainer;
     /// <summary>Default size of the panel window at 96 dpi; scaled to the DPI of the host monitor.</summary>
     property PanelWidth: Integer read FPanelWidth write FPanelWidth default HELPCHAT_VCL_DEF_PANEL_WIDTH;
+    /// <summary>See <c>PanelWidth</c>.</summary>
     property PanelHeight: Integer read FPanelHeight write FPanelHeight default HELPCHAT_VCL_DEF_PANEL_HEIGHT;
+    /// <summary>Refines the screen context the component built: the place to
+    /// name the screen after the active page, or to add the help keyword of a
+    /// form that declares none.</summary>
     property OnGetContext: TVclHelpChatContextEvent read FOnGetContext write FOnGetContext;
+    /// <summary>Adjusts the theme before it reaches the page: the colours
+    /// derived from the VCL style and the CSS of
+    /// <c>PanelStyleSheet</c>.</summary>
     property OnGetTheme: TVclHelpChatThemeEvent read FOnGetTheme write FOnGetTheme;
     /// <summary>Decide where the chat goes and show its container (a side
     /// panel, a page); leave AContainer nil for the own window.</summary>
@@ -485,6 +653,7 @@ type
     property OnAfterShowHelp: TNotifyEvent read FOnAfterShowHelp write FOnAfterShowHelp;
     /// <summary>The chat is about to be hidden (✕, Esc, Close): hide your container here.</summary>
     property OnBeforeHideHelp: TNotifyEvent read FOnBeforeHideHelp write FOnBeforeHideHelp;
+    /// <summary>The chat has been hidden.</summary>
     property OnAfterHideHelp: TNotifyEvent read FOnAfterHideHelp write FOnAfterHideHelp;
     /// <summary>A link of the panel is leaving it (web site, mail, a page that
     /// is not in DocFolder): set AHandled to open it yourself, else it opens
@@ -513,6 +682,383 @@ begin
   Result := Assigned(AControl) and
     (((AControl.HelpType = htKeyword) and (AControl.HelpKeyword <> '')) or
      ((AControl.HelpType = htContext) and (AControl.HelpContext <> 0)));
+end;
+
+type
+  TVclHelpChatNeed = (hnAny, hnF1, hnHelp);
+
+  /// <summary>
+  ///  The application-wide half of every TVclHelpChatAI, one per process.
+  ///  F1 and the help system belong to the application, not to a component:
+  ///  with one TApplicationEvents and one help viewer per component, two
+  ///  assistants answered the same key and the help manager had two viewers
+  ///  to choose between. The coordinator keeps the active assistants with the
+  ///  most recently active first - the one whose form the user activated last
+  ///  - and hands F1, a request of the help system, a style change, an idle
+  ///  turn and the end of a modal form to whom they belong.
+  /// </summary>
+  TVclHelpChatCoordinator = class(TComponent, IHelpChatHelpTarget)
+  strict private
+    FItems: TList<TVclHelpChatAI>;
+    FAppEvents: TApplicationEvents;
+    FHelpViewer: THelpChatHelpViewer;
+    FHelpViewerIntf: ICustomHelpViewer;
+    FLastForm: TCustomForm;
+    FDispatching: Integer;
+    procedure AppMessage(var Msg: tagMSG; var Handled: Boolean);
+    procedure AppIdle(Sender: TObject; var Done: Boolean);
+    procedure AppModalEnd(Sender: TObject);
+    procedure SetLastForm(const AForm: TCustomForm);
+    function Accepts(const AItem: TVclHelpChatAI; const ANeed: TVclHelpChatNeed): Boolean;
+    function ItemOn(const AForm: TCustomForm; const ANeed: TVclHelpChatNeed): TVclHelpChatAI;
+    function FirstItem(const ANeed: TVclHelpChatNeed): TVclHelpChatAI;
+    /// <summary>The assistant of the form the user was in last, among the
+    /// forms that host one: what answers when the active form hosts none.</summary>
+    function MostRecentItem(const ANeed: TVclHelpChatNeed): TVclHelpChatAI;
+  protected
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    procedure Add(const AItem: TVclHelpChatAI);
+    procedure Remove(const AItem: TVclHelpChatAI);
+    function Count: Integer;
+    function Dispatching: Boolean;
+    /// <summary>Registers the help viewer while some assistant answers the
+    /// help system, and only then: the design-time preview runs a component
+    /// inside the IDE, and must not leave a viewer in the help manager of the
+    /// IDE.</summary>
+    procedure UpdateHelpViewer;
+    /// <summary>Notices a form that became active: if an assistant lives on
+    /// it, that assistant moves to the front.</summary>
+    procedure TrackActiveForm;
+    /// <summary>The assistant of the active form, else the most recently
+    /// active one, among those that take F1.</summary>
+    function F1Target: TVclHelpChatAI;
+    /// <summary>The assistant of the form of the focused control - where a
+    /// help keyword comes from - else the most recently active one, among
+    /// those that answer the help system.</summary>
+    function HelpTarget: TVclHelpChatAI;
+    // IHelpChatHelpTarget: the one viewer of the process asks here.
+    function IsHelpViewerActive: Boolean;
+    procedure Open;
+    procedure OpenForHelp(const AKeyword: string; const AContext: Integer);
+    procedure Close;
+  end;
+
+var
+  GCoordinator: TVclHelpChatCoordinator;
+  GCoordinatorOrphaned: Boolean;
+
+procedure CoordinatorAdd(const AItem: TVclHelpChatAI);
+begin
+  if GCoordinator = nil then
+    GCoordinator := TVclHelpChatCoordinator.Create(nil);
+  GCoordinatorOrphaned := False;
+  GCoordinator.Add(AItem);
+end;
+
+procedure CoordinatorRemove(const AItem: TVclHelpChatAI);
+begin
+  if GCoordinator = nil then
+    Exit;
+  GCoordinator.Remove(AItem);
+  if GCoordinator.Count = 0 then
+  begin
+    // Never free the TApplicationEvents from inside its own handler: the
+    // coordinator goes when the dispatch is over.
+    if GCoordinator.Dispatching then
+      GCoordinatorOrphaned := True
+    else
+      FreeAndNil(GCoordinator);
+  end;
+end;
+
+{ TVclHelpChatCoordinator }
+
+constructor TVclHelpChatCoordinator.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FItems := TList<TVclHelpChatAI>.Create;
+  FAppEvents := TApplicationEvents.Create(Self);
+  FAppEvents.OnMessage := AppMessage;
+  FAppEvents.OnIdle := AppIdle;
+  FAppEvents.OnModalEnd := AppModalEnd;
+end;
+
+destructor TVclHelpChatCoordinator.Destroy;
+begin
+  if Assigned(FHelpViewer) then
+  begin
+    FHelpViewer.Unregister;
+    FHelpViewer := nil;
+    FHelpViewerIntf := nil;
+  end;
+  SetLastForm(nil);
+  FreeAndNil(FAppEvents);
+  FreeAndNil(FItems);
+  inherited Destroy;
+end;
+
+procedure TVclHelpChatCoordinator.Notification(AComponent: TComponent; Operation: TOperation);
+begin
+  inherited Notification(AComponent, Operation);
+  if (Operation = opRemove) and (AComponent = FLastForm) then
+    FLastForm := nil;
+end;
+
+procedure TVclHelpChatCoordinator.SetLastForm(const AForm: TCustomForm);
+begin
+  if AForm = FLastForm then
+    Exit;
+  if Assigned(FLastForm) then
+    FLastForm.RemoveFreeNotification(Self);
+  FLastForm := AForm;
+  if Assigned(FLastForm) then
+    FLastForm.FreeNotification(Self);
+end;
+
+procedure TVclHelpChatCoordinator.Add(const AItem: TVclHelpChatAI);
+begin
+  if FItems.IndexOf(AItem) < 0 then
+    FItems.Add(AItem);
+  // Activated on the form the user is in (a form that creates its assistant
+  // when it opens): it is the current one from the start.
+  if AItem.LivesOn(Screen.ActiveCustomForm) then
+    FItems.Move(FItems.IndexOf(AItem), 0);
+  UpdateHelpViewer;
+end;
+
+procedure TVclHelpChatCoordinator.Remove(const AItem: TVclHelpChatAI);
+begin
+  FItems.Remove(AItem);
+  UpdateHelpViewer;
+end;
+
+function TVclHelpChatCoordinator.Count: Integer;
+begin
+  Result := FItems.Count;
+end;
+
+function TVclHelpChatCoordinator.Dispatching: Boolean;
+begin
+  Result := FDispatching > 0;
+end;
+
+procedure TVclHelpChatCoordinator.UpdateHelpViewer;
+begin
+  if Assigned(FirstItem(hnHelp)) then
+  begin
+    if not Assigned(FHelpViewer) then
+    begin
+      FHelpViewer := THelpChatHelpViewer.Create(Self);
+      FHelpViewerIntf := FHelpViewer; // the manager and this reference share the object
+      FHelpViewer.Register;
+    end;
+  end
+  else if Assigned(FHelpViewer) then
+  begin
+    FHelpViewer.Unregister;
+    FHelpViewer := nil;
+    FHelpViewerIntf := nil;
+  end;
+end;
+
+function TVclHelpChatCoordinator.Accepts(const AItem: TVclHelpChatAI;
+  const ANeed: TVclHelpChatNeed): Boolean;
+begin
+  case ANeed of
+    hnF1: Result := AItem.TakesF1;
+    hnHelp: Result := AItem.TakesHelp;
+  else
+    Result := True;
+  end;
+end;
+
+function TVclHelpChatCoordinator.ItemOn(const AForm: TCustomForm;
+  const ANeed: TVclHelpChatNeed): TVclHelpChatAI;
+var
+  LItem: TVclHelpChatAI;
+begin
+  if Assigned(AForm) then
+    for LItem in FItems do
+      if Accepts(LItem, ANeed) and LItem.LivesOn(AForm) then
+        Exit(LItem);
+  Result := nil;
+end;
+
+function TVclHelpChatCoordinator.FirstItem(const ANeed: TVclHelpChatNeed): TVclHelpChatAI;
+var
+  LItem: TVclHelpChatAI;
+begin
+  for LItem in FItems do
+    if Accepts(LItem, ANeed) then
+      Exit(LItem);
+  Result := nil;
+end;
+
+function TVclHelpChatCoordinator.MostRecentItem(const ANeed: TVclHelpChatNeed): TVclHelpChatAI;
+var
+  I: Integer;
+begin
+  // The VCL keeps Screen.CustomForms with the form that took the focus last
+  // first (TCustomForm.SetFocusedControl), and it does so while the focus
+  // moves, not at the next message. The list of this coordinator is updated
+  // by TrackActiveForm, which only runs when a message is dispatched or the
+  // application is idle: two forms activated by code one after the other,
+  // with nothing posted in between, and the first activation was never seen
+  // - the assistant of the form before it answered. So the order of the
+  // screen is asked first, and the tracked order is the fallback for an
+  // assistant that lives on no form of that list.
+  for I := 0 to Screen.CustomFormCount - 1 do
+  begin
+    Result := ItemOn(Screen.CustomForms[I], ANeed);
+    if Assigned(Result) then
+      Exit;
+  end;
+  Result := FirstItem(ANeed);
+end;
+
+procedure TVclHelpChatCoordinator.TrackActiveForm;
+var
+  LForm: TCustomForm;
+  LItem: TVclHelpChatAI;
+begin
+  LForm := Screen.ActiveCustomForm;
+  if LForm = FLastForm then
+    Exit;
+  SetLastForm(LForm);
+  // A form that hosts no assistant changes nothing: F1 there goes to the
+  // assistant of the form the user came from.
+  LItem := ItemOn(LForm, hnAny);
+  if Assigned(LItem) and (FItems.IndexOf(LItem) > 0) then
+    FItems.Move(FItems.IndexOf(LItem), 0);
+end;
+
+function TVclHelpChatCoordinator.F1Target: TVclHelpChatAI;
+begin
+  TrackActiveForm;
+  Result := ItemOn(Screen.ActiveCustomForm, hnF1);
+  if Result = nil then
+    Result := MostRecentItem(hnF1);
+end;
+
+function TVclHelpChatCoordinator.HelpTarget: TVclHelpChatAI;
+var
+  LForm: TCustomForm;
+begin
+  TrackActiveForm;
+  if Assigned(Screen.ActiveControl) then
+    LForm := GetParentForm(Screen.ActiveControl)
+  else
+    LForm := Screen.ActiveCustomForm;
+  Result := ItemOn(LForm, hnHelp);
+  if Result = nil then
+    Result := MostRecentItem(hnHelp);
+end;
+
+procedure TVclHelpChatCoordinator.AppMessage(var Msg: tagMSG; var Handled: Boolean);
+var
+  LItem, LTarget: TVclHelpChatAI;
+begin
+  Inc(FDispatching);
+  try
+    if Msg.message = CM_CUSTOMSTYLECHANGED then
+    begin
+      for LItem in FItems.ToArray do
+        LItem.CoordinatorStyleChanged;
+      Exit;
+    end;
+    // A pointer comparison per message: the activation of a form (shown by
+    // code, clicked, Alt+Tab) is noticed before any key reaches it.
+    TrackActiveForm;
+    if (Msg.message <> WM_KEYDOWN) or (Msg.wParam <> VK_F1) then
+      Exit;
+    for LItem in FItems do
+      if LItem.IsOurWindow(Msg.hwnd) then
+        Exit; // F1 inside a chat panel is the panel's
+    LTarget := F1Target;
+    if LTarget = nil then
+      Exit;
+    // Auto-repeat of a held key (bit 30 of lParam): never a second request.
+    if (Msg.lParam and $40000000) <> 0 then
+    begin
+      Handled := True;
+      Exit;
+    end;
+    if (GetKeyState(VK_CONTROL) < 0) or (GetKeyState(VK_MENU) < 0) then
+      Exit;
+    // A control with help: the VCL routes F1 (WM_HELP) to the help system,
+    // and the help system to the viewer. Only when nobody declares help,
+    // which would make F1 do nothing, the chat steps in with the screen.
+    if (HelpTarget <> nil) and TVclHelpChatAI.ActiveControlHasHelp then
+      Exit;
+    Handled := True;
+    LTarget.OpenForCurrentScreen;
+  finally
+    Dec(FDispatching);
+  end;
+end;
+
+procedure TVclHelpChatCoordinator.AppIdle(Sender: TObject; var Done: Boolean);
+var
+  LItem: TVclHelpChatAI;
+begin
+  // The last assistant went away while a message was being dispatched: the
+  // coordinator could not free itself then, it can now.
+  if GCoordinatorOrphaned and (FItems.Count = 0) then
+  begin
+    GCoordinatorOrphaned := False;
+    GCoordinator := nil;
+    TThread.ForceQueue(nil,
+      procedure
+      begin
+        Free;
+      end);
+    Exit;
+  end;
+  TrackActiveForm;
+  for LItem in FItems.ToArray do
+    LItem.CoordinatorIdle;
+end;
+
+procedure TVclHelpChatCoordinator.AppModalEnd(Sender: TObject);
+var
+  LItem: TVclHelpChatAI;
+begin
+  for LItem in FItems.ToArray do
+    LItem.CoordinatorModalEnd;
+end;
+
+function TVclHelpChatCoordinator.IsHelpViewerActive: Boolean;
+begin
+  Result := HelpTarget <> nil;
+end;
+
+procedure TVclHelpChatCoordinator.Open;
+var
+  LTarget: TVclHelpChatAI;
+begin
+  LTarget := HelpTarget;
+  if Assigned(LTarget) then
+    LTarget.Open;
+end;
+
+procedure TVclHelpChatCoordinator.OpenForHelp(const AKeyword: string; const AContext: Integer);
+var
+  LTarget: TVclHelpChatAI;
+begin
+  LTarget := HelpTarget;
+  if Assigned(LTarget) then
+    LTarget.OpenForHelp(AKeyword, AContext);
+end;
+
+procedure TVclHelpChatCoordinator.Close;
+var
+  LItem: TVclHelpChatAI;
+begin
+  for LItem in FItems.ToArray do
+    LItem.Close;
 end;
 
 { TVclHelpChatAIForm }
@@ -548,6 +1094,7 @@ begin
   FActions.OnConfirm := ActionConfirm;
   FActions.OnExecuted := ActionExecuted;
   FActionsEnabled := True;
+  FUseSharedActions := True;
   FHandleF1 := True;
   FEnabledCommands := HELPCHAT_DEF_COMMANDS;
   FRegisterHelpViewer := True;
@@ -612,9 +1159,32 @@ end;
 procedure TVclHelpChatAI.SetSettings(const Value: THelpChatSettings);
 begin
   FSettings.Assign(Value);
-  // Assign brought the handler of the settings that were assigned, which are
-  // not ours: the component keeps the last word on who decrypts its secrets.
+  // Assign brought the handler and the profile of the settings that were
+  // assigned, which are not ours: the component keeps the last word on who
+  // decrypts its secrets and on which assistant it is.
   FSettings.SetSecretHandler(FOnDecryptSecret, Self);
+  FSettings.Profile := FProfile;
+end;
+
+procedure TVclHelpChatAI.SetProfile(const Value: string);
+begin
+  FProfile := Trim(Value);
+  FSettings.Profile := FProfile;
+end;
+
+function TVclHelpChatAI.RunSettings: THelpChatSettings;
+begin
+  if Assigned(FEngine) then
+    Result := FEngine.Settings
+  else
+    Result := FSettings;
+end;
+
+function TVclHelpChatAI.ConfiguredAssistantName: string;
+begin
+  Result := Trim(FSettings.AssistantName);
+  if Result = '' then
+    Result := Trim(FAssistantName);
 end;
 
 procedure TVclHelpChatAI.SetOnDecryptSecret(const Value: THelpChatSecretEvent);
@@ -627,8 +1197,9 @@ procedure TVclHelpChatAI.SetHostForm(const Value: TCustomForm);
 begin
   if Value = FHostForm then
     Exit;
-  if Assigned(FHostForm) then
-    FHostForm.RemoveFreeNotification(Self);
+  // The notification asked of the old form is left there: it is not
+  // counted, and Container may be the same object. One too many costs
+  // nothing.
   DestroyBubble;
   FHostForm := Value;
   if Assigned(FHostForm) then
@@ -641,8 +1212,6 @@ procedure TVclHelpChatAI.SetContainer(const Value: TWinControl);
 begin
   if Value = FContainer then
     Exit;
-  if Assigned(FContainer) then
-    FContainer.RemoveFreeNotification(Self);
   FContainer := Value;
   if Assigned(FContainer) then
     FContainer.FreeNotification(Self);
@@ -676,37 +1245,55 @@ begin
   if Value then
   begin
     LoadConfiguration;
-    HelpChatDefaultLanguage := FSettings.ResolveLanguage;
-    FEngine := THelpChatEngine.Create(FSettings);
-    FEngine.Actions := FActionsRef;
-    // With a remote server the local engine stays idle: no documentation index
-    // loaded, no worker pool, no model key in this process.
-    if not FSettings.Remote.IsConfigured then
-      FEngine.Start;
-    FTransport := CreateTransport(FEngine);
-    FTransport.SetOnUiCommand(UiCommand);
-    FTransport.SetOnPdfRequest(PdfRequest);
-    RegisterPdfAction;
+    FPanelCss := THelpChatPanel.PanelCss(FPanelStyleSheet);
+    // The engine of the profile: shared with the other assistants that name
+    // it, created by the first. What this one may do goes with its questions.
+    FEngine := THelpChatEngines.Acquire(Self, FSettings);
     try
+      // With a remote server the local engine stays idle: no documentation index
+      // loaded, no worker pool, no model key in this process.
+      if not FSettings.Remote.IsConfigured then
+        FEngine.Start;
+      // The language of the engine, not the one this component was configured
+      // with: an engine another assistant of the profile started already may
+      // carry the language the user picked in its panel.
+      HelpChatDefaultLanguage := RunSettings.ResolveLanguage;
+      FTransport := CreateTransport(FEngine);
+      // What this assistant may do: its own actions, the application's shared
+      // ones unless it opted out, and what its profile allows of them.
+      if FUseSharedActions then
+        FActions.Shared := HelpChatSharedActions
+      else
+        FActions.Shared := nil;
+      FActions.Allowed := FSettings.ResolveAllowedActions;
+      FActions.HostActive := True;
+      FTransport.SetActions(FActionsRef);
+      FTransport.SetOnUiCommand(UiCommand);
+      FTransport.SetOnPdfRequest(PdfRequest);
+      RegisterPdfAction;
       FTransport.Start;
     except
-      // A server that will not answer must not leave half a component behind.
+      // An engine that will not start or a server that will not answer must
+      // not leave half a component behind - above all not a holder of the
+      // shared engine that nobody will ever release.
+      FActions.HostActive := False;
+      FActions.Remove(HELPCHAT_PDF_ACTION);
       FTransport := nil;
-      FreeAndNil(FEngine);
+      THelpChatEngines.Release(Self, FEngine);
       raise;
     end;
     FActive := True;
     // Before the panel is ever shown: the first page load already carries the
     // name and the icon, so the header never flashes the default ones.
     ApplyAssistant;
-    HookApplication;
+    CoordinatorAdd(Self);
     if FShowBubble then
       EnsureBubble;
   end
   else
   begin
     FActive := False;
-    UnhookApplication;
+    CoordinatorRemove(Self);
     DestroyBubble;
     if Assigned(FOwnForm) then
       SavePanelBounds;
@@ -724,6 +1311,11 @@ begin
       FreeAndNil(FOwnForm);
     end;
     FActiveContainer := nil;
+    // The engine may go on without this assistant (another one of the same
+    // profile holds it), and with it a reply this panel asked for: an action
+    // it calls from now on is answered "cancelled" instead of running on a
+    // form that is going away, or waiting for it.
+    FActions.HostActive := False;
     if Assigned(FTransport) then
     begin
       FTransport.SetOnUiCommand(nil);
@@ -734,36 +1326,10 @@ begin
       FTransport.Stop;
       FTransport := nil;
     end;
-    FreeAndNil(FEngine); // stops the workers (bounded wait) and persists
+    // The last assistant of the profile frees it: that stops the workers
+    // (bounded wait) and persists the conversation.
+    THelpChatEngines.Release(Self, FEngine);
   end;
-end;
-
-procedure TVclHelpChatAI.HookApplication;
-begin
-  if not Assigned(FAppEvents) then
-  begin
-    FAppEvents := TApplicationEvents.Create(Self);
-    FAppEvents.OnMessage := AppMessage;
-    FAppEvents.OnIdle := AppIdle;
-    FAppEvents.OnModalEnd := AppModalEnd;
-  end;
-  if FRegisterHelpViewer and not Assigned(FHelpViewer) then
-  begin
-    FHelpViewer := THelpChatHelpViewer.Create(Self);
-    FHelpViewerIntf := FHelpViewer; // the manager and this reference share the object
-    FHelpViewer.Register;
-  end;
-end;
-
-procedure TVclHelpChatAI.UnhookApplication;
-begin
-  if Assigned(FHelpViewer) then
-  begin
-    FHelpViewer.Unregister;
-    FHelpViewer := nil;
-    FHelpViewerIntf := nil;
-  end;
-  FreeAndNil(FAppEvents);
 end;
 
 function TVclHelpChatAI.IsOurWindow(const AHandle: HWND): Boolean;
@@ -775,6 +1341,28 @@ end;
 function TVclHelpChatAI.IsHelpViewerActive: Boolean;
 begin
   Result := FActive and FRegisterHelpViewer;
+end;
+
+function TVclHelpChatAI.TakesF1: Boolean;
+begin
+  Result := FActive and FHandleF1;
+end;
+
+function TVclHelpChatAI.TakesHelp: Boolean;
+begin
+  Result := FActive and FRegisterHelpViewer;
+end;
+
+function TVclHelpChatAI.ResolvedHostForm: TCustomForm;
+begin
+  Result := ResolveHostForm;
+end;
+
+function TVclHelpChatAI.LivesOn(const AForm: TCustomForm): Boolean;
+begin
+  Result := Assigned(AForm) and ((AForm = ResolveHostForm) or (AForm = FOwnForm) or
+    (Assigned(FActiveContainer) and (FActiveContainer <> FOwnForm) and
+     (GetParentForm(FActiveContainer) = AForm)));
 end;
 
 class function TVclHelpChatAI.ActiveControlHasHelp: Boolean;
@@ -793,37 +1381,24 @@ begin
   Result := False;
 end;
 
-procedure TVclHelpChatAI.AppMessage(var Msg: tagMSG; var Handled: Boolean);
+class function TVclHelpChatAI.CurrentAssistant: TVclHelpChatAI;
+begin
+  if Assigned(GCoordinator) then
+    Result := GCoordinator.F1Target
+  else
+    Result := nil;
+end;
+
+procedure TVclHelpChatAI.CoordinatorStyleChanged;
 begin
   // TStyleManager.SetStyle posts CM_CUSTOMSTYLECHANGED to the visible forms: the
   // new theme goes to the transport now, before any form recreates its window
   // and the WebView reloads the page.
-  if FActive and (Msg.message = CM_CUSTOMSTYLECHANGED) then
-  begin
+  if FActive then
     ApplyTheme;
-    Exit;
-  end;
-  if not (FActive and FHandleF1) or (Msg.message <> WM_KEYDOWN) or (Msg.wParam <> VK_F1) or
-     IsOurWindow(Msg.hwnd) then
-    Exit;
-  // Auto-repeat of a held key (bit 30 of lParam): never a second request.
-  if (Msg.lParam and $40000000) <> 0 then
-  begin
-    Handled := True;
-    Exit;
-  end;
-  if (GetKeyState(VK_CONTROL) < 0) or (GetKeyState(VK_MENU) < 0) then
-    Exit;
-  // A control with help: the VCL routes F1 (WM_HELP) to the help system, and
-  // the help system to the registered viewer. Only when nobody declares help,
-  // which would make F1 do nothing, the chat steps in with the screen context.
-  if FRegisterHelpViewer and ActiveControlHasHelp then
-    Exit;
-  Handled := True;
-  OpenForCurrentScreen;
 end;
 
-procedure TVclHelpChatAI.AppModalEnd(Sender: TObject);
+procedure TVclHelpChatAI.CoordinatorModalEnd;
 begin
   // A modal form is going away. If the chat window is owned by it - which is
   // what UpdateOwnFormOwner did to keep it in front - it has to be handed
@@ -836,23 +1411,31 @@ begin
     FOwnForm.PopupParent := ResolveHostForm;
 end;
 
-procedure TVclHelpChatAI.AppIdle(Sender: TObject; var Done: Boolean);
+procedure TVclHelpChatAI.CoordinatorIdle;
 begin
-  // The main form may not exist yet when the component activates: place the
-  // bubble as soon as it does, then stop listening.
+  // The host form may not have a window yet when the component activates:
+  // place the bubble as soon as it does.
   if FActive and FShowBubble and (FBubble = nil) then
     EnsureBubble;
-  if Assigned(FBubble) or not FShowBubble then
-    FAppEvents.OnIdle := nil;
 end;
 
 function TVclHelpChatAI.ResolveHostForm: TCustomForm;
+var
+  LOwner: TComponent;
 begin
   Result := FHostForm;
-  if Result = nil then
-    Result := Application.MainForm;
-  if (Result = nil) and (Owner is TCustomForm) then
-    Result := TCustomForm(Owner);
+  if Assigned(Result) then
+    Exit;
+  // The form the component was dropped on, through a frame if need be: an
+  // assistant on an order form lives on the order form, not on the main one.
+  LOwner := Owner;
+  while Assigned(LOwner) do
+  begin
+    if LOwner is TCustomForm then
+      Exit(TCustomForm(LOwner));
+    LOwner := LOwner.Owner;
+  end;
+  Result := Application.MainForm;
 end;
 
 procedure TVclHelpChatAI.EnsureBubble;
@@ -878,7 +1461,7 @@ begin
     LHost.ClientHeight - LSize - LHost.ScaleValue(HELPCHAT_VCL_MARGIN), LSize, LSize);
   FBubble.Anchors := [akRight, akBottom];
   FBubble.Font.Name := 'Segoe UI';
-  FBubble.Hint := HelpChatMsg(hcmUiHelp, FSettings.Language) + ' (F1)';
+  FBubble.Hint := HelpChatMsg(hcmUiHelp, ActiveLanguage) + ' (F1)';
   FBubble.ShowHint := True;
   FBubble.OnClick := BubbleClick;
   ApplyBubbleIcon;
@@ -902,13 +1485,13 @@ function TVclHelpChatAI.ResolvedCaption: string;
 begin
   Result := FCaption.Trim;
   if Result = '' then
-    Result := HelpChatMsg(hcmUiHelp, FSettings.Language);
+    Result := HelpChatMsg(hcmUiHelp, ActiveLanguage);
 end;
 
 function TVclHelpChatAI.ResolvedAssistantName: string;
 begin
   // The same rule the page applies, so the two cannot disagree.
-  Result := THelpChatPanel.AssistantNameOf(FAssistantName, FSettings.Language);
+  Result := THelpChatPanel.AssistantNameOf(ConfiguredAssistantName, ActiveLanguage);
 end;
 
 function TVclHelpChatAI.AssistantIconDataUri: string;
@@ -944,7 +1527,7 @@ begin
   // The name as the application wrote it, empty included: the page resolves
   // an empty one in the language it is rendered in, which the user may change
   // from the panel itself.
-  FTransport.SetAssistant(FAssistantName.Trim, LIcon);   // the next page load is rendered with them
+  FTransport.SetAssistant(ConfiguredAssistantName, LIcon);   // the next page load is rendered with them
   FTransport.SetEnabledCommands(FEnabledCommands);
   if Assigned(FView) and FView.PageReady then
     FView.RunScript('window.hcSetAssistant && window.hcSetAssistant(' +
@@ -1067,7 +1650,7 @@ end;
 
 function TVclHelpChatAI.UiStateFile: string;
 begin
-  Result := TPath.Combine(HelpChatAppDataFolder, HELPCHAT_VCL_UI_STATE_FILENAME);
+  Result := FSettings.ProfileFileName(TPath.Combine(HelpChatAppDataFolder, HELPCHAT_VCL_UI_STATE_FILENAME));
 end;
 
 procedure TVclHelpChatAI.SavePanelBounds;
@@ -1297,7 +1880,8 @@ begin
   // that wants its own wording assigns OnActionConfirm, or registers a form.
   LRequest := Default(TVclHelpChatConfirmRequest);
   LRequest.Host := ResolveHostForm;
-  LRequest.Language := FSettings.Language;
+  LRequest.Asker := Self;
+  LRequest.Language := ActiveLanguage;
   LRequest.ActionName := AName;
   LRequest.Action := FActions.Find(AName);
   LRequest.Args := AArgs;
@@ -1317,7 +1901,7 @@ begin
   // The assistant may write a document and hand it over. Off by default: it
   // is one more tool in every request, and an answer that becomes a file
   // without anybody asking for one.
-  if not (FSettings.Pdf.Enabled and FSettings.Pdf.Action) then
+  if not (RunSettings.Pdf.Enabled and RunSettings.Pdf.Action) then
     Exit;
   FActions.Add(HELPCHAT_PDF_ACTION,
     'Saves a document you have written as a PDF file on the computer of the ' +
@@ -1335,7 +1919,7 @@ begin
     begin
       LDoc := HelpChatMarkdownDocument(AArgs.AsString('title'),
         AArgs.AsString('markdown'), '');
-      LDoc.LangCode := HelpChatLanguageCode(FSettings.Language);
+      LDoc.LangCode := HelpChatLanguageCode(ActiveLanguage);
       // An action handler must return at once - a worker is waiting for it -
       // and a save dialog waits for a human. So the model is answered now and
       // the dialog opens next time round the message loop.
@@ -1344,7 +1928,7 @@ begin
         begin
           PdfRequest(LDoc);
         end);
-      AResult := HelpChatMsg(hcmPdfHandedOver, FSettings.Language);
+      AResult := HelpChatMsg(hcmPdfHandedOver, ActiveLanguage);
     end, False); // the save dialog is the confirmation, and the user may cancel it
 end;
 
@@ -1392,7 +1976,7 @@ begin
     Exit;
   if not THelpChatPdfExporter.IsAvailable then
   begin
-    MessageDlg(HelpChatMsg(hcmPdfUnavailable, FSettings.Language), mtError, [mbOK], 0);
+    MessageDlg(HelpChatMsg(hcmPdfUnavailable, ActiveLanguage), mtError, [mbOK], 0);
     Exit;
   end;
   LDoc := ADoc;
@@ -1401,7 +1985,7 @@ begin
   except
     on E: Exception do
     begin
-      MessageDlg(HelpChatMsgFmt(hcmPdfFailed, [E.Message], FSettings.Language),
+      MessageDlg(HelpChatMsgFmt(hcmPdfFailed, [E.Message], ActiveLanguage),
         mtError, [mbOK], 0);
       Exit;
     end;
@@ -1413,7 +1997,7 @@ begin
   LDialog := TFileSaveDialog.Create(nil);
   try
     HelpChatFileTypes(LDialog.FileTypes,
-      HelpChatMsg(hcmPdfFilter, FSettings.Language));
+      HelpChatMsg(hcmPdfFilter, ActiveLanguage));
     LDialog.DefaultExtension := 'pdf';
     LDialog.FileName := HelpChatPdfFileName(LDoc.Title);
     LDialog.Options := [fdoOverWritePrompt, fdoPathMustExist, fdoForceFileSystem,
@@ -1427,15 +2011,26 @@ begin
   // The bands, when they were asked for. They are built here and not in the
   // engine because they say what the application is, and only the client
   // knows that.
-  LPage := FSettings.Pdf.Page(LDoc.Title);
-  if FSettings.Pdf.HeaderFooter then
+  LPage := RunSettings.Pdf.Page(LDoc.Title);
+  if RunSettings.Pdf.HeaderFooter then
   begin
     LInfo := HelpChatPdfDefaultInfo;
     LInfo.Title := LDoc.Title;
     if Assigned(FOnPdfInfo) then
       FOnPdfInfo(Self, LInfo);
-    LPage.HeaderHtml := HelpChatPdfExpand(THelpChatPanel.PrintHeader(FPdfHeaderFile), LInfo);
-    LPage.FooterHtml := HelpChatPdfExpand(THelpChatPanel.PrintFooter(FPdfFooterFile), LInfo);
+    // A band file that was named and is not there is said, like the
+    // stylesheet above, not raised out of a click on "save as PDF".
+    try
+      LPage.HeaderHtml := HelpChatPdfExpand(THelpChatPanel.PrintHeader(FPdfHeaderFile), LInfo);
+      LPage.FooterHtml := HelpChatPdfExpand(THelpChatPanel.PrintFooter(FPdfFooterFile), LInfo);
+    except
+      on E: Exception do
+      begin
+        MessageDlg(HelpChatMsgFmt(hcmPdfFailed, [E.Message], ActiveLanguage),
+          mtError, [mbOK], 0);
+        Exit;
+      end;
+    end;
   end;
   // The browser of the panel already has an environment: taking it is what
   // keeps a second browser process from starting for one page of paper.
@@ -1450,13 +2045,13 @@ begin
       // missing, so it is said once and the file is still offered.
       if LExporter.BandsDropped then
         MessageDlg(HelpChatMsgFmt(hcmPdfNoBands, [ExtractFileName(LFileName)],
-          FSettings.Language), mtWarning, [mbOK], 0);
+          ActiveLanguage), mtWarning, [mbOK], 0);
       if MessageDlg(HelpChatMsgFmt(hcmPdfOpen, [ExtractFileName(LFileName)],
-           FSettings.Language), mtConfirmation, [mbYes, mbNo], 0) = mrYes then
+           ActiveLanguage), mtConfirmation, [mbYes, mbNo], 0) = mrYes then
         HelpChatOpenDocument(LFileName);
     end
     else
-      MessageDlg(HelpChatMsgFmt(hcmPdfFailed, [LError], FSettings.Language),
+      MessageDlg(HelpChatMsgFmt(hcmPdfFailed, [LError], ActiveLanguage),
         mtError, [mbOK], 0);
   finally
     LExporter.Free;
@@ -1519,7 +2114,7 @@ begin
     FOnVoiceConsentNeeded(Self, LHandled);
   if LHandled then
     Exit;
-  if MessageDlg(HelpChatMsg(hcmVoiceConsentNeeded, FSettings.Language),
+  if MessageDlg(HelpChatMsg(hcmVoiceConsentNeeded, ActiveLanguage),
        mtInformation, [mbOK, mbCancel], 0) = mrOk then
     HelpChatOpenSpeechSettings;
 end;
@@ -1560,7 +2155,7 @@ begin
   if (FView = nil) or not FView.PageReady then
     Exit;
   LEnabled := not (csDesigning in ComponentState) and EnsureVoice;
-  LJson := TJSONString.Create(HelpChatMsg(hcmUiMic, FSettings.Language));
+  LJson := TJSONString.Create(HelpChatMsg(hcmUiMic, ActiveLanguage));
   try
     FView.RunScript(Format('window.hcVoiceEnable && window.hcVoiceEnable(%s, %s);',
       [BoolToStr(LEnabled, True).ToLower, LJson.ToJSON]));
@@ -1607,7 +2202,7 @@ begin
   if (FView = nil) or not FView.PageReady then
     Exit;
   // The engine reports in its own words, or in none: say it in the user's.
-  LText := HelpChatMsg(hcmVoiceUnavailable, FSettings.Language);
+  LText := HelpChatMsg(hcmVoiceUnavailable, ActiveLanguage);
   LJson := TJSONString.Create(LText);
   try
     FView.RunScript(Format('window.hcSystem && window.hcSystem(%s);', [LJson.ToJSON]));
@@ -1650,6 +2245,7 @@ begin
     Result := HelpChatThemeFromVclStyle
   else
     Result := Default(THelpChatTheme);
+  Result.StyleSheet := FPanelCss;
   if Assigned(FOnGetTheme) then
     FOnGetTheme(Self, Result);
 end;
@@ -1725,6 +2321,7 @@ end;
 
 procedure TVclHelpChatAI.OpenWithContext(const AContext: THelpChatContext);
 var
+  LPanelUrl: string;
   LContainer: TWinControl;
   LWasVisible, LReparented: Boolean;
 begin
@@ -1757,8 +2354,6 @@ begin
     FView.Align := alClient;
     if FActiveContainer <> LContainer then
     begin
-      if Assigned(FActiveContainer) and (FActiveContainer <> FOwnForm) then
-        FActiveContainer.RemoveFreeNotification(Self);
       FActiveContainer := LContainer;
       if FActiveContainer <> FOwnForm then
         FActiveContainer.FreeNotification(Self);
@@ -1776,8 +2371,13 @@ begin
     FOwnForm.BringToFront;
   end;
 
-  if not FView.PageReady then
-    FView.OpenUrl(FTransport.GetPanelUrl, FTransport.GetPanelOrigin)
+  // Asked every time, not only for the first page: a remote transport
+  // answers another URL when the server had expired the session and a new
+  // one was opened - the page loaded with the old token would be refused
+  // at every request.
+  LPanelUrl := FTransport.GetPanelUrl;
+  if not FView.PageReady or (FView.PanelUrl <> LPanelUrl) then
+    FView.OpenUrl(LPanelUrl, FTransport.GetPanelOrigin)
   else
     FView.FocusInput;   // the page is there: caret straight into the question box
   if not LWasVisible and Assigned(FOnAfterShowHelp) then
@@ -1853,8 +2453,9 @@ begin
   LRequest.Command := ACommand;
   LRequest.Args := AArgs;
   LRequest.ConversationKey := FEngine.ConversationKey;
+  LRequest.Actions := FActionsRef;
   LRequest.Context := BuildContext;
-  LRequest.Language := FSettings.Language;
+  LRequest.Language := ActiveLanguage;
   LRequest.Enabled := FEnabledCommands;
   Result := HelpChatCommandText(FEngine, LRequest);
 end;
@@ -1871,30 +2472,34 @@ begin
   end;
 end;
 
-function TVclHelpChatAI.Assistants: TArray<THelpChatAssistantInfo>;
+function TVclHelpChatAI.Models: TArray<THelpChatModelInfo>;
 begin
   if Assigned(FEngine) then
-    Result := FEngine.Assistants
+    Result := FEngine.Models
   else
-    Result := FSettings.ResolveAssistants;
+    Result := RunSettings.ResolveModels;
 end;
 
-function TVclHelpChatAI.SelectAssistant(const AName: string): Boolean;
+function TVclHelpChatAI.SelectModel(const AName: string): Boolean;
 begin
   Result := Assigned(FEngine) and FEngine.Active and not FSettings.Remote.IsConfigured and
-    FEngine.SelectAssistant(AName);
+    FEngine.SelectModel(AName);
   if Result and Assigned(FView) then
     FView.RunScript('window.hcRefreshAssistants && window.hcRefreshAssistants();');
 end;
 
 function TVclHelpChatAI.Languages: TArray<THelpChatLanguage>;
 begin
-  Result := HelpChatLanguageList(FSettings.Languages);
+  Result := HelpChatLanguageList(RunSettings.Languages);
 end;
 
 function TVclHelpChatAI.ActiveLanguage: THelpChatLanguage;
 begin
-  Result := FSettings.ResolveLanguage;
+  // The engine's: the language the user picks in the panel is written there.
+  // Resolved, never hclAuto: every caption and dialog of the component asks
+  // here, because an Auto handed to HelpChatMsg is the default of the
+  // process - the language of whichever assistant spoke last.
+  Result := RunSettings.ResolveLanguage;
 end;
 
 function TVclHelpChatAI.SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
@@ -1913,16 +2518,16 @@ procedure TVclHelpChatAI.LanguageChanged;
 begin
   if not FActive then
     Exit;
-  HelpChatDefaultLanguage := FSettings.ResolveLanguage;
+  HelpChatDefaultLanguage := RunSettings.ResolveLanguage;
   if Assigned(FBubble) then
-    FBubble.Hint := HelpChatMsg(hcmUiHelp, FSettings.Language) + ' (F1)';
+    FBubble.Hint := HelpChatMsg(hcmUiHelp, ActiveLanguage) + ' (F1)';
   // The caption of the own window, and the name the next page load carries.
   ApplyAssistant;
 end;
 
-procedure TVclHelpChatAI.RetryLastQuestion(const AAssistant: string);
+procedure TVclHelpChatAI.RetryLastQuestion(const AModel: string);
 begin
-  ExecuteCommand(hccRetry, AAssistant);
+  ExecuteCommand(hccRetry, AModel);
 end;
 
 procedure TVclHelpChatAI.SaveConversationPdf;
@@ -1943,9 +2548,9 @@ begin
   AError := '';
   if not Assigned(FEngine) or not FEngine.Active or FSettings.Remote.IsConfigured then
     Exit;
-  if not FSettings.Attachments.Enabled then
+  if not RunSettings.Attachments.Enabled then
   begin
-    AError := HelpChatMsg(hcmAttachFailed, FSettings.Language);
+    AError := HelpChatMsg(hcmAttachFailed, ActiveLanguage);
     Exit;
   end;
   if not TFile.Exists(AFileName) then
@@ -2023,5 +2628,8 @@ initialization
   // TApplicationEvents does, for the same reason, and the FireMonkey half of
   // the library says TFmxObject in the same place.
   GroupDescendentsWith(TVclHelpChatAI, Vcl.Controls.TControl);
+
+finalization
+  FreeAndNil(GCoordinator);
 
 end.

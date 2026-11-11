@@ -22,7 +22,7 @@ help system, so the `HelpKeyword` you already wrote keeps working.
 
 | Component | Description |
 | - | - |
-| ![TVclHelpChatAI](./Images/delphi-helpchat_64.png) | **TVclHelpChatAI** is the VCL component: drop it on the main form, set `Active`, and you have the bubble, F1 contextual help and the chat panel (a WebView2 `TEdgeBrowser`), either in its own tool window or embedded in a container of yours. Colours follow the active VCL style |
+| ![TVclHelpChatAI](./Images/delphi-helpchat_64.png) | **TVclHelpChatAI** is the VCL component: drop it on the main form - or on any form that deserves an expert of its own - set `Active`, and you have the bubble, F1 contextual help and the chat panel (a WebView2 `TEdgeBrowser`), either in its own tool window or embedded in a container of yours. Colours follow the active VCL style |
 | ![TFmxHelpChatAI](./Images/AIAssistant_Female_64.png) | **TFmxHelpChatAI** is the FireMonkey twin (Delphi 12+): same settings, same engine, the chat in a `TWebBrowser`. F1 through the host form's `OnKeyDown`, light/dark theme instead of VCL styles. Available only for Delphi 12 and 13 |
 
 ### How it works
@@ -49,8 +49,10 @@ help system, so the `HelpKeyword` you already wrote keeps working.
 
 The engine knows nothing about the UI: it runs inside your application or on a **HelpChatAI
 server**, chosen in a configuration file, so the model API key never has to reach the user's
-machine. When it has to, `OnDecryptSecret` lets you keep it encrypted in the configuration
-and decrypt it the way your application sees fit.
+machine. When it has to, every key has two nodes in the configuration: `ApiKey` in clear, which
+you develop with and the IDE reads, and `ApiKeyEncrypted`, which your application writes with
+its own cipher and decrypts in `OnDecryptSecret` at run time. A file you deploy carries only
+the encrypted one.
 
 ### Providers
 
@@ -66,21 +68,21 @@ OpenRouter, Mistral, DeepSeek, Ollama and LM Studio also speak, so `BaseUrl` and
 enough to point the same provider at any of them — including a model running on the user's own
 machine, where nothing leaves the PC.
 
-### More than one assistant
+### More than one model
 
-`Assistants` in `helpchatai.json` lists the assistants the user may switch between from the
-panel: each one has a name, a provider, and the model, endpoint and key it adds to that
-provider's section when they differ — three local models on one Ollama are three entries on
-`openai`. `Assistant` names the one in use at start; the choice made in the panel is remembered
-per user. The header shows the icon of the model in use (deduced from the model name, then from
-the endpoint, then from the provider; `Icon` overrides it), with name and model as the tooltip,
-and with more than one assistant a click on it opens the list. With no list, `Provider` alone is
-the one assistant and nothing can be switched.
+`Models` in `helpchatai.json` lists the models the user may switch between from the panel: each
+one has a name, a provider, and the model, endpoint and key it adds to that provider's section
+when they differ — three local models on one Ollama are three entries on `openai`.
+`SelectedModel` names the one in use at start; the choice made in the panel is remembered per
+user. The header shows the icon of the model in use (deduced from the model name, then from the
+endpoint, then from the provider; `Icon` overrides it), with name and model as the tooltip, and
+with more than one model a click on it opens the list. With no list, `Provider` alone is the
+one model and nothing can be switched.
 
 ```json
 {
-  "Assistant": "Claude",
-  "Assistants": [
+  "SelectedModel": "Claude",
+  "Models": [
     { "Name": "Claude", "Provider": "claude", "Model": "claude-haiku-4-5" },
     { "Name": "Gemini", "Provider": "gemini", "Model": "gemini-3.8-flash" },
     { "Name": "Gemma (local)", "Provider": "openai", "Model": "gemma4:12b", "BaseUrl": "http://localhost:11434/v1" }
@@ -90,6 +92,58 @@ the one assistant and nothing can be switched.
 
 The icons of the providers and models are those of [lobe-icons](https://github.com/lobehub/lobe-icons)
 (MIT); the logos themselves are trademarks of their respective owners.
+
+### More than one assistant: profiles
+
+A large application can have **several assistants, each the expert of one part of it**, and
+active at the same time: a general one on the main form, and one on the form of an important
+function - order entry, planning - with its own name, its own instructions, its own part of the
+manual, its own models and the actions only it may run.
+
+- **One component per form, one `Profile` per assistant.** The component lives on the form that
+  owns it: its bubble is there, and **F1 goes to the assistant of the active form** - on a form
+  with none (a dialog, a print preview), to the one whose form was active last.
+  `CurrentAssistant` says which one that is. One help viewer and one message hook serve them all.
+- **One configuration file, a root and a section per assistant.** The root holds what every
+  assistant shares (keys, endpoints, the catalogue of models); `"Profiles"` holds, under the
+  `Profile` of each component, what that assistant changes, with the same keys. Within a file
+  the profile wins over the root.
+- **An expert knows an area of the manual.** One manual, one index: the area of a page is its
+  sub-folder (or the `areas:` of its front matter), and `DocAreas` says which areas an
+  assistant answers from. The pages of no area belong to everybody.
+- **Actions belong to the form that registers them**, plus those the whole application shares
+  (`HelpChatSharedActions`); `AllowedActions` in a profile narrows them, and can never add one
+  the code did not register.
+- **Two windows of the same profile are one assistant**: one engine, one conversation, the
+  index loaded once, while an action still fills the window it was asked from. Each profile
+  keeps its own conversation, choices and window position.
+
+```json
+{
+  "Claude": { "ApiKey": "sk-ant-..." },
+  "Models": [
+    { "Name": "Claude", "Provider": "claude", "Model": "claude-haiku-4-5" },
+    { "Name": "Gemma (local)", "Provider": "openai", "Model": "gemma4:12b",
+      "BaseUrl": "http://localhost:11434/v1" }
+  ],
+  "Profiles": {
+    "Orders": {
+      "AssistantName": "Giulio",
+      "Instructions": "You are the expert of order entry.",
+      "DocAreas": ["Orders", "Customers"],
+      "Models": ["Claude"],
+      "AllowedActions": ["create_order", "open_screen"]
+    }
+  }
+}
+```
+
+All of this is edited from the IDE too: **Configuration...**, the first verb of both component
+editors (and what a double click opens), shows every setting with the value in force and where
+it comes from - the library, the component, a file and its root or profile - and writes it to
+the profile, to the root of a file or to the component. It edits keys in their clear node only,
+and never puts one in the form file. The VCL and FireMonkey editors are two native views over
+one controller.
 
 ### Commands
 
@@ -105,7 +159,7 @@ what it answers, e.g. "Available actions (/actions):".
 
 Everything the panel does can be done from code on the component: `ExecuteCommand(hccActions)`
 shows an answer in the panel (any command, enabled or not), `ExplainCommand(hccActions)` returns
-it as text without opening anything, and `ClearConversation`, `SelectAssistant`, `Assistants`,
+it as text without opening anything, and `ClearConversation`, `SelectModel`, `Models`,
 `RetryLastQuestion`, `SaveConversationPdf`, `CopyLastAnswer` and `AttachFile` do what their buttons do.
 
 ## Setup for automatic installation of components
@@ -152,7 +206,7 @@ assistant to your Delphi application, and how to make its answers good.
 | [The VCL component](https://ethea.it/docs/helpchatai/VCL-Component) | Bubble, F1, embedding, dictation, the design-time preview |
 | [The FMX component](https://ethea.it/docs/helpchatai/FMX-Component) | What FireMonkey does differently |
 | [Providers](https://ethea.it/docs/helpchatai/Providers) | The five of them, their settings, writing your own |
-| [Assistants](https://ethea.it/docs/helpchatai/Assistants) | Several providers and models in one panel, and the switch between them |
+| [Assistants and models](https://ethea.it/docs/helpchatai/Assistants) | Several assistants in one application, their profiles, and the models each one offers |
 | [Slash commands](https://ethea.it/docs/helpchatai/Commands) | `/who`, `/search`, `/actions`... and everything the panel does, from code |
 | [The documentation index](https://ethea.it/docs/helpchatai/Documentation-Index) | Building `help-index.json`, and the pages shown inside the panel |
 | [Actions](https://ethea.it/docs/helpchatai/Actions) | An assistant that does things, safely |
@@ -181,9 +235,9 @@ One folder per Delphi version, the same `.dpk` for all of them.
 | `HelpChatAI` (runtime) | rtl, MarkdownProcessor | the engine, the index builder, the panel page |
 | `HelpChatAIServer` (runtime) | HelpChatAI, Indy | the transports: local server, remote server, remote client, host channel |
 | `HelpChatAIVcl` (runtime) | HelpChatAIServer, vcl, vcledge | `TVclHelpChatAI`, the chat control, VCL style theming |
-| `dclHelpChatAIVcl` (design-time) | HelpChatAIVcl, designide | palette, splash and About box, component editor with the live preview, property editors |
+| `dclHelpChatAIVcl` (design-time) | HelpChatAIVcl, designide | palette, splash and About box, component editor with the configuration editor and the live preview, property editors |
 | `HelpChatAIFmx` (runtime) | HelpChatAIServer, fmx | `TFmxHelpChatAI` and its chat control |
-| `dclHelpChatAIFmx` (design-time) | HelpChatAIFmx, designide | palette, component editor with the configuration check |
+| `dclHelpChatAIFmx` (design-time) | HelpChatAIFmx, designide | palette, component editor with the configuration editor and the configuration check |
 
 ## Demo and tests
 
@@ -207,8 +261,10 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 `CRM Demo\BuildAllDemos.ps1` builds both with every Delphi it finds, Win32 and Win64: twelve
 builds, and the FireMonkey ones are reported `N/A` below Delphi 12 rather than failed.
 
-`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **352 tests** that runs without
-network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
+`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **448 tests** that runs without
+network: store, worker pool, cancellation, index scoring and the areas of a manual, Markdown
+safety, profiles and the configuration editor's controller, several assistants on real forms
+and the engine they share, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, the actions from a real worker thread, the secrets of the settings and the printable
 document - the last two of which write a real PDF with the WebView2 runtime of the machine,
@@ -219,6 +275,32 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+11 Nov 2026: ver. 1.7.0
+- Several assistants in one application, each the expert of one part of it, active at the same time: one component per form, and the component lives on the form that owns it - its bubble, its window, its F1
+- F1 goes to the assistant of the active form; on a form that has none (a dialog, a print preview) to the one whose form was active last. One help viewer and one message hook serve every assistant of the process; `CurrentAssistant` (class function) and `ResolvedHostForm` on both components. In FireMonkey each component keeps chaining the `OnKeyDown` of its own form, and `HandleKeyDown` from a form without an assistant reaches the current one
+- `Profile` on both components and `"Profiles"` in `helpchatai.json`: one configuration file, a root every assistant shares and a section per assistant with the same keys, applied on top of the root. `AssistantName` may be set in the configuration and prevails over the property
+- `Instructions` (what the assistant is, added to the system prompt after the built-in rules) and `SystemPrompt` move to the root of the settings: switching model no longer changes the expert
+- What the panel switches between is a model: `Settings.Assistants` / `Assistant` become `Models` / `SelectedModel`, and `SelectAssistant`, `Assistants`, `THelpChatAssistantInfo` become `SelectModel`, `Models`, `THelpChatModelInfo`. In a profile a model may be just the name of one of the catalogue at the root
+- One engine per profile (`THelpChatEngines`): two windows of the same profile share one conversation and load the index once. The actions of a component travel with each of its questions (`IHelpChatTransport.SetActions`, `THelpChatEngine.Send` with `AActions`), so an action fills the window it was asked from
+- Conversation, model and language choice, and window position are kept per profile (`helpchatai-conversation-<Profile>.json`...); the default assistant keeps the file names it had
+- Areas of the manual: the area of a page is its sub-folder or the `areas:` of its front matter, `HelpIndexBuilder` writes them into the index, and `Settings.DocAreas` says which ones an assistant answers from. Pages of no area belong to everybody; a manual without sub-folders gives the index it always gave
+- Actions of one assistant and of all: `HelpChatSharedActions` holds the actions every assistant may use (`UseSharedActions` on the components), and `Settings.AllowedActions` narrows own and shared alike - a configuration can take an action away, never add one
+- Every secret has two nodes: `ApiKey` in clear, which the developer writes and the IDE reads, and `ApiKeyEncrypted`, which the application writes and decrypts in `OnDecryptSecret` at run time, where it wins when present. The same for a model of the catalogue, `Remote.AppKey` and `Remote.UserToken`. The CRM demos write `ApiKeyEncrypted`
+- The configuration editor: **Configuration...**, the first verb of both component editors and what a double click opens, edits one configuration file at a time, at its root or in the profile, shows every setting with the value in force and where it comes from, and edits the catalogue of models and the profiles. Keys in their clear node only, masked, never into the form file. The VCL and FireMonkey editors are two native views over one controller (`HelpChatAI.ConfigController`); the VCL one follows the light or dark theme of the IDE
+- `PanelStyleSheet` on both components: a CSS file of the application, added to the page of the chat after its own - a radius, a spacing, a button hidden - without rebuilding the library. It reaches `OnGetTheme` as `ATheme.StyleSheet`, where code may change it or add CSS of its own, and travels with the theme, so it reaches a remote engine too. A named file that is not there stops the activation
+- Links read on every style: `--hc-link` (`THelpChatTheme.Link`) is the accent when it stands out from the assistant bubble, otherwise the accent moved towards the text until it does - Windows10 and Carbon used to show links nobody could see. The send button takes the colour of the user's bubble, which no longer vanishes into the footer
+- An × at the top right of every system bubble (the answer of a slash command, a notice) removes it from the chat
+- A key never follows a model to another address: a model of the catalogue served by another host than its section's endpoint, and with no key of its own, is called with no key at all, and the environment variable (`OPENAI_API_KEY`...) is read only while the endpoint is the service's own. `Settings.ConfiguredProvider` is what the configuration says, while `Provider` reads as the provider of the model in use
+- Two assistants may live on the same form; the confirmation of an action is one dialog per assistant (a question of another assistant opens over the open one, `Asker` in the request); the actions of an assistant that was deactivated answer "cancelled" at once (`HostActive` on the broker)
+- The steps of a reply (`MaxToolRounds`) are requests: with one, no action is declared to the model, and when the last one still asks for an action the reply says it was not run. Servers that speak the OpenAI API and end a tool turn with `stop` now run their actions; the API error names the service that answered it
+- The configuration check: the provider of the model in use, `DocAreas` against the areas of the index, a profile no configuration file defines (`HelpChatCheckProfile`), the names of `AllowedActions` nobody registered (`HelpChatCheckActions`, in `/check`), and the per-user file at design time too
+- The configuration editor never writes over a file it could not read (`LoadError`), a renamed model keeps its encrypted key, and the models a profile takes from another file or defines itself are shown and kept; it opens on the file the configuration comes from - no longer always on the one next to the executable, empty while everything was in the shared file - and has a Help button
+- A remote session the server expired is opened again by itself, and the panel reloads; the server says at its start when no `OnAuthenticate` is set. Remote sessions are no longer freed under a request that is using them
+- The texts of the panel, of the commands and of the dialogs follow the language of their own assistant, not the last one that spoke; the header button and `/who`, `/use`, `/retry` say "model" in the six languages
+- `areas:` in the front matter may be a YAML block list, and an empty one means no area; a text attachment that contains a code fence can no longer close the one around it
+- **Breaking changes**: the host of a component is the form that owns it, no longer `Application.MainForm` (`HostForm := Application.MainForm` restores it); `Assistants`, `Assistant` and `<Provider>.SystemPrompt` in a configuration file raise an error that names the new key; the key properties (`ApiKey`, `AppKey`, `UserToken`) are public and no longer published, so a form file that stored one does not load it; `OnDecryptSecret` receives only the encrypted node, never a clear value nor the environment variable - an encrypted value kept in `ApiKey` moves to `ApiKeyEncrypted`; `RawApiKey` is now `EnvironmentApiKey`; a section whose `BaseUrl` is not the service's own no longer receives the key of the environment variable - write its `ApiKey` in the configuration (Azure OpenAI, a gateway); `MaxToolRounds = 1` no longer offers actions
+- 448 tests
 
 9 Nov 2026: ver. 1.6.0
 - Six languages: Spanish, French, German and Portuguese join English and Italian (`THelpChatLanguage`), every string of the library translated - the panel, the engine messages, the answers of the commands, the texts of the confirmation of an action, the PDF

@@ -94,9 +94,16 @@
         <DCCReference Include="..\source\HelpChatAI.Tests.Attachments.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Pdf.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Theme.pas"/>
-        <DCCReference Include="..\source\HelpChatAI.Tests.Assistants.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.Models.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Commands.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Conversation.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.Coordinator.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.Profiles.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.SharedEngine.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.Areas.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.ActionScope.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.SecretNodes.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.ConfigController.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

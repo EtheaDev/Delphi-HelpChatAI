@@ -50,9 +50,16 @@ uses
   HelpChatAI.Tests.Attachments in '..\source\HelpChatAI.Tests.Attachments.pas',
   HelpChatAI.Tests.Pdf in '..\source\HelpChatAI.Tests.Pdf.pas',
   HelpChatAI.Tests.Theme in '..\source\HelpChatAI.Tests.Theme.pas',
-  HelpChatAI.Tests.Assistants in '..\source\HelpChatAI.Tests.Assistants.pas',
+  HelpChatAI.Tests.Models in '..\source\HelpChatAI.Tests.Models.pas',
   HelpChatAI.Tests.Commands in '..\source\HelpChatAI.Tests.Commands.pas',
-  HelpChatAI.Tests.Conversation in '..\source\HelpChatAI.Tests.Conversation.pas';
+  HelpChatAI.Tests.Conversation in '..\source\HelpChatAI.Tests.Conversation.pas',
+  HelpChatAI.Tests.Coordinator in '..\source\HelpChatAI.Tests.Coordinator.pas',
+  HelpChatAI.Tests.Profiles in '..\source\HelpChatAI.Tests.Profiles.pas',
+  HelpChatAI.Tests.SharedEngine in '..\source\HelpChatAI.Tests.SharedEngine.pas',
+  HelpChatAI.Tests.Areas in '..\source\HelpChatAI.Tests.Areas.pas',
+  HelpChatAI.Tests.ActionScope in '..\source\HelpChatAI.Tests.ActionScope.pas',
+  HelpChatAI.Tests.SecretNodes in '..\source\HelpChatAI.Tests.SecretNodes.pas',
+  HelpChatAI.Tests.ConfigController in '..\source\HelpChatAI.Tests.ConfigController.pas';
 
 {$IFNDEF TESTINSIGHT}
 var

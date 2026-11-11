@@ -27,9 +27,17 @@
 /// <summary>
 ///  Actions: what the assistant may <i>do</i> in the application, beyond
 ///  answering. The application registers them by name with a description and
-///  their parameters; a provider that supports tools (today Claude) offers them
-///  to the model, and when the model calls one this unit runs it and hands the
-///  result back so the model can continue.
+///  their parameters; a provider that supports tools (claude, openai, gemini)
+///  offers them to the model, and when the model calls one this unit runs it
+///  and hands the result back so the model can continue.
+///
+///  Since 1.7 the actions belong to an assistant, not to an engine: each
+///  component has its own broker and gives it to its transport, so a question
+///  carries the actions of the panel it was asked from - two order windows
+///  that share the engine of their profile each fill their own form. What an
+///  assistant may call is its own actions, plus the ones the application
+///  shares (<see cref="HelpChatSharedActions" />), minus what its profile
+///  does not allow (<c>Allowed</c>).
 ///
 ///  Three rules shape the design:
 ///
@@ -93,6 +101,9 @@ type
   /// <summary>Type of a parameter, as declared to the model.</summary>
   THelpChatActionParamKind = (apkString, apkInteger, apkNumber, apkBoolean);
 
+  /// <summary>One parameter of an action, as the model is told about it:
+  /// the description is all the model knows of it, and its first words are
+  /// the label the confirmation dialog shows next to the value.</summary>
   THelpChatActionParam = record
     Name: string;
     Description: string;
@@ -115,10 +126,20 @@ type
   public
     constructor Create(const AJson: string);
     destructor Destroy; override;
+    /// <summary>True when the model sent that parameter (case
+    /// apart).</summary>
     function Has(const AName: string): Boolean;
+    /// <summary>The value as text; ADefault when the parameter was not
+    /// sent.</summary>
     function AsString(const AName: string; const ADefault: string = ''): string;
+    /// <summary>The value as an integer; ADefault when missing or not a
+    /// number.</summary>
     function AsInteger(const AName: string; const ADefault: Integer = 0): Integer;
+    /// <summary>The value as a number, with a point or a comma as decimal
+    /// separator; ADefault when missing or not a number.</summary>
     function AsFloat(const AName: string; const ADefault: Double = 0): Double;
+    /// <summary>true/1/yes or false/0/no, case apart; ADefault for anything
+    /// else.</summary>
     function AsBoolean(const AName: string; const ADefault: Boolean = False): Boolean;
     /// <summary>Names actually received.</summary>
     function Names: TArray<string>;
@@ -153,6 +174,11 @@ type
   THelpChatActionProc = reference to procedure(const AArgs: THelpChatActionArgs;
     var AResult: string);
 
+  /// <summary>One registered action: its name, what the model is told about
+  /// it, its parameters, whether it asks first, and the handler. Owned by the
+  /// broker it was added to; a shared action is owned by
+  /// <see cref="HelpChatSharedActions" /> and run by the broker that was
+  /// asked.</summary>
   THelpChatAction = class
   strict private
     FName: string;
@@ -164,19 +190,29 @@ type
     constructor Create(const AName, ADescription: string;
       const AParams: TArray<THelpChatActionParam>; const AHandler: THelpChatActionProc;
       const AConfirm: Boolean);
-    /// <summary>The JSON schema of this action as an Anthropic tool.</summary>
+    /// <summary>The JSON schema of this action as an Anthropic tool
+    /// (<c>name</c>, <c>description</c>, <c>input_schema</c>): the neutral
+    /// form of the library, which the other providers translate into their
+    /// own (OpenAI <c>function</c>, Gemini <c>functionDeclarations</c>).</summary>
     function ToToolJson: string;
     /// <summary>The label a dialog gives the value of a parameter: the
     /// description up to its first punctuation ("Company name, as in the
     /// Accounts list" reads "Company name"), cut short; the name of the
     /// parameter when there is no description, or no such parameter.</summary>
     function ParamLabel(const AName: string): string;
+    /// <summary>The name the model calls it by, as registered.</summary>
     property Name: string read FName;
+    /// <summary>What the model is told the action does - all it knows about it
+    /// - and what the confirmation dialog shows the user.</summary>
     property Description: string read FDescription;
+    /// <summary>The declared parameters, in the order they were
+    /// written.</summary>
     property Params: TArray<THelpChatActionParam> read FParams;
     /// <summary>The host asks the user before running it. On unless the
     /// registration said otherwise.</summary>
     property Confirm: Boolean read FConfirm;
+    /// <summary>What runs, on the main thread of the application. It must
+    /// return at once: a worker is waiting for it.</summary>
     property Handler: THelpChatActionProc read FHandler;
   end;
 
@@ -203,10 +239,14 @@ type
     ['{2F7A9C41-8D63-4B05-9E12-3A6C8B4D7E90}']
     /// <summary>True when there is at least one action to offer.</summary>
     function HasActions: Boolean;
-    /// <summary>The registered actions as an Anthropic <c>tools</c> array.</summary>
+    /// <summary>The actions the model may call - own and shared, after the
+    /// narrowing of the profile - as an Anthropic <c>tools</c> array: the
+    /// neutral form every provider starts from.</summary>
     function ToolsJson: string;
     /// <summary>Runs the action and waits for its result. Called on a worker
-    /// thread; never raises.</summary>
+    /// thread; never raises. <c>AResult</c> is what the handler answered, or
+    /// the reason of a failure; anything but <c>aoDone</c> becomes a sentence
+    /// for the model through <see cref="HelpChatActionOutcomeText" />.</summary>
     function Invoke(const AName, AArgsJson: string;
       const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
   end;
@@ -226,6 +266,8 @@ type
   public
     constructor Create(const AName, AArgsJson: string);
     destructor Destroy; override;
+    /// <summary>The host answers: the outcome and the text are stored and
+    /// whoever waits on <c>Done</c> is woken up.</summary>
     procedure Complete(const AOutcome: THelpChatActionOutcome; const AResult: string);
     /// <summary>Nobody is waiting for the answer any more: the model call
     /// timed out or was cancelled while the host held the request. The host
@@ -234,9 +276,12 @@ type
     property Id: string read FId;
     property Name: string read FName;
     property ArgsJson: string read FArgsJson;
+    /// <summary>Signalled when the host answered.</summary>
     property Done: TEvent read FDone;
     property Result: string read FResult;
     property Outcome: THelpChatActionOutcome read FOutcome;
+    /// <summary>True when the waiter gave up while the host held the request:
+    /// the host must not run the action, and frees the request.</summary>
     property Abandoned: Boolean read FAbandoned;
   end;
 
@@ -266,6 +311,16 @@ type
     FOnPending: TNotifyEvent;
     FOnConfirm: THelpChatActionConfirmEvent;
     FOnExecuted: THelpChatActionExecutedEvent;
+    FShared: THelpChatActionBroker;
+    FSharedRef: IHelpChatActionInvoker;
+    FAllowed: TArray<string>;
+    FHostActive: Boolean;
+    function GetHostActive: Boolean;
+    procedure SetHostActive(const Value: Boolean);
+    procedure SetShared(const Value: THelpChatActionBroker);
+    procedure SetAllowed(const Value: TArray<string>);
+    function GetAllowed: TArray<string>;
+    function IsAllowed(const AName: string): Boolean;
     function TakePending: TArray<THelpChatActionRequest>;
     /// <summary>The waiter gives up on a request: it is dropped if still
     /// queued, freed if already answered, abandoned to the host otherwise.</summary>
@@ -286,12 +341,28 @@ type
     /// <summary>An action without parameters.</summary>
     procedure Add(const AName, ADescription: string;
       const AHandler: THelpChatActionProc; const AConfirm: Boolean = True); overload;
+    /// <summary>Takes an action of this broker away (a shared one is removed
+    /// from <see cref="HelpChatSharedActions" />, or kept out with
+    /// <c>Allowed</c>).</summary>
     procedure Remove(const AName: string);
+    /// <summary>Takes every action of this broker away.</summary>
     procedure Clear;
+    /// <summary>The action of this broker with that name (case apart), or
+    /// nil: the own ones only, whatever <c>Allowed</c> says. What the model
+    /// may call is <see cref="Resolve" />.</summary>
     function Find(const AName: string): THelpChatAction;
+    /// <summary>How many actions this broker registered itself.</summary>
     function Count: Integer;
     /// <summary>Registered names, in registration order.</summary>
     function Names: TArray<string>;
+    /// <summary>The action the model may call by this name: one of this
+    /// broker, else one of <c>Shared</c>, as long as <c>Allowed</c> lets it
+    /// through; nil otherwise.</summary>
+    function Resolve(const AName: string): THelpChatAction;
+    /// <summary>What the model is told it may call: the names of this broker,
+    /// then those of <c>Shared</c> it does not redefine, filtered by
+    /// <c>Allowed</c>.</summary>
+    function AvailableNames: TArray<string>;
 
     // IHelpChatActionInvoker
     function HasActions: Boolean;
@@ -308,6 +379,17 @@ type
     /// <summary>False keeps the actions registered but hides them from the
     /// model: nothing is declared and nothing can be called.</summary>
     property Enabled: Boolean read FEnabled write FEnabled;
+    /// <summary>Whether somebody is there to run what is queued. True from
+    /// the start; the component of an assistant sets it False when it
+    /// deactivates and True again when it activates. While False,
+    /// <see cref="Invoke" /> answers <c>aoCancelled</c> at once and the calls
+    /// still queued are answered the same way. It matters because the engine
+    /// of a profile outlives each of the assistants that share it: a reply
+    /// asked from a window that has been closed since may still call an
+    /// action of that window, and without this the worker would wait the
+    /// whole <see cref="TimeoutMs" /> for a host that left - or, worse, the
+    /// action would run on a form that is being torn down.</summary>
+    property HostActive: Boolean read GetHostActive write SetHostActive;
     /// <summary>How long <see cref="Invoke" /> waits for the host.</summary>
     property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs;
     /// <summary>Longer results are cut before reaching the model.</summary>
@@ -315,9 +397,32 @@ type
     /// <summary>"there is something to execute": fired on the worker thread,
     /// the host marshals to its own and calls <see cref="ExecutePending" />.</summary>
     property OnPending: TNotifyEvent read FOnPending write FOnPending;
+    /// <summary>The actions every assistant of the application may use
+    /// (<see cref="HelpChatSharedActions" />), consulted after this broker's
+    /// own - an action of the same name here redefines it. A call to one of
+    /// them is queued, confirmed and executed here, on the host of this
+    /// broker, like the own ones: the shared broker only holds definitions.</summary>
+    property Shared: THelpChatActionBroker read FShared write SetShared;
+    /// <summary>The names the model may call, own and shared alike (case
+    /// apart); empty = all of them. What a profile says in
+    /// <c>AllowedActions</c>: a configuration can take an action away, it
+    /// can never add one the code did not register.</summary>
+    property Allowed: TArray<string> read GetAllowed write SetAllowed;
+    /// <summary>Asked, on the thread that executes, before an action
+    /// registered with confirmation runs. Without a handler such an action
+    /// runs unasked: the components always install one.</summary>
     property OnConfirm: THelpChatActionConfirmEvent read FOnConfirm write FOnConfirm;
+    /// <summary>Fired on the thread that executes, after every call, refused
+    /// and failed ones included.</summary>
     property OnExecuted: THelpChatActionExecutedEvent read FOnExecuted write FOnExecuted;
   end;
+
+/// <summary>The actions every assistant of the application may use: register
+/// here what makes sense whichever form the user is on (open a screen, say,
+/// or search the customers), once. Each component consults it unless its
+/// <c>UseSharedActions</c> is False, and a profile can narrow it like the
+/// component's own with <c>AllowedActions</c>.</summary>
+function HelpChatSharedActions: THelpChatActionBroker;
 
 /// <summary>The outcome as the sentence the model reads.</summary>
 function HelpChatActionOutcomeText(const AOutcome: THelpChatActionOutcome;
@@ -719,6 +824,7 @@ begin
   // The requests are freed by whoever created them (Invoke), not by the list.
   FPending := TObjectList<THelpChatActionRequest>.Create(False);
   FEnabled := True;
+  FHostActive := True;
   FTimeoutMs := HELPCHAT_DEF_ACTION_TIMEOUT_MS;
   FResultMaxChars := HELPCHAT_DEF_ACTION_RESULT_MAXCHARS;
 end;
@@ -838,9 +944,135 @@ begin
   end;
 end;
 
+procedure THelpChatActionBroker.SetShared(const Value: THelpChatActionBroker);
+begin
+  if Value = Self then
+    Exit;
+  FLock.Enter;
+  try
+    FShared := Value;
+    FSharedRef := Value; // kept alive as long as it is consulted
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatActionBroker.GetHostActive: Boolean;
+begin
+  FLock.Enter;
+  try
+    Result := FHostActive;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatActionBroker.SetHostActive(const Value: Boolean);
+var
+  LRequest: THelpChatActionRequest;
+begin
+  FLock.Enter;
+  try
+    FHostActive := Value;
+    if Value then
+      Exit;
+    // What nobody took yet will never be taken: whoever waits is told now.
+    // A call the host is already running (or asking the user about) is the
+    // host's to finish, as usual.
+    for LRequest in FPending do
+      LRequest.Complete(aoCancelled, '');
+    FPending.Clear;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatActionBroker.SetAllowed(const Value: TArray<string>);
+var
+  LName: string;
+begin
+  FLock.Enter;
+  try
+    FAllowed := nil;
+    for LName in Value do
+      if Trim(LName) <> '' then
+        FAllowed := FAllowed + [Trim(LName).ToLower];
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatActionBroker.GetAllowed: TArray<string>;
+begin
+  FLock.Enter;
+  try
+    Result := Copy(FAllowed);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatActionBroker.IsAllowed(const AName: string): Boolean;
+var
+  LName, LAllowed: string;
+begin
+  FLock.Enter;
+  try
+    if Length(FAllowed) = 0 then
+      Exit(True);
+    LName := AName.Trim.ToLower;
+    for LAllowed in FAllowed do
+      if LAllowed = LName then
+        Exit(True);
+    Result := False;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatActionBroker.Resolve(const AName: string): THelpChatAction;
+var
+  LShared: THelpChatActionBroker;
+begin
+  if not IsAllowed(AName) then
+    Exit(nil);
+  Result := Find(AName);
+  if Result <> nil then
+    Exit;
+  FLock.Enter;
+  try
+    LShared := FShared;
+  finally
+    FLock.Leave;
+  end;
+  if Assigned(LShared) then
+    Result := LShared.Find(AName);
+end;
+
+function THelpChatActionBroker.AvailableNames: TArray<string>;
+var
+  LName: string;
+  LShared: THelpChatActionBroker;
+begin
+  Result := nil;
+  for LName in Names do
+    if IsAllowed(LName) then
+      Result := Result + [LName];
+  FLock.Enter;
+  try
+    LShared := FShared;
+  finally
+    FLock.Leave;
+  end;
+  if Assigned(LShared) then
+    for LName in LShared.Names do
+      if IsAllowed(LName) and (Find(LName) = nil) then
+        Result := Result + [LName];
+end;
+
 function THelpChatActionBroker.HasActions: Boolean;
 begin
-  Result := FEnabled and (Count > 0);
+  Result := FEnabled and (Length(AvailableNames) > 0);
 end;
 
 function THelpChatActionBroker.ToolsJson: string;
@@ -853,9 +1085,9 @@ begin
   LArray := TJSONArray.Create;
   try
     if FEnabled then
-      for LName in Names do
+      for LName in AvailableNames do
       begin
-        LAction := Find(LName);
+        LAction := Resolve(LName);
         if LAction = nil then
           Continue;
         LValue := TJSONObject.ParseJSONValue(LAction.ToToolJson);
@@ -917,7 +1149,7 @@ var
 begin
   for LRequest in TakePending do
   begin
-    LAction := Find(LRequest.Name);
+    LAction := Resolve(LRequest.Name);
     if (LAction = nil) or not FEnabled then
     begin
       Finish(LRequest, aoUnknown, '');
@@ -992,17 +1224,24 @@ begin
   AResult := '';
   if not FEnabled then
     Exit(aoUnknown);
-  if Find(AName) = nil then
+  if Resolve(AName) = nil then
     Exit(aoUnknown);
 
   LRequest := THelpChatActionRequest.Create(AName, AArgsJson);
   try
     FLock.Enter;
     try
-      FPending.Add(LRequest);
+      // Asked and queued under one lock: a host that leaves between the two
+      // would otherwise leave this call waiting for the whole timeout.
+      if FHostActive then
+        FPending.Add(LRequest)
+      else
+        FreeAndNil(LRequest);
     finally
       FLock.Leave;
     end;
+    if LRequest = nil then
+      Exit(aoCancelled);
     // The host is somewhere else (the main thread of the application, or a
     // client of the server): wake it up and wait for its answer.
     if Assigned(FOnPending) then
@@ -1037,5 +1276,27 @@ begin
     raise;
   end;
 end;
+
+var
+  GSharedActions: THelpChatActionBroker;
+  GSharedActionsRef: IHelpChatActionInvoker;
+
+function HelpChatSharedActions: THelpChatActionBroker;
+begin
+  // Created on first use, on the main thread where an application registers
+  // its actions; the reference keeps it alive until the unit goes.
+  if GSharedActions = nil then
+  begin
+    GSharedActions := THelpChatActionBroker.Create;
+    GSharedActionsRef := GSharedActions;
+  end;
+  Result := GSharedActions;
+end;
+
+initialization
+
+finalization
+  GSharedActions := nil;
+  GSharedActionsRef := nil;
 
 end.

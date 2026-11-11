@@ -44,12 +44,6 @@
         <CfgParent>Base</CfgParent>
         <Base>true</Base>
     </PropertyGroup>
-    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win64)'!=''">
-        <Cfg_2_Win64>true</Cfg_2_Win64>
-        <CfgParent>Cfg_2</CfgParent>
-        <Cfg_2>true</Cfg_2>
-        <Base>true</Base>
-    </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
         <DCC_DcuOutput>..\..\Lib\Delphi13\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
@@ -118,6 +112,9 @@
         <DCCReference Include="HelpChatAIServer.dcp"/>
         <DCCReference Include="HelpChatAIVcl.dcp"/>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.DesignPreview.pas"/>
+        <DCCReference Include="..\..\source\Vcl.HelpChatAI.ConfigEditor.pas">
+            <Form>VclHelpChatConfigEditor</Form>
+        </DCCReference>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.Register.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

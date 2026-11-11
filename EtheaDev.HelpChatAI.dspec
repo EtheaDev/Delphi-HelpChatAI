@@ -3,7 +3,7 @@
 min dpm client version: 1.0.0
 metadata:
   id: EtheaDev.HelpChatAI
-  version: 1.6.0
+  version: 1.7.0
   description: 'In-app AI help assistant for VCL and FireMonkey applications: F1 opens a chat that answers from your own documentation, knows the screen the user is on and can run the actions of the application (Claude, OpenAI, Gemini or the offline docsearch provider).'
   authors:
     - Carlo Barazzetta
@@ -61,8 +61,6 @@ templates:
       - src: /source/*.res
         copyToLib: true
       - src: /packages/*.dcr
-      - src: /packages/*.rc
-      - src: /packages/*.bmp
       - src: $packageSource$/*.dpk
       - src: $packageSource$/*.dproj
       - src: /Redist/WebView2/**
@@ -96,8 +94,6 @@ templates:
       - src: /source/*.res
         copyToLib: true
       - src: /packages/*.dcr
-      - src: /packages/*.rc
-      - src: /packages/*.bmp
       - src: $packageSource$/*.dpk
       - src: $packageSource$/*.dproj
       - src: /Redist/WebView2/**

@@ -36,6 +36,22 @@
 ///  <c>OnMessageChanged</c> fires on the thread that performed the change: a
 ///  runner worker for assistant tokens and completions. A UI layer marshals it
 ///  with <c>TThread.Queue</c>; a polling transport may ignore it altogether.
+///
+///  Since 1.7 a component does not create its engine: it asks
+///  <see cref="THelpChatEngines" /> for the engine of its profile, which the
+///  assistants of that profile share. Three consequences shape this unit:
+///  the engine owns a <i>copy</i> of the settings (what the user changes in
+///  the panel - model, language - is written on that copy, not on the
+///  component's); the actions are not the engine's but travel with each
+///  question (<c>Send</c> with <c>AActions</c>); and the files it writes -
+///  conversation, state - carry the profile in their name. Code that drives
+///  an engine by itself (the console server, a test) still creates one with
+///  <c>THelpChatEngine.Create</c> and may set <c>Actions</c> once.
+///
+///  Threads: <c>Start</c>, <c>Stop</c> and the registry are called on the
+///  main thread; <c>Send</c>, the readers, <c>SelectModel</c> and
+///  <c>SelectLanguage</c> also on the HTTP threads of the panel; the workers
+///  only ever reach the store, through the runner.
 /// </summary>
 unit HelpChatAI.Engine;
 
@@ -70,6 +86,14 @@ type
     Sent: Boolean;
   end;
 
+  /// <summary>The conversation engine of one assistant - or of the assistants
+  /// of one profile, when it comes from <see cref="THelpChatEngines" />. It
+  /// owns the store (the conversations, by key), the documentation index, the
+  /// pages shown in the panel, the attachments and the worker pool, all
+  /// created by <c>Start</c> from the settings and released by <c>Stop</c>.
+  /// Every method that takes <c>AKey</c> works on that conversation; the ones
+  /// without it work on <c>ConversationKey</c>, the single conversation of a
+  /// desktop application.</summary>
   THelpChatEngine = class
   strict private
     FSettings: THelpChatSettings;
@@ -89,12 +113,25 @@ type
     /// never freezes a language nobody picked.</summary>
     FChosenLanguage: string;
     FOnMessageChanged: THelpChatMessageEvent;
+    /// <summary>The store changed (on the thread that changed it): persists
+    /// the conversation once a message is complete - not at every streamed
+    /// token - and fires <c>OnMessageChanged</c>.</summary>
     procedure StoreChanged(const AKey, AMessageId: string);
     procedure EnsureActive;
+    /// <summary><c>Settings.ResolveStateFile</c>: next to the conversation,
+    /// named after the profile.</summary>
     function StateFile: string;
+    /// <summary>One value of the state file ("Model", "Language"); empty
+    /// when the file is missing or damaged.</summary>
     function LoadState(const AName: string): string;
+    /// <summary>Writes both choices of the user, always together, when the
+    /// conversation is persisted; a failure to write is not an error.</summary>
     procedure SaveState;
-    procedure ApplyAssistantState;
+    /// <summary>The model remembered in the state file if it is still in the
+    /// list, else the one the configuration names.</summary>
+    procedure ApplyModelState;
+    /// <summary>The language remembered in the state file, if it is still
+    /// offered.</summary>
     procedure ApplyLanguageState;
   public
     /// <summary>With <c>ASettings = nil</c> the engine creates and owns its own
@@ -103,8 +140,10 @@ type
       const AOwnsSettings: Boolean = False);
     destructor Destroy; override;
 
-    /// <summary>Loads the documentation index and the persisted conversation,
-    /// starts the worker pool. Called implicitly by the first <c>Send</c>.</summary>
+    /// <summary>Applies the language and the model the user picked last time
+    /// (the state file of the profile), loads the documentation index narrowed
+    /// to <c>Settings.DocAreas</c> and the persisted conversation, starts the
+    /// worker pool. Idempotent; called implicitly by the first <c>Send</c>.</summary>
     procedure Start;
     /// <summary>Cancels running requests, waits for the workers up to
     /// <c>ATimeoutMs</c>, persists the conversation, releases everything.</summary>
@@ -114,10 +153,17 @@ type
     /// <c>Settings.MessageMaxLength</c>), creates the pending assistant message,
     /// hands the provider call to the runner and returns immediately.</summary>
     function Send(const AText: string; const AContext: THelpChatContext): THelpChatSendResult; overload;
+    /// <summary>The same, with no screen context: a question asked from
+    /// code.</summary>
     function Send(const AText: string): THelpChatSendResult; overload;
     /// <summary>Same, on an explicit conversation: what a multi-user server
     /// uses, one key per session, sharing store, index and worker pool.</summary>
     function Send(const AKey, AText: string; const AContext: THelpChatContext): THelpChatSendResult; overload;
+    /// <summary>Same, with the actions of the assistant that asks: an engine
+    /// shared by the assistants of one profile runs, for each question, the
+    /// actions of the panel it came from. nil = <c>Actions</c>.</summary>
+    function Send(const AKey, AText: string; const AContext: THelpChatContext;
+      const AActions: IHelpChatActionInvoker): THelpChatSendResult; overload;
     /// <summary>Copy of the message AId, if it exists in this conversation.</summary>
     function TryGetMessage(const AId: string; out AMessage: THelpChatMessage): Boolean; overload;
     /// <summary>The same, in the conversation AKey (a server with many).</summary>
@@ -131,6 +177,9 @@ type
     function IsBusy: Boolean;
     /// <summary>Cancels the reply AId; True if it was running or queued.</summary>
     function Cancel(const AId: string): Boolean;
+    /// <summary>Cancels every reply being produced or queued, in every
+    /// conversation. The replies keep what had arrived, or say they were
+    /// cancelled.</summary>
     procedure CancelAll;
     /// <summary>Cancels everything and empties the conversation.</summary>
     procedure Clear; overload;
@@ -148,19 +197,21 @@ type
     /// <summary>Drops one attachment of the conversation.</summary>
     function RemoveAttachment(const AKey, AId: string): Boolean;
 
-    /// <summary>The assistants the panel may switch between, with the icon
-    /// each one shows: the configured list, or the one implicit assistant of
-    /// <c>Settings.Provider</c>. See <c>THelpChatSettings.ResolveAssistants</c>.</summary>
-    function Assistants: TArray<THelpChatAssistantInfo>;
+    /// <summary>The models the panel may switch between, with the icon each
+    /// one shows: the configured list, or the one implicit model of
+    /// <c>Settings.Provider</c>. See <c>THelpChatSettings.ResolveModels</c>.</summary>
+    function Models: TArray<THelpChatModelInfo>;
     /// <summary>The one in use.</summary>
-    function ActiveAssistant: THelpChatAssistantInfo;
-    /// <summary>Makes AName the assistant in use for the questions that follow
+    function ActiveModelInfo: THelpChatModelInfo;
+    /// <summary>Makes AName the model in use for the questions that follow
     /// (a reply being produced keeps the settings it started with), and
     /// remembers the choice for the next start when the conversation is
-    /// persisted. False when no assistant has that name.</summary>
-    function SelectAssistant(const AName: string): Boolean;
-    /// <summary>True when there is more than one assistant to choose from.</summary>
-    function CanSelectAssistant: Boolean;
+    /// persisted. False when no model has that name. On a shared engine the
+    /// switch is for every assistant of the profile: it is one expert, and
+    /// the user changed what it answers with.</summary>
+    function SelectModel(const AName: string): Boolean;
+    /// <summary>True when there is more than one model to choose from.</summary>
+    function CanSelectModel: Boolean;
 
     /// <summary>The languages the panel offers (<c>Settings.Languages</c>),
     /// in the order of the enumeration.</summary>
@@ -170,8 +221,11 @@ type
     /// <summary>Makes ALanguage the language of the chat: the strings of the
     /// panel (on its next load) and of the engine, and the language the
     /// model replies in from the next question on. Remembered for the next
-    /// start when the conversation is persisted, like the assistant. False
-    /// when the language is not one of <c>Settings.Languages</c>.</summary>
+    /// start when the conversation is persisted, like the model. False
+    /// when the language is not one of <c>Settings.Languages</c>. It also
+    /// becomes <c>HelpChatDefaultLanguage</c>, which is one for the whole
+    /// process: with several assistants the last choice made in any panel is
+    /// what every <c>hclAuto</c> resolves to.</summary>
     function SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
     /// <summary>True when there is more than one language to choose from.</summary>
     function CanSelectLanguage: Boolean;
@@ -182,9 +236,13 @@ type
     function ContextQuestion(const AContext: THelpChatContext): string;
     /// <summary>HTML fragment of the whole conversation (greeting when empty).</summary>
     function RenderHistoryHtml: string; overload;
+    /// <summary>The same for the conversation AKey.</summary>
     function RenderHistoryHtml(const AKey: string): string; overload;
     /// <summary>HTML fragment of one bubble, or empty when AId is unknown.</summary>
     function RenderMessageHtml(const AId: string): string; overload;
+    /// <summary>The same in the conversation AKey: what a poll of the panel
+    /// returns, with <c>data-pending</c> on the bubble while the reply is
+    /// being written.</summary>
     function RenderMessageHtml(const AKey, AId: string): string; overload;
     /// <summary>Renders a page of <c>Settings.DocFolder</c> (a link as written in
     /// a reply or in another page). False when there is no folder or the link
@@ -197,8 +255,20 @@ type
     /// <summary>Reloads the conversation from disk (discarding an expired one).</summary>
     function LoadConversation: Boolean;
 
+    /// <summary>The settings this engine runs with. For an engine of <see
+    /// cref="THelpChatEngines" /> they are a copy of the settings of the first
+    /// assistant that acquired it, and the place where the model and the
+    /// language the user picks are written: a component reads these, not its
+    /// own, for anything that changes at run time. Every request works on a
+    /// snapshot of them taken by <c>Send</c>.</summary>
     property Settings: THelpChatSettings read FSettings;
+    /// <summary>The conversations; nil until <c>Start</c> and after
+    /// <c>Stop</c>.</summary>
     property Store: THelpChatStore read FStore;
+    /// <summary>The documentation index, already narrowed to
+    /// <c>Settings.DocAreas</c>; nil until <c>Start</c> and after <c>Stop</c>
+    /// - and never created at all in an application whose engine is remote, so
+    /// a caller must check.</summary>
     property DocIndex: THelpChatDocIndex read FDocIndex;
     /// <summary>The documentation pages shown in the panel; nil when
     /// <c>Settings.DocFolder</c> is empty (created by Start).</summary>
@@ -206,22 +276,75 @@ type
     /// <summary>Adjusts the Markdown of a page before it is rendered (set it
     /// before the panel opens; called on HTTP threads).</summary>
     property DocPageFilter: THelpChatDocPageFilter read FDocPageFilter write FDocPageFilter;
+    /// <summary>The index as the providers see it: the contract a different
+    /// retriever (an embedding search, say) would implement. nil when the
+    /// engine is not started.</summary>
     property Retriever: IHelpChatRetriever read FRetriever;
     /// <summary>What the user attached, per conversation. Lives here and not
     /// in the store because the bytes of a PDF have no business in the JSON
     /// the conversation is persisted to: attachments last as long as the
     /// conversation is open.</summary>
     property Attachments: THelpChatAttachmentSet read FAttachments;
+    /// <summary>The worker pool; nil until <c>Start</c> and after
+    /// <c>Stop</c>.</summary>
     property Runner: THelpChatRunner read FRunner;
-    /// <summary>What the assistant may do in the application (the VCL and FMX
-    /// components set this to their own broker). nil = it can only answer.</summary>
+    /// <summary>What the assistant may do when the question names no actions
+    /// of its own (<c>Send</c> with <c>AActions</c>). The components pass
+    /// theirs with every question instead, through the transport: the engine
+    /// of a profile is shared. nil = it can only answer.</summary>
     property Actions: IHelpChatActionInvoker read FActions write FActions;
+    /// <summary>True between <c>Start</c> and <c>Stop</c>. An engine acquired
+    /// for an assistant whose engine is remote is never started: it only
+    /// carries the settings.</summary>
     property Active: Boolean read FActive;
     /// <summary>Key of the conversation this engine works on (default: the single
     /// desktop conversation). A multi-user server uses one engine per user or
     /// changes the key per request.</summary>
     property ConversationKey: string read FConversationKey write FConversationKey;
+    /// <summary>Fired after a message of <c>ConversationKey</c> was added or
+    /// changed (see the unit summary for the thread). One handler: an engine
+    /// shared by several assistants is not the place to hang a per-window
+    /// event - the panels poll.</summary>
     property OnMessageChanged: THelpChatMessageEvent read FOnMessageChanged write FOnMessageChanged;
+  end;
+
+  /// <summary>
+  ///  One engine per profile, shared by every assistant that names it. Two
+  ///  instances of the same form - two orders open at once - are two
+  ///  components with the same profile: one engine means the index is loaded
+  ///  once, the worker pool is one, and the user talks to "the order expert"
+  ///  in one conversation whichever window asks. The empty profile, the
+  ///  default assistant, is a profile like the others.
+  ///
+  ///  The engine owns a copy of the settings of the first assistant that
+  ///  acquired it: the components keep theirs, and read the engine's for what
+  ///  the user changes at run time (model, language). The secret handler of
+  ///  that copy asks the assistants still holding the engine, so that none of
+  ///  them leaves a handler of a freed component behind. What each assistant
+  ///  may do travels with its questions (<c>THelpChatEngine.Send</c> with
+  ///  <c>AActions</c>), never with the engine.
+  /// </summary>
+  THelpChatEngines = class
+  public
+    /// <summary>The engine of the profile of ASettings (the name, case
+    /// apart; the empty one included), created on first use with a copy of
+    /// ASettings - so the settings of the first assistant of a profile are
+    /// the ones the engine runs with, and those of the assistants that join
+    /// later are only asked for their secret handler. AHolder is who will
+    /// release it, and ASettings must stay alive until it does. Not started:
+    /// the holder calls <c>Start</c>, unless its engine is remote. Main
+    /// thread.</summary>
+    class function Acquire(const AHolder: TObject;
+      const ASettings: THelpChatSettings): THelpChatEngine; static;
+    /// <summary>AHolder no longer uses AEngine: the last one to release it
+    /// frees it (which stops its workers, with a bounded wait, and saves the
+    /// conversation); the next <c>Acquire</c> of that profile creates a new
+    /// one, with the settings of whoever asks. An engine this registry does
+    /// not know is simply freed. AEngine is set to nil.</summary>
+    class procedure Release(const AHolder: TObject; var AEngine: THelpChatEngine); static;
+    /// <summary>How many assistants hold AEngine; 0 for one this registry
+    /// does not know.</summary>
+    class function HolderCount(const AEngine: THelpChatEngine): Integer; static;
   end;
 
 implementation
@@ -229,6 +352,8 @@ implementation
 uses
   System.IOUtils,
   System.JSON,
+  System.SyncObjs,
+  System.Generics.Collections,
   HelpChatAI.Html,
   HelpChatAI.Icons;
 
@@ -274,14 +399,16 @@ begin
   // the one every hclAuto of this process resolves to.
   ApplyLanguageState;
   HelpChatDefaultLanguage := FSettings.ResolveLanguage;
-  // The assistant in use decides the provider and the model before anything
-  // below reads them (the excerpt size of the index comes from the model).
-  ApplyAssistantState;
+  // The model in use decides the provider and the section before anything
+  // below reads them (the excerpt size of the index comes from the section).
+  ApplyModelState;
 
   FDocIndex := THelpChatDocIndex.Create;
   FRetriever := FDocIndex; // keeps it alive
   FDocIndex.BaseUrl := FSettings.DocBaseUrl;
   FDocIndex.ExcerptMaxChars := FSettings.ActiveModel.GroundingMaxChars;
+  // The part of the manual this assistant is the expert of.
+  FDocIndex.Areas := FSettings.ResolveDocAreas;
   LIndexFile := FSettings.ResolveDocIndexFile;
   if TFile.Exists(LIndexFile) then
     FDocIndex.LoadFromFile(LIndexFile);
@@ -353,7 +480,14 @@ end;
 
 function THelpChatEngine.Send(const AKey, AText: string;
   const AContext: THelpChatContext): THelpChatSendResult;
+begin
+  Result := Send(AKey, AText, AContext, nil);
+end;
+
+function THelpChatEngine.Send(const AKey, AText: string; const AContext: THelpChatContext;
+  const AActions: IHelpChatActionInvoker): THelpChatSendResult;
 var
+  LActions: IHelpChatActionInvoker;
   LText, LAssistantId: string;
 begin
   Result := Default(THelpChatSendResult);
@@ -369,8 +503,13 @@ begin
   FStore.TryGetMessage(AKey, LAssistantId, Result.AssistantMessage);
   Result.Sent := True;
 
-  FRunner.Submit(AKey, LAssistantId, FSettings.Provider, AContext,
-    FSettings.HistoryMaxMessages, FSettings, FActions,
+  LActions := AActions;
+  if LActions = nil then
+    LActions := FActions;
+  // No provider name: the runner takes it from the snapshot of the settings
+  // it makes, so name, endpoint and key are always of the same model.
+  FRunner.Submit(AKey, LAssistantId, '', AContext,
+    FSettings.HistoryMaxMessages, FSettings, LActions,
     FAttachments.ItemsOf(AKey));
 end;
 
@@ -443,7 +582,7 @@ begin
   if not FSettings.Attachments.Enabled then
     Exit(False);
   Result := FAttachments.TryAdd(AKey, AFileName, AData,
-    FSettings.Attachments.Limits, FSettings.Language, AAttachment, AError);
+    FSettings.Attachments.Limits, ActiveLanguage, AAttachment, AError);
 end;
 
 function THelpChatEngine.RemoveAttachment(const AKey, AId: string): Boolean;
@@ -453,8 +592,7 @@ end;
 
 function THelpChatEngine.StateFile: string;
 begin
-  Result := TPath.Combine(TPath.GetDirectoryName(FSettings.ResolveConversationFile),
-    HELPCHAT_DEF_STATE_FILENAME);
+  Result := FSettings.ResolveStateFile;
 end;
 
 function THelpChatEngine.LoadState(const AName: string): string;
@@ -487,7 +625,7 @@ begin
   LRoot := TJSONObject.Create;
   try
     // Both choices of the user, always together: writing one must not lose the other.
-    LRoot.AddPair('Assistant', FSettings.ActiveAssistantName);
+    LRoot.AddPair('Model', FSettings.ActiveModelName);
     if FChosenLanguage <> '' then
       LRoot.AddPair('Language', FChosenLanguage);
     try
@@ -501,25 +639,25 @@ begin
   end;
 end;
 
-procedure THelpChatEngine.ApplyAssistantState;
+procedure THelpChatEngine.ApplyModelState;
 var
   LName: string;
 begin
-  if FSettings.Assistants.Count = 0 then
+  if FSettings.Models.Count = 0 then
     Exit;
   LName := '';
   if FSettings.PersistConversation then
-    LName := LoadState('Assistant');
+    LName := LoadState('Model');
   // The remembered one, if it is still in the list; else what the configuration names.
-  if (LName = '') or not FSettings.ApplyAssistant(LName) then
-    FSettings.ApplyAssistant(FSettings.ActiveAssistantName);
+  if (LName = '') or not FSettings.ApplyModel(LName) then
+    FSettings.ApplyModel(FSettings.ActiveModelName);
 end;
 
-function THelpChatEngine.Assistants: TArray<THelpChatAssistantInfo>;
+function THelpChatEngine.Models: TArray<THelpChatModelInfo>;
 var
   I: Integer;
 begin
-  Result := FSettings.ResolveAssistants;
+  Result := FSettings.ResolveModels;
   for I := 0 to High(Result) do
     // An icon named in the configuration must exist; otherwise the model,
     // the endpoint and the provider say which one it is.
@@ -528,24 +666,24 @@ begin
         Result[I].Provider);
 end;
 
-function THelpChatEngine.ActiveAssistant: THelpChatAssistantInfo;
+function THelpChatEngine.ActiveModelInfo: THelpChatModelInfo;
 var
-  LList: TArray<THelpChatAssistantInfo>;
+  LList: TArray<THelpChatModelInfo>;
   I: Integer;
 begin
-  LList := Assistants;
+  LList := Models;
   for I := 0 to High(LList) do
     if LList[I].Active then
       Exit(LList[I]);
   if Length(LList) > 0 then
     Result := LList[0]
   else
-    Result := Default(THelpChatAssistantInfo);
+    Result := Default(THelpChatModelInfo);
 end;
 
-function THelpChatEngine.SelectAssistant(const AName: string): Boolean;
+function THelpChatEngine.SelectModel(const AName: string): Boolean;
 begin
-  Result := FSettings.ApplyAssistant(AName);
+  Result := FSettings.ApplyModel(AName);
   if not Result then
     Exit;
   if Assigned(FDocIndex) then
@@ -553,9 +691,9 @@ begin
   SaveState;
 end;
 
-function THelpChatEngine.CanSelectAssistant: Boolean;
+function THelpChatEngine.CanSelectModel: Boolean;
 begin
-  Result := FSettings.Assistants.Count > 1;
+  Result := FSettings.Models.Count > 1;
 end;
 
 procedure THelpChatEngine.ApplyLanguageState;
@@ -580,6 +718,11 @@ end;
 
 function THelpChatEngine.ActiveLanguage: THelpChatLanguage;
 begin
+  // What every text this engine writes outside a reply is in (the page, a
+  // command, the title of a PDF, the reason an attachment was refused):
+  // never Settings.Language as it is, which may be hclAuto and would then
+  // resolve to the default of the process - the language of whichever
+  // engine started last, with several assistants.
   Result := FSettings.ResolveLanguage;
 end;
 
@@ -609,7 +752,7 @@ end;
 
 function THelpChatEngine.ContextQuestion(const AContext: THelpChatContext): string;
 begin
-  Result := HelpChatMsgFmt(hcmContextQuestion, [AContext.DisplayName], FSettings.Language);
+  Result := HelpChatMsgFmt(hcmContextQuestion, [AContext.DisplayName], ActiveLanguage);
 end;
 
 function THelpChatEngine.RenderHistoryHtml: string;
@@ -660,5 +803,200 @@ begin
   Result := Assigned(FStore) and FStore.LoadFromFile(FConversationKey,
     FSettings.ResolveConversationFile, FSettings.ConversationMaxAgeDays);
 end;
+
+{ THelpChatEngines }
+
+type
+  /// <summary>The engine of one profile, and who holds it. An entry outlives
+  /// its engine: the settings of a reply in flight carry its Decrypt as their
+  /// secret handler, and a worker may still be running when the last
+  /// assistant goes, so the entries live as long as the process.</summary>
+  TSharedEngine = class
+  strict private
+    FHolders: TList<TObject>;
+    FHolderSettings: TList<THelpChatSettings>;
+  public
+    Key: string;
+    Engine: THelpChatEngine;
+    constructor Create(const AKey: string);
+    destructor Destroy; override;
+    procedure AddHolder(const AHolder: TObject; const ASettings: THelpChatSettings);
+    /// <summary>Returns how many holders are left.</summary>
+    function RemoveHolder(const AHolder: TObject): Integer;
+    function HolderCount: Integer;
+    procedure Decrypt(Sender: TObject; const AName, AValue: string;
+      var AResult: string; var AHandled: Boolean);
+  end;
+
+var
+  GSharedLock: TCriticalSection;
+  GShared: TObjectList<TSharedEngine>;
+
+constructor TSharedEngine.Create(const AKey: string);
+begin
+  inherited Create;
+  Key := AKey;
+  FHolders := TList<TObject>.Create;
+  FHolderSettings := TList<THelpChatSettings>.Create;
+end;
+
+destructor TSharedEngine.Destroy;
+begin
+  FHolderSettings.Free;
+  FHolders.Free;
+  inherited;
+end;
+
+procedure TSharedEngine.AddHolder(const AHolder: TObject; const ASettings: THelpChatSettings);
+begin
+  if FHolders.IndexOf(AHolder) >= 0 then
+    Exit;
+  FHolders.Add(AHolder);
+  FHolderSettings.Add(ASettings);
+end;
+
+function TSharedEngine.RemoveHolder(const AHolder: TObject): Integer;
+var
+  LIndex: Integer;
+begin
+  LIndex := FHolders.IndexOf(AHolder);
+  if LIndex >= 0 then
+  begin
+    FHolders.Delete(LIndex);
+    FHolderSettings.Delete(LIndex);
+  end;
+  Result := FHolders.Count;
+end;
+
+function TSharedEngine.HolderCount: Integer;
+begin
+  Result := FHolders.Count;
+end;
+
+procedure TSharedEngine.Decrypt(Sender: TObject; const AName, AValue: string;
+  var AResult: string; var AHandled: Boolean);
+var
+  LSettings: THelpChatSettings;
+  LSender: TObject;
+begin
+  // The handler of an assistant still holding the engine, asked as if the
+  // secret were its own; none left, the value stays as it is.
+  GSharedLock.Enter;
+  try
+    for LSettings in FHolderSettings do
+      if Assigned(LSettings.OnDecryptSecret) then
+      begin
+        LSender := LSettings.SecretSender;
+        if LSender = nil then
+          LSender := LSettings;
+        LSettings.OnDecryptSecret(LSender, AName, AValue, AResult, AHandled);
+        Exit;
+      end;
+  finally
+    GSharedLock.Leave;
+  end;
+end;
+
+function FindShared(const AKey: string): TSharedEngine;
+var
+  LEntry: TSharedEngine;
+begin
+  for LEntry in GShared do
+    if LEntry.Key = AKey then
+      Exit(LEntry);
+  Result := nil;
+end;
+
+function FindSharedOf(const AEngine: THelpChatEngine): TSharedEngine;
+var
+  LEntry: TSharedEngine;
+begin
+  for LEntry in GShared do
+    if Assigned(AEngine) and (LEntry.Engine = AEngine) then
+      Exit(LEntry);
+  Result := nil;
+end;
+
+class function THelpChatEngines.Acquire(const AHolder: TObject;
+  const ASettings: THelpChatSettings): THelpChatEngine;
+var
+  LKey: string;
+  LEntry: TSharedEngine;
+  LSettings: THelpChatSettings;
+begin
+  LKey := LowerCase(Trim(ASettings.Profile));
+  GSharedLock.Enter;
+  try
+    LEntry := FindShared(LKey);
+    if LEntry = nil then
+    begin
+      LEntry := TSharedEngine.Create(LKey);
+      GShared.Add(LEntry);
+    end;
+    if LEntry.Engine = nil then
+    begin
+      LSettings := THelpChatSettings.Create;
+      LSettings.Assign(ASettings);
+      LSettings.SetSecretHandler(LEntry.Decrypt, nil);
+      LEntry.Engine := THelpChatEngine.Create(LSettings, True);
+    end;
+    LEntry.AddHolder(AHolder, ASettings);
+    Result := LEntry.Engine;
+  finally
+    GSharedLock.Leave;
+  end;
+end;
+
+class procedure THelpChatEngines.Release(const AHolder: TObject; var AEngine: THelpChatEngine);
+var
+  LEntry: TSharedEngine;
+  LFree: THelpChatEngine;
+begin
+  if AEngine = nil then
+    Exit;
+  LFree := nil;
+  GSharedLock.Enter;
+  try
+    LEntry := FindSharedOf(AEngine);
+    if LEntry = nil then
+      // Not one of ours: whoever created it frees it.
+      LFree := AEngine
+    else if LEntry.RemoveHolder(AHolder) = 0 then
+    begin
+      LFree := LEntry.Engine;
+      LEntry.Engine := nil;
+    end;
+  finally
+    GSharedLock.Leave;
+  end;
+  AEngine := nil;
+  // Outside the lock: stopping waits for the workers, and a worker may be
+  // asking the secret handler, which takes the lock.
+  LFree.Free;
+end;
+
+class function THelpChatEngines.HolderCount(const AEngine: THelpChatEngine): Integer;
+var
+  LEntry: TSharedEngine;
+begin
+  GSharedLock.Enter;
+  try
+    LEntry := FindSharedOf(AEngine);
+    if Assigned(LEntry) then
+      Result := LEntry.HolderCount
+    else
+      Result := 0;
+  finally
+    GSharedLock.Leave;
+  end;
+end;
+
+initialization
+  GSharedLock := TCriticalSection.Create;
+  GShared := TObjectList<TSharedEngine>.Create(True);
+
+finalization
+  FreeAndNil(GShared);
+  FreeAndNil(GSharedLock);
 
 end.

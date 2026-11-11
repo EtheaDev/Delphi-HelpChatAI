@@ -63,8 +63,8 @@ The user can now pick the model in the panel, when more than one is configured. 
 file `%APPDATA%\HelpChatAI\helpchatai.json` lists five assistants:
 
 ```json
-"Assistant": "Claude",
-"Assistants": [
+"SelectedModel": "Claude",
+"Models": [
   { "Name": "Claude",              "Provider": "claude", "Model": "claude-haiku-4-5" },
   { "Name": "Gemini",              "Provider": "gemini", "Model": "gemini-3.8-flash" },
   { "Name": "Gemma (locale)",      "Provider": "openai", "Model": "gemma4:12b" },

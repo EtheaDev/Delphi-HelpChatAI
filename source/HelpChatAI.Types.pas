@@ -43,7 +43,7 @@ uses
 
 const
   /// <summary>Library version (major.minor.release).</summary>
-  HELPCHAT_VERSION = '1.6.0';
+  HELPCHAT_VERSION = '1.7.0';
 
 type
   /// <summary>Author of a chat message.</summary>
@@ -119,8 +119,12 @@ type
   ///  flips. Thread-safe.
   /// </summary>
   IHelpChatCancelToken = interface
+    /// <summary>True once somebody asked to stop: a provider checks it between
+    /// the reads of its stream and before every action.</summary>
     ['{7D0B2C64-9E3A-4F1B-8C55-2A6E0D9F31B7}']
     function IsCancelled: Boolean;
+    /// <summary>Asks to stop. Never undone: a token is for one
+    /// request.</summary>
     procedure Cancel;
   end;
 

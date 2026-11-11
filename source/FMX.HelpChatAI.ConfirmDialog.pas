@@ -83,6 +83,12 @@ type
     /// <summary>The form the chat belongs to: the dialog is centred on it.
     /// May be nil.</summary>
     Host: TCommonCustomForm;
+    /// <summary>Who asks: the assistant (the component). A question of the
+    /// same assistant replaces the one still open, which is answered No -
+    /// the model that asked it has moved on; a question of another
+    /// assistant opens over it and leaves it waiting. Nil = unknown, and
+    /// then the open one is always replaced.</summary>
+    Asker: TObject;
     /// <summary>Title of the window: the name of the assistant.</summary>
     Caption: string;
     /// <summary>The instruction: "The assistant wants to run ...".</summary>
@@ -123,7 +129,11 @@ type
     procedure Dismiss;
   end;
 
-  /// <summary>The confirmation dialog of the library.</summary>
+  /// <summary>The confirmation dialog of the library: a form with an FMX
+  /// file, so it follows the style of the application. Created for one
+  /// question by <see cref="HelpChatFmxConfirmAction" /> and freed after
+  /// it: <c>Execute</c> is called once per instance, and adds the signs and
+  /// the value labels it never removes. Main thread only.</summary>
   TFmxHelpChatConfirmDialog = class(TForm, IFmxHelpChatConfirmDialog)
     HeaderLayout: TLayout;
     TitleLabel: TLabel;
@@ -139,17 +149,36 @@ type
     procedure CountdownTimerTimer(Sender: TObject);
   private
     FSecondsLeft: Integer;
+    /// <summary>Writes the seconds left on the No button, the one the
+    /// countdown will press.</summary>
     procedure ShowSecondsLeft;
+    /// <summary>Draws the warning sign of the header: a <c>TPath</c> triangle
+    /// and a "!" over it. FireMonkey has no stock icons to load.</summary>
     procedure AddWarningSign(const AParent: TControl; const AX, AY, ASize: Single);
+    /// <summary>Draws the information sign of the footer: a <c>TCircle</c>
+    /// and an "i" over it.</summary>
     procedure AddInfoSign(const AParent: TControl; const AX, AY, ASize: Single);
     /// <summary>Gives a label the height its text needs at its width: the
     /// text is measured with a layout, so no canvas and no style is needed
     /// before the form is shown.</summary>
     procedure FitLabel(const ALabel: TLabel);
+    /// <summary>A wrapping label in the values area, at AX, AY and AWidth
+    /// wide, already as tall as AText needs; bold for a value, plain for
+    /// its caption.</summary>
     function NewLabel(const AText: string; const AX, AY, AWidth: Single;
       const ABold: Boolean): TLabel;
   public
+    /// <summary>Lays the request out - the header, the values in two
+    /// columns, the footer only under values - sizes the form to it, starts
+    /// the countdown when <c>TimeoutMs</c> is positive and shows the form
+    /// modally with No focused. True only for Yes: No, the countdown, the
+    /// close button and <c>Dismiss</c> all answer False. Desktop only: it
+    /// relies on a <c>ShowModal</c> that returns the answer.</summary>
     function Execute(const ARequest: TFmxHelpChatConfirmRequest): Boolean;
+    /// <summary>Stops the countdown, hides the form and answers No. Called
+    /// from inside the modal loop of this dialog, by the question that
+    /// replaces it: <c>Execute</c> returns once that one has been
+    /// answered.</summary>
     procedure Dismiss;
   end;
 
@@ -160,8 +189,11 @@ var
   FmxHelpChatConfirmDialogClass: TComponentClass = TFmxHelpChatConfirmDialog;
 
 /// <summary>Names the form class to ask with. It must implement
-/// <see cref="IFmxHelpChatConfirmDialog" />; nil goes back to the dialog of
-/// the library.</summary>
+/// <see cref="IFmxHelpChatConfirmDialog" /> - a class that does not raises
+/// <c>EHelpChatError</c> here, not at the first question; nil goes back to
+/// the dialog of the library. Process-wide: every assistant asks with it.
+/// It is created with the host form as owner, through the virtual
+/// constructor of <c>TComponent</c>.</summary>
 procedure RegisterFmxHelpChatConfirmDialog(const AClass: TComponentClass);
 
 /// <summary>True where a modal form answers before returning (Windows and
@@ -186,7 +218,10 @@ uses
   HelpChatAI.Types;
 
 var
+  // The dialog on top, if one is open, and the assistant that asked it.
+  // Main thread only, so no lock.
   OpenDialog: IFmxHelpChatConfirmDialog = nil;
+  OpenAsker: TObject = nil;
 
 procedure RegisterFmxHelpChatConfirmDialog(const AClass: TComponentClass);
 begin
@@ -211,26 +246,43 @@ end;
 function HelpChatFmxConfirmAction(const ARequest: TFmxHelpChatConfirmRequest): Boolean;
 var
   LComponent: TComponent;
-  LDialog: IFmxHelpChatConfirmDialog;
+  LDialog, LPrevious: IFmxHelpChatConfirmDialog;
+  LPreviousAsker: TObject;
 begin
   if not HelpChatFmxCanConfirm then
     Exit(False);
   // A dialog is open: this call runs inside its modal loop (a queued
-  // request of the broker got through). The old question is dismissed as
-  // No - the model that asked it has moved on - and the new one takes over.
-  if Assigned(OpenDialog) then
-    OpenDialog.Dismiss;
+  // request of the broker got through). When the same assistant asks again,
+  // the old question is dismissed as No - the model that asked it has moved
+  // on - and the new one takes over. Another assistant is another reply of
+  // another model: dismissing its question would refuse an action nobody
+  // refused and end that plan, so the new dialog opens over the old one,
+  // which is answered when this one is.
+  LPrevious := OpenDialog;
+  LPreviousAsker := OpenAsker;
+  if Assigned(LPrevious) and ((ARequest.Asker = nil) or (LPreviousAsker = ARequest.Asker)) then
+  begin
+    LPrevious.Dismiss;
+    LPrevious := nil;
+  end;
   LComponent := FmxHelpChatConfirmDialogClass.Create(ARequest.Host);
   try
     if not Supports(LComponent, IFmxHelpChatConfirmDialog, LDialog) then
       raise EHelpChatError.CreateFmt('%s does not implement IFmxHelpChatConfirmDialog',
         [LComponent.ClassName]);
     OpenDialog := LDialog;
+    OpenAsker := ARequest.Asker;
     try
       Result := LDialog.Execute(ARequest);
     finally
+      // Not ours any more when a newer question of this assistant took the
+      // place while this one was still inside its loop: that one clears it.
+      // The dialog this one opened over is the open one again.
       if OpenDialog = LDialog then
-        OpenDialog := nil;
+      begin
+        OpenDialog := LPrevious;
+        OpenAsker := LPreviousAsker;
+      end;
     end;
   finally
     // A TComponent is not reference counted: the interface goes before the object.
@@ -429,6 +481,7 @@ begin
     ShowSecondsLeft;
     CountdownTimer.Enabled := True;
   end;
+  // No is where Enter lands: an action runs only on a deliberate Yes.
   ActiveControl := NoButton;
   Result := ShowModal = mrYes;
 end;

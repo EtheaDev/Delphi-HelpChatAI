@@ -26,11 +26,18 @@
 
 /// <summary>
 ///  Localized strings of the HelpChat engine (English, Italian, Spanish,
-///  French, German and Portuguese), selectable at runtime. Two channels, kept distinct on purpose: the Pascal side reads
-///  them through <see cref="HelpChatMsg" />; the JavaScript side of the panel
-///  receives the UI labels as a dictionary produced by the transport layer.
+///  French, German and Portuguese), selectable at runtime. Two channels,
+///  kept distinct on purpose: the Pascal side reads them through
+///  <see cref="HelpChatMsg" />; the JavaScript side of the panel receives
+///  the UI labels as a dictionary produced by the transport layer.
 ///  Strings are <c>resourcestring</c>s so the classic resource-DLL translation
 ///  path also works for further languages.
+///
+///  A word on the words: since 1.7 what the user switches between in the
+///  panel is a <i>model</i>, and the assistant is the profile. Several
+///  identifiers here were named before that (<c>hcmUiChangeAssistant</c>,
+///  <c>hcmCmdNoAssistant</c>) and still say "assistant" for a model: they
+///  are kept because code refers to them by name.
 /// </summary>
 unit HelpChatAI.Messages;
 
@@ -58,15 +65,27 @@ const
 
 type
 
-  /// <summary>Identifiers of every localized string used by the engine.</summary>
+  /// <summary>Identifiers of every localized string used by the engine.
+  /// Every member has a string in each of the six tables (a test fails
+  /// when one is missing, another when a translation loses or adds a
+  /// placeholder).</summary>
   THelpChatMsgId = (
     // Engine / providers
+    /// <summary>First bubble of an empty conversation.</summary>
     hcmGreeting,
+    /// <summary>The whole answer of the <c>stub</c> provider.</summary>
     hcmStubReply,
+    /// <summary>The <c>docsearch</c> answer without an index: %s is the
+    /// base URL of the documentation, as the target of a Markdown link.</summary>
     hcmIndexUnavailable,
+    /// <summary>The <c>docsearch</c> answer when no page scores: %s is the
+    /// base URL of the documentation.</summary>
     hcmNoPageFound,
     hcmReadMore,
     hcmSeeAlso,
+    /// <summary>The <c>claude</c> provider without a key: %s twice, the
+    /// folder of the shared configuration file and the folder of the
+    /// per-user one.</summary>
     hcmClaudeNotConfigured,
     /// <summary>A provider that needs a key and has none: %0:s is its name,
     /// %1:s the settings section, %2:s the environment variable, %3:s and %4:s
@@ -75,16 +94,32 @@ type
     /// <summary>The configured provider is not linked into the application:
     /// %s is its name, %s the registered ones.</summary>
     hcmProviderNotAvailable,
+    /// <summary>A stream that reports an error without a message.</summary>
     hcmProviderError,
+    /// <summary>A refused request whose body carries no message: %d is the
+    /// HTTP status, %s its text. Used by every provider with a model.</summary>
     hcmApiError,
+    /// <summary>A reply that ended with no text at all.</summary>
     hcmEmptyReply,
+    /// <summary>Content of a reply cancelled before its first token, and
+    /// message of <c>EHelpChatCancelled</c>.</summary>
     hcmCancelled,
+    /// <summary>The sentence of the system prompt about where the user is:
+    /// %s is the label of the screen, %s its type. Goes to the model, in
+    /// the language of the chat.</summary>
     hcmScreenContext,
+    /// <summary>Heading of the documentation excerpts in the system prompt.</summary>
     hcmRelevantDocs,
+    /// <summary>The word in front of a citation ("Source"), in the prompt
+    /// and in the line the engine adds to an answer that cited nothing.</summary>
     hcmSource,
+    /// <summary>The question asked on behalf of a user who opened the chat
+    /// from a screen without typing one: %s is the label of the screen.</summary>
     hcmContextQuestion,
     // Panel UI labels (injected into the page by the transport)
+    /// <summary>Header of the page when the component names no assistant.</summary>
     hcmUiTitle,
+    /// <summary>Caption of the chat window when the component gives none.</summary>
     hcmUiHelp,
     hcmUiClear,
     hcmUiClose,
@@ -114,11 +149,17 @@ type
     hcmActionConfirmTitle,
     /// <summary>Footer of the confirmation dialog, under the values.</summary>
     hcmActionValuesFooter,
+    /// <summary>Added to a reply whose last allowed step still asked for an
+    /// action: it was not run, and the user is told instead of being left
+    /// with a reply that says it did something.</summary>
+    hcmActionsNotRun,
     /// <summary>Paper-clip button, left of the question box.</summary>
     hcmUiAttach,
     /// <summary>Title of the button that takes an attachment away.</summary>
     hcmUiAttachRemove,
-    /// <summary>Tooltip of the assistant badge when there is a list to pick from.</summary>
+    /// <summary>Tooltip of the model badge when there is a list of models
+    /// to pick from (the name predates 1.7, when a model of the list was
+    /// called an assistant).</summary>
     hcmUiChangeAssistant,
     /// <summary>Tooltip of the flag, when more than one language can be chosen.</summary>
     hcmUiChangeLanguage,
@@ -154,7 +195,8 @@ type
     hcmCmdNoActions,
     hcmCmdRunUsage,
     hcmCmdNoEngine,
-    /// <summary>%s is the name asked for.</summary>
+    /// <summary>/use or /retry named a model that is not in the list: %s is
+    /// the name asked for.</summary>
     hcmCmdNoAssistant,
     /// <summary>/lang named a language that is not offered: %s is what was typed.</summary>
     hcmCmdNoLanguage,
@@ -194,7 +236,8 @@ type
     /// <summary>Said in the conversation when the configured provider cannot
     /// be given documents: %s is its name.</summary>
     hcmAttachNotSupported,
-    /// <summary>Heading of the attached documents in the system prompt.</summary>
+    /// <summary>Heading of the text attachments, in front of the question
+    /// they travel with (the user turn, not the system prompt).</summary>
     hcmAttachedDocuments,
     /// <summary>What a text attachment is introduced with: %s is its name.</summary>
     hcmAttachedTextFile,
@@ -242,11 +285,14 @@ type
     hcmPdfHandedOver);
 
 /// <summary>Returns the string <c>AId</c> in <c>ALanguage</c> (<c>hclAuto</c> =
-/// <see cref="HelpChatDefaultLanguage" />, resolved against the OS locale).</summary>
+/// <see cref="HelpChatDefaultLanguage" />, resolved against the OS locale).
+/// Safe from any thread. Never empty for a member of the enumeration.</summary>
 function HelpChatMsg(const AId: THelpChatMsgId;
   const ALanguage: THelpChatLanguage = hclAuto): string;
 
-/// <summary>Like <see cref="HelpChatMsg" /> followed by <c>Format</c>.</summary>
+/// <summary>Like <see cref="HelpChatMsg" /> followed by <c>Format</c>: the
+/// arguments must be those the string of <c>AId</c> expects, or
+/// <c>Format</c> raises <c>EConvertError</c>.</summary>
 function HelpChatMsgFmt(const AId: THelpChatMsgId; const AArgs: array of const;
   const ALanguage: THelpChatLanguage = hclAuto): string;
 
@@ -259,11 +305,13 @@ function HelpChatResolveLanguage(const ALanguage: THelpChatLanguage): THelpChatL
 /// English otherwise.</summary>
 function HelpChatSystemLanguage: THelpChatLanguage;
 
-/// <summary>Two-letter ISO code of a resolved language ("en", "it", "es"...).</summary>
+/// <summary>Two-letter ISO code of a language ("en", "it", "es"...): what a
+/// configuration file and the state file store. <c>hclAuto</c> is resolved
+/// first, so the answer is never "auto".</summary>
 function HelpChatLanguageCode(const ALanguage: THelpChatLanguage): string;
 
-/// <summary>English name of a resolved language ("English", "Italian"...), the
-/// form used when instructing the model.</summary>
+/// <summary>English name of a language ("English", "Italian"...), the form
+/// used when instructing the model; <c>hclAuto</c> is resolved first.</summary>
 function HelpChatLanguageName(const ALanguage: THelpChatLanguage): string;
 
 /// <summary>The name of a resolved language in that language ("Italiano",
@@ -277,12 +325,19 @@ function HelpChatLanguageNativeName(const ALanguage: THelpChatLanguage): string;
 function HelpChatLanguageFromCode(const AValue: string;
   out ALanguage: THelpChatLanguage): Boolean;
 
-/// <summary>The languages of a set, in the order of the enumeration.</summary>
+/// <summary>The languages of a set, in the order of the enumeration;
+/// <c>hclAuto</c>, which is not a language, is left out.</summary>
 function HelpChatLanguageList(const ALanguages: THelpChatLanguages): TArray<THelpChatLanguage>;
 
 var
   /// <summary>Language used when a caller passes <c>hclAuto</c>. Default
-  /// <c>hclAuto</c> (OS locale); the component sets it from its Language property.</summary>
+  /// <c>hclAuto</c> (OS locale). An engine sets it when it starts, from
+  /// <c>Settings.ResolveLanguage</c>, and again when the user picks a
+  /// language in the panel. It is one variable for the whole process: with
+  /// several assistants, each with its own engine, the last one to start or
+  /// to switch decides for every <c>hclAuto</c> - which is why whoever has
+  /// settings at hand should pass their resolved language instead of
+  /// relying on it. Written and read without a lock.</summary>
   HelpChatDefaultLanguage: THelpChatLanguage = hclAuto;
 
 implementation
@@ -305,7 +360,7 @@ resourcestring
     'registers it when linked, so add it to the uses (HelpChatAI.Provider.Claude for "claude", ' +
     'HelpChatAI.Provider.DocSearch for "docsearch"). Available providers: %s.';
   SEnProviderError = 'The AI provider returned an error.';
-  SEnApiError = 'Claude API error (HTTP %d %s).';
+  SEnApiError = '%s API error (HTTP %d %s).';
   SEnEmptyReply = 'The assistant did not return any content.';
   SEnCancelled = 'The request was cancelled.';
   SEnScreenContext = 'The user is currently on the "%s" screen (type: %s).';
@@ -322,13 +377,13 @@ resourcestring
   SEnUiRetry = 'Retry';
   SEnUiSendError = 'The message could not be sent.';
   SEnUiBack = 'Back to the chat';
-  SEnUiChangeAssistant = 'Change assistant';
+  SEnUiChangeAssistant = 'Change model';
   SEnUiChangeLanguage = 'Change language';
   SEnCmdHelp = 'The commands you can type';
-  SEnCmdWho = 'Who is answering: assistant, model, provider';
-  SEnCmdUse = 'Switch to the named assistant: /use Gemini';
+  SEnCmdWho = 'Who is answering: model and provider';
+  SEnCmdUse = 'Switch to the named model: /use Gemini';
   SEnCmdLang = 'Switch the language of the chat: /lang it';
-  SEnCmdRetry = 'Ask the last question again, to another assistant if named';
+  SEnCmdRetry = 'Ask the last question again, to another model if named';
   SEnCmdSearch = 'The documentation pages that would ground the answer';
   SEnCmdDoc = 'Open a page of the documentation: /doc Leads.md';
   SEnCmdPages = 'The pages of the documentation index';
@@ -352,16 +407,16 @@ resourcestring
   SEnCmdNoActions = 'This application registered no actions.';
   SEnCmdRunUsage = 'Usage: /run action name=value name2="a value with spaces"';
   SEnCmdNoEngine = 'The engine is not running.';
-  SEnCmdNoAssistant = 'No assistant named "%s".';
+  SEnCmdNoAssistant = 'No model named "%s".';
   SEnCmdNoLanguage = 'No language "%s" among those this chat offers.';
   SEnCmdStatsLine = 'Last answer: first token after %s, complete after %s.';
   SEnCmdNoStats = 'No answer yet.';
   SEnCmdDocUsage = 'Usage: /doc page';
-  SEnCmdUseUsage = 'Usage: /use assistant';
+  SEnCmdUseUsage = 'Usage: /use model';
   SEnCmdNoAnswer = 'No answer to copy.';
   SEnCmdTitleHelp = 'Available commands';
-  SEnCmdTitleWho = 'Assistant in use';
-  SEnCmdTitleUse = 'Assistant changed';
+  SEnCmdTitleWho = 'Model in use';
+  SEnCmdTitleUse = 'Model changed';
   SEnCmdTitleLang = 'Languages of the chat';
   SEnCmdTitleSearch = 'Documentation pages for "%s"';
   SEnCmdTitlePages = 'Documentation pages';
@@ -381,6 +436,8 @@ resourcestring
   SEnActionConfirmTitle = 'The assistant wants to run "%s"';
   SEnActionValuesFooter = 'The values above were written by the assistant, not by you: ' +
     'check them before allowing.';
+  SEnActionsNotRun =
+    '(One more action was requested but not run: the limit of steps for one reply was reached. Ask again to continue.)';
   SEnUiAttach = 'Attach a document';
   SEnUiAttachRemove = 'Remove this attachment';
   SEnAttachTypeRefused = 'A %s file is not one the assistant can read. Accepted: %s.';
@@ -430,7 +487,7 @@ resourcestring
     'lo registra quando è linkata, quindi va aggiunta alla uses (HelpChatAI.Provider.Claude per "claude", ' +
     'HelpChatAI.Provider.DocSearch per "docsearch"). Provider disponibili: %s.';
   SItProviderError = 'Il provider AI ha restituito un errore.';
-  SItApiError = 'Errore API Claude (HTTP %d %s).';
+  SItApiError = 'Errore API %s (HTTP %d %s).';
   SItEmptyReply = 'L''assistente non ha restituito alcun contenuto.';
   SItCancelled = 'La richiesta è stata annullata.';
   SItScreenContext = 'L''utente si trova nella schermata "%s" (tipo: %s).';
@@ -447,13 +504,13 @@ resourcestring
   SItUiRetry = 'Riprova';
   SItUiSendError = 'Non è stato possibile inviare il messaggio.';
   SItUiBack = 'Torna alla chat';
-  SItUiChangeAssistant = 'Cambia assistente';
+  SItUiChangeAssistant = 'Cambia modello';
   SItUiChangeLanguage = 'Cambia lingua';
   SItCmdHelp = 'I comandi che puoi scrivere';
-  SItCmdWho = 'Chi sta rispondendo: assistente, modello, provider';
-  SItCmdUse = 'Passa all''assistente indicato: /use Gemini';
+  SItCmdWho = 'Chi sta rispondendo: modello e provider';
+  SItCmdUse = 'Passa al modello indicato: /use Gemini';
   SItCmdLang = 'Cambia la lingua della chat: /lang en';
-  SItCmdRetry = 'Ripete l''ultima domanda, a un altro assistente se indicato';
+  SItCmdRetry = 'Ripete l''ultima domanda, a un altro modello se indicato';
   SItCmdSearch = 'Le pagine della documentazione su cui si baserebbe la risposta';
   SItCmdDoc = 'Apre una pagina della documentazione: /doc Leads.md';
   SItCmdPages = 'Le pagine dell''indice della documentazione';
@@ -477,16 +534,16 @@ resourcestring
   SItCmdNoActions = 'Questa applicazione non ha registrato azioni.';
   SItCmdRunUsage = 'Uso: /run azione nome=valore nome2="un valore con spazi"';
   SItCmdNoEngine = 'Il motore non è in esecuzione.';
-  SItCmdNoAssistant = 'Nessun assistente di nome "%s".';
+  SItCmdNoAssistant = 'Nessun modello di nome "%s".';
   SItCmdNoLanguage = 'Nessuna lingua "%s" tra quelle offerte da questa chat.';
   SItCmdStatsLine = 'Ultima risposta: primo token dopo %s, completa dopo %s.';
   SItCmdNoStats = 'Nessuna risposta ancora.';
   SItCmdDocUsage = 'Uso: /doc pagina';
-  SItCmdUseUsage = 'Uso: /use assistente';
+  SItCmdUseUsage = 'Uso: /use modello';
   SItCmdNoAnswer = 'Nessuna risposta da copiare.';
   SItCmdTitleHelp = 'Comandi disponibili';
-  SItCmdTitleWho = 'Assistente in uso';
-  SItCmdTitleUse = 'Assistente cambiato';
+  SItCmdTitleWho = 'Modello in uso';
+  SItCmdTitleUse = 'Modello cambiato';
   SItCmdTitleLang = 'Lingue della chat';
   SItCmdTitleSearch = 'Pagine della documentazione per "%s"';
   SItCmdTitlePages = 'Pagine della documentazione';
@@ -506,6 +563,8 @@ resourcestring
   SItActionConfirmTitle = 'L''assistente vuole eseguire "%s"';
   SItActionValuesFooter = 'I valori qui sopra li ha scritti l''assistente, non tu: ' +
     'controllali prima di consentire.';
+  SItActionsNotRun =
+    '(È stata richiesta un''altra azione ma non è stata eseguita: raggiunto il limite di passaggi per una risposta. Chiedi di nuovo per continuare.)';
   SItUiAttach = 'Allega un documento';
   SItUiAttachRemove = 'Togli questo allegato';
   SItAttachTypeRefused = 'Un file %s non è fra quelli che l''assistente può leggere. Sono accettati: %s.';
@@ -555,7 +614,7 @@ resourcestring
     'lo registra cuando se enlaza, así que hay que añadirla a la uses (HelpChatAI.Provider.Claude para "claude", ' +
     'HelpChatAI.Provider.DocSearch para "docsearch"). Proveedores disponibles: %s.';
   SEsProviderError = 'El proveedor de IA ha devuelto un error.';
-  SEsApiError = 'Error de la API de Claude (HTTP %d %s).';
+  SEsApiError = 'Error de la API de %s (HTTP %d %s).';
   SEsEmptyReply = 'El asistente no ha devuelto ningún contenido.';
   SEsCancelled = 'La solicitud se ha cancelado.';
   SEsScreenContext = 'El usuario está en la pantalla "%s" (tipo: %s).';
@@ -572,13 +631,13 @@ resourcestring
   SEsUiRetry = 'Reintentar';
   SEsUiSendError = 'No se ha podido enviar el mensaje.';
   SEsUiBack = 'Volver al chat';
-  SEsUiChangeAssistant = 'Cambiar de asistente';
+  SEsUiChangeAssistant = 'Cambiar de modelo';
   SEsUiChangeLanguage = 'Cambiar de idioma';
   SEsCmdHelp = 'Los comandos que puedes escribir';
-  SEsCmdWho = 'Quién responde: asistente, modelo, proveedor';
-  SEsCmdUse = 'Cambia al asistente indicado: /use Gemini';
+  SEsCmdWho = 'Quién responde: modelo y proveedor';
+  SEsCmdUse = 'Cambia al modelo indicado: /use Gemini';
   SEsCmdLang = 'Cambia el idioma del chat: /lang en';
-  SEsCmdRetry = 'Repite la última pregunta, a otro asistente si se indica';
+  SEsCmdRetry = 'Repite la última pregunta, a otro modelo si se indica';
   SEsCmdSearch = 'Las páginas de la documentación en las que se basaría la respuesta';
   SEsCmdDoc = 'Abre una página de la documentación: /doc Leads.md';
   SEsCmdPages = 'Las páginas del índice de la documentación';
@@ -602,16 +661,16 @@ resourcestring
   SEsCmdNoActions = 'Esta aplicación no ha registrado ninguna acción.';
   SEsCmdRunUsage = 'Uso: /run acción nombre=valor nombre2="un valor con espacios"';
   SEsCmdNoEngine = 'El motor no está en marcha.';
-  SEsCmdNoAssistant = 'No hay ningún asistente llamado "%s".';
+  SEsCmdNoAssistant = 'No hay ningún modelo llamado "%s".';
   SEsCmdNoLanguage = 'No hay ningún idioma "%s" entre los que ofrece este chat.';
   SEsCmdStatsLine = 'Última respuesta: primer token tras %s, completa tras %s.';
   SEsCmdNoStats = 'Todavía no hay ninguna respuesta.';
   SEsCmdDocUsage = 'Uso: /doc página';
-  SEsCmdUseUsage = 'Uso: /use asistente';
+  SEsCmdUseUsage = 'Uso: /use modelo';
   SEsCmdNoAnswer = 'No hay ninguna respuesta que copiar.';
   SEsCmdTitleHelp = 'Comandos disponibles';
-  SEsCmdTitleWho = 'Asistente en uso';
-  SEsCmdTitleUse = 'Asistente cambiado';
+  SEsCmdTitleWho = 'Modelo en uso';
+  SEsCmdTitleUse = 'Modelo cambiado';
   SEsCmdTitleLang = 'Idiomas del chat';
   SEsCmdTitleSearch = 'Páginas de la documentación para "%s"';
   SEsCmdTitlePages = 'Páginas de la documentación';
@@ -631,6 +690,8 @@ resourcestring
   SEsActionConfirmTitle = 'El asistente quiere ejecutar "%s"';
   SEsActionValuesFooter = 'Los valores anteriores los ha escrito el asistente, no tú: ' +
     'revísalos antes de permitirlo.';
+  SEsActionsNotRun =
+    '(Se pidió otra acción pero no se ejecutó: se alcanzó el límite de pasos de una respuesta. Vuelve a preguntar para continuar.)';
   SEsUiAttach = 'Adjuntar un documento';
   SEsUiAttachRemove = 'Quitar este adjunto';
   SEsAttachTypeRefused = 'Un archivo %s no es uno que el asistente pueda leer. Se aceptan: %s.';
@@ -680,7 +741,7 @@ resourcestring
     'l''enregistre quand elle est liée, il faut donc l''ajouter à la clause uses (HelpChatAI.Provider.Claude pour "claude", ' +
     'HelpChatAI.Provider.DocSearch pour "docsearch"). Fournisseurs disponibles : %s.';
   SFrProviderError = 'Le fournisseur d''IA a renvoyé une erreur.';
-  SFrApiError = 'Erreur de l''API Claude (HTTP %d %s).';
+  SFrApiError = 'Erreur de l''API %s (HTTP %d %s).';
   SFrEmptyReply = 'L''assistant n''a renvoyé aucun contenu.';
   SFrCancelled = 'La demande a été annulée.';
   SFrScreenContext = 'L''utilisateur se trouve sur l''écran "%s" (type : %s).';
@@ -697,13 +758,13 @@ resourcestring
   SFrUiRetry = 'Réessayer';
   SFrUiSendError = 'Le message n''a pas pu être envoyé.';
   SFrUiBack = 'Retour à la conversation';
-  SFrUiChangeAssistant = 'Changer d''assistant';
+  SFrUiChangeAssistant = 'Changer de modèle';
   SFrUiChangeLanguage = 'Changer de langue';
   SFrCmdHelp = 'Les commandes que vous pouvez taper';
-  SFrCmdWho = 'Qui répond : assistant, modèle, fournisseur';
-  SFrCmdUse = 'Passe à l''assistant indiqué : /use Gemini';
+  SFrCmdWho = 'Qui répond : modèle et fournisseur';
+  SFrCmdUse = 'Passe au modèle indiqué : /use Gemini';
   SFrCmdLang = 'Change la langue de la conversation : /lang en';
-  SFrCmdRetry = 'Repose la dernière question, à un autre assistant s''il est indiqué';
+  SFrCmdRetry = 'Repose la dernière question, à un autre modèle s''il est indiqué';
   SFrCmdSearch = 'Les pages de la documentation sur lesquelles la réponse s''appuierait';
   SFrCmdDoc = 'Ouvre une page de la documentation : /doc Leads.md';
   SFrCmdPages = 'Les pages de l''index de la documentation';
@@ -727,16 +788,16 @@ resourcestring
   SFrCmdNoActions = 'Cette application n''a enregistré aucune action.';
   SFrCmdRunUsage = 'Utilisation : /run action nom=valeur nom2="une valeur avec des espaces"';
   SFrCmdNoEngine = 'Le moteur n''est pas démarré.';
-  SFrCmdNoAssistant = 'Aucun assistant nommé "%s".';
+  SFrCmdNoAssistant = 'Aucun modèle nommé "%s".';
   SFrCmdNoLanguage = 'Aucune langue "%s" parmi celles que propose cette conversation.';
   SFrCmdStatsLine = 'Dernière réponse : premier token après %s, complète après %s.';
   SFrCmdNoStats = 'Aucune réponse pour l''instant.';
   SFrCmdDocUsage = 'Utilisation : /doc page';
-  SFrCmdUseUsage = 'Utilisation : /use assistant';
+  SFrCmdUseUsage = 'Utilisation : /use modèle';
   SFrCmdNoAnswer = 'Aucune réponse à copier.';
   SFrCmdTitleHelp = 'Commandes disponibles';
-  SFrCmdTitleWho = 'Assistant utilisé';
-  SFrCmdTitleUse = 'Assistant changé';
+  SFrCmdTitleWho = 'Modèle utilisé';
+  SFrCmdTitleUse = 'Modèle changé';
   SFrCmdTitleLang = 'Langues de la conversation';
   SFrCmdTitleSearch = 'Pages de la documentation pour "%s"';
   SFrCmdTitlePages = 'Pages de la documentation';
@@ -756,6 +817,8 @@ resourcestring
   SFrActionConfirmTitle = 'L''assistant veut exécuter "%s"';
   SFrActionValuesFooter = 'Les valeurs ci-dessus ont été écrites par l''assistant, pas par vous : ' +
     'vérifiez-les avant d''autoriser.';
+  SFrActionsNotRun =
+    '(Une autre action a été demandée mais n''a pas été exécutée : la limite d''étapes d''une réponse est atteinte. Redemandez pour continuer.)';
   SFrUiAttach = 'Joindre un document';
   SFrUiAttachRemove = 'Retirer cette pièce jointe';
   SFrAttachTypeRefused = 'Un fichier %s n''est pas un fichier que l''assistant sait lire. Acceptés : %s.';
@@ -805,7 +868,7 @@ resourcestring
     'registriert ihn, wenn sie gelinkt wird, also fügen Sie sie der uses-Klausel hinzu (HelpChatAI.Provider.Claude für "claude", ' +
     'HelpChatAI.Provider.DocSearch für "docsearch"). Verfügbare Anbieter: %s.';
   SDeProviderError = 'Der KI-Anbieter hat einen Fehler gemeldet.';
-  SDeApiError = 'Fehler der Claude-API (HTTP %d %s).';
+  SDeApiError = 'Fehler der %s-API (HTTP %d %s).';
   SDeEmptyReply = 'Der Assistent hat keinen Inhalt geliefert.';
   SDeCancelled = 'Die Anfrage wurde abgebrochen.';
   SDeScreenContext = 'Der Benutzer befindet sich gerade in der Ansicht "%s" (Typ: %s).';
@@ -822,13 +885,13 @@ resourcestring
   SDeUiRetry = 'Wiederholen';
   SDeUiSendError = 'Die Nachricht konnte nicht gesendet werden.';
   SDeUiBack = 'Zurück zum Chat';
-  SDeUiChangeAssistant = 'Assistent wechseln';
+  SDeUiChangeAssistant = 'Modell wechseln';
   SDeUiChangeLanguage = 'Sprache wechseln';
   SDeCmdHelp = 'Die Befehle, die Sie eingeben können';
-  SDeCmdWho = 'Wer antwortet: Assistent, Modell, Anbieter';
-  SDeCmdUse = 'Wechselt zum genannten Assistenten: /use Gemini';
+  SDeCmdWho = 'Wer antwortet: Modell und Anbieter';
+  SDeCmdUse = 'Wechselt zum genannten Modell: /use Gemini';
   SDeCmdLang = 'Wechselt die Sprache des Chats: /lang en';
-  SDeCmdRetry = 'Stellt die letzte Frage erneut, an einen anderen Assistenten, falls genannt';
+  SDeCmdRetry = 'Stellt die letzte Frage erneut, an ein anderes Modell, falls genannt';
   SDeCmdSearch = 'Die Seiten der Dokumentation, auf die sich die Antwort stützen würde';
   SDeCmdDoc = 'Öffnet eine Seite der Dokumentation: /doc Leads.md';
   SDeCmdPages = 'Die Seiten des Dokumentationsindex';
@@ -852,16 +915,16 @@ resourcestring
   SDeCmdNoActions = 'Diese Anwendung hat keine Aktionen registriert.';
   SDeCmdRunUsage = 'Verwendung: /run aktion name=wert name2="ein Wert mit Leerzeichen"';
   SDeCmdNoEngine = 'Die Engine läuft nicht.';
-  SDeCmdNoAssistant = 'Kein Assistent mit dem Namen "%s".';
+  SDeCmdNoAssistant = 'Kein Modell mit dem Namen "%s".';
   SDeCmdNoLanguage = 'Keine Sprache "%s" unter den Sprachen dieses Chats.';
   SDeCmdStatsLine = 'Letzte Antwort: erstes Token nach %s, vollständig nach %s.';
   SDeCmdNoStats = 'Noch keine Antwort.';
   SDeCmdDocUsage = 'Verwendung: /doc seite';
-  SDeCmdUseUsage = 'Verwendung: /use assistent';
+  SDeCmdUseUsage = 'Verwendung: /use modell';
   SDeCmdNoAnswer = 'Keine Antwort zum Kopieren.';
   SDeCmdTitleHelp = 'Verfügbare Befehle';
-  SDeCmdTitleWho = 'Verwendeter Assistent';
-  SDeCmdTitleUse = 'Assistent gewechselt';
+  SDeCmdTitleWho = 'Verwendetes Modell';
+  SDeCmdTitleUse = 'Modell gewechselt';
   SDeCmdTitleLang = 'Sprachen des Chats';
   SDeCmdTitleSearch = 'Seiten der Dokumentation zu "%s"';
   SDeCmdTitlePages = 'Seiten der Dokumentation';
@@ -881,6 +944,8 @@ resourcestring
   SDeActionConfirmTitle = 'Der Assistent möchte "%s" ausführen';
   SDeActionValuesFooter = 'Die obigen Werte hat der Assistent geschrieben, nicht Sie: ' +
     'prüfen Sie sie, bevor Sie zustimmen.';
+  SDeActionsNotRun =
+    '(Eine weitere Aktion wurde angefordert, aber nicht ausgeführt: Die Schrittgrenze einer Antwort ist erreicht. Fragen Sie erneut, um fortzufahren.)';
   SDeUiAttach = 'Dokument anhängen';
   SDeUiAttachRemove = 'Diesen Anhang entfernen';
   SDeAttachTypeRefused = 'Eine %s-Datei kann der Assistent nicht lesen. Zulässig: %s.';
@@ -930,7 +995,7 @@ resourcestring
     'regista-o quando é ligada, por isso adicione-a à cláusula uses (HelpChatAI.Provider.Claude para "claude", ' +
     'HelpChatAI.Provider.DocSearch para "docsearch"). Fornecedores disponíveis: %s.';
   SPtProviderError = 'O fornecedor de IA devolveu um erro.';
-  SPtApiError = 'Erro da API do Claude (HTTP %d %s).';
+  SPtApiError = 'Erro da API de %s (HTTP %d %s).';
   SPtEmptyReply = 'O assistente não devolveu nenhum conteúdo.';
   SPtCancelled = 'O pedido foi cancelado.';
   SPtScreenContext = 'O utilizador está no ecrã "%s" (tipo: %s).';
@@ -947,13 +1012,13 @@ resourcestring
   SPtUiRetry = 'Tentar novamente';
   SPtUiSendError = 'Não foi possível enviar a mensagem.';
   SPtUiBack = 'Voltar à conversa';
-  SPtUiChangeAssistant = 'Mudar de assistente';
+  SPtUiChangeAssistant = 'Mudar de modelo';
   SPtUiChangeLanguage = 'Mudar de idioma';
   SPtCmdHelp = 'Os comandos que pode escrever';
-  SPtCmdWho = 'Quem responde: assistente, modelo, fornecedor';
-  SPtCmdUse = 'Muda para o assistente indicado: /use Gemini';
+  SPtCmdWho = 'Quem responde: modelo e fornecedor';
+  SPtCmdUse = 'Muda para o modelo indicado: /use Gemini';
   SPtCmdLang = 'Muda o idioma da conversa: /lang en';
-  SPtCmdRetry = 'Repete a última pergunta, a outro assistente se for indicado';
+  SPtCmdRetry = 'Repete a última pergunta, a outro modelo se for indicado';
   SPtCmdSearch = 'As páginas da documentação em que a resposta se basearia';
   SPtCmdDoc = 'Abre uma página da documentação: /doc Leads.md';
   SPtCmdPages = 'As páginas do índice da documentação';
@@ -977,16 +1042,16 @@ resourcestring
   SPtCmdNoActions = 'Esta aplicação não registou nenhuma ação.';
   SPtCmdRunUsage = 'Utilização: /run ação nome=valor nome2="um valor com espaços"';
   SPtCmdNoEngine = 'O motor não está em execução.';
-  SPtCmdNoAssistant = 'Não existe nenhum assistente chamado "%s".';
+  SPtCmdNoAssistant = 'Não existe nenhum modelo chamado "%s".';
   SPtCmdNoLanguage = 'Não existe nenhum idioma "%s" entre os que esta conversa oferece.';
   SPtCmdStatsLine = 'Última resposta: primeiro token após %s, completa após %s.';
   SPtCmdNoStats = 'Ainda não há nenhuma resposta.';
   SPtCmdDocUsage = 'Utilização: /doc página';
-  SPtCmdUseUsage = 'Utilização: /use assistente';
+  SPtCmdUseUsage = 'Utilização: /use modelo';
   SPtCmdNoAnswer = 'Não há nenhuma resposta para copiar.';
   SPtCmdTitleHelp = 'Comandos disponíveis';
-  SPtCmdTitleWho = 'Assistente em uso';
-  SPtCmdTitleUse = 'Assistente alterado';
+  SPtCmdTitleWho = 'Modelo em uso';
+  SPtCmdTitleUse = 'Modelo alterado';
   SPtCmdTitleLang = 'Idiomas da conversa';
   SPtCmdTitleSearch = 'Páginas da documentação para "%s"';
   SPtCmdTitlePages = 'Páginas da documentação';
@@ -1006,6 +1071,8 @@ resourcestring
   SPtActionConfirmTitle = 'O assistente quer executar "%s"';
   SPtActionValuesFooter = 'Os valores acima foram escritos pelo assistente, não por si: ' +
     'verifique-os antes de permitir.';
+  SPtActionsNotRun =
+    '(Foi pedida mais uma ação, mas não foi executada: foi atingido o limite de passos de uma resposta. Pergunte de novo para continuar.)';
   SPtUiAttach = 'Anexar um documento';
   SPtUiAttachRemove = 'Remover este anexo';
   SPtAttachTypeRefused = 'Um ficheiro %s não é um que o assistente consiga ler. Aceites: %s.';
@@ -1151,6 +1218,7 @@ begin
     hcmActionValues: Result := SEnActionValues;
     hcmActionConfirmTitle: Result := SEnActionConfirmTitle;
     hcmActionValuesFooter: Result := SEnActionValuesFooter;
+    hcmActionsNotRun: Result := SEnActionsNotRun;
     hcmUiAttach: Result := SEnUiAttach;
     hcmUiAttachRemove: Result := SEnUiAttachRemove;
     hcmUiChangeAssistant: Result := SEnUiChangeAssistant;
@@ -1273,6 +1341,7 @@ begin
     hcmActionValues: Result := SItActionValues;
     hcmActionConfirmTitle: Result := SItActionConfirmTitle;
     hcmActionValuesFooter: Result := SItActionValuesFooter;
+    hcmActionsNotRun: Result := SItActionsNotRun;
     hcmUiAttach: Result := SItUiAttach;
     hcmUiAttachRemove: Result := SItUiAttachRemove;
     hcmUiChangeAssistant: Result := SItUiChangeAssistant;
@@ -1395,6 +1464,7 @@ begin
     hcmActionValues: Result := SEsActionValues;
     hcmActionConfirmTitle: Result := SEsActionConfirmTitle;
     hcmActionValuesFooter: Result := SEsActionValuesFooter;
+    hcmActionsNotRun: Result := SEsActionsNotRun;
     hcmUiAttach: Result := SEsUiAttach;
     hcmUiAttachRemove: Result := SEsUiAttachRemove;
     hcmUiChangeAssistant: Result := SEsUiChangeAssistant;
@@ -1517,6 +1587,7 @@ begin
     hcmActionValues: Result := SFrActionValues;
     hcmActionConfirmTitle: Result := SFrActionConfirmTitle;
     hcmActionValuesFooter: Result := SFrActionValuesFooter;
+    hcmActionsNotRun: Result := SFrActionsNotRun;
     hcmUiAttach: Result := SFrUiAttach;
     hcmUiAttachRemove: Result := SFrUiAttachRemove;
     hcmUiChangeAssistant: Result := SFrUiChangeAssistant;
@@ -1639,6 +1710,7 @@ begin
     hcmActionValues: Result := SDeActionValues;
     hcmActionConfirmTitle: Result := SDeActionConfirmTitle;
     hcmActionValuesFooter: Result := SDeActionValuesFooter;
+    hcmActionsNotRun: Result := SDeActionsNotRun;
     hcmUiAttach: Result := SDeUiAttach;
     hcmUiAttachRemove: Result := SDeUiAttachRemove;
     hcmUiChangeAssistant: Result := SDeUiChangeAssistant;
@@ -1761,6 +1833,7 @@ begin
     hcmActionValues: Result := SPtActionValues;
     hcmActionConfirmTitle: Result := SPtActionConfirmTitle;
     hcmActionValuesFooter: Result := SPtActionValuesFooter;
+    hcmActionsNotRun: Result := SPtActionsNotRun;
     hcmUiAttach: Result := SPtUiAttach;
     hcmUiAttachRemove: Result := SPtUiAttachRemove;
     hcmUiChangeAssistant: Result := SPtUiChangeAssistant;

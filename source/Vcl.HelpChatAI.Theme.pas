@@ -36,6 +36,13 @@
 ///  The accent is the more saturated of the hot and hot-border
 ///  colours of the table, since some styles use a pale hover and keep the
 ///  brand colour for the border.
+///
+///  The VCL has one active style per process, so every assistant of an
+///  application gets the same theme from here; what differs between them is
+///  what each adds afterwards (<c>PanelStyleSheet</c>, <c>OnGetTheme</c>).
+///  Nothing in this unit knows the chat: it turns a style into a record of
+///  <c>HelpChatAI.Theme</c>, and whoever serves the page decides how the
+///  record travels. Call it on the main thread: it reads the style services.
 /// </summary>
 unit Vcl.HelpChatAI.Theme;
 
@@ -50,30 +57,61 @@ uses
 
 type
   /// <summary>One row of the curated table: the colours StyledComponents
-  /// registers for a VCL style (RegisterThemeAttributes).</summary>
+  /// registers for a VCL style (RegisterThemeAttributes). Every colour is
+  /// "#rrggbb", lower case.</summary>
   THelpChatVclStyleColors = record
+    /// <summary>The name of the style as <c>TStyleManager</c> reports it.</summary>
     Name: string;
+    /// <summary>How StyledComponents classifies the style, which is not
+    /// always what its panel colour suggests ('Stellar', 'Obsidian' and
+    /// 'Vapor' are listed dark with a light panel). The theme takes it as
+    /// it is: it decides whether the page is forced white.</summary>
     IsDark: Boolean;
+    /// <summary>Text on a panel: the text of the chat.</summary>
     Text: string;
+    /// <summary>Text on the accent colour. Kept from the source table; the
+    /// theme does not read it, <c>THelpChatTheme.Complete</c> derives its
+    /// own from the accent.</summary>
     TextOnAccent: string;
+    /// <summary>Face of a button; equal to <c>Panel</c> in every row, and
+    /// not read by the theme.</summary>
     Button: string;
+    /// <summary>Face of a panel: the surfaces of the chat (header, footer,
+    /// assistant bubbles).</summary>
     Panel: string;
+    /// <summary>The hot (hover) colour of the style.</summary>
     Accent: string;
+    /// <summary>Border of a control at rest.</summary>
     Border: string;
+    /// <summary>Border of a hot control: where some styles keep their brand
+    /// colour, so the theme takes it as accent when it is the more
+    /// saturated of the two.</summary>
     BorderHot: string;
   end;
 
 /// <summary>Name of the active VCL style ('Windows' when none); the IDE
-/// designer styles are mapped to 'Windows' as StyledComponents does.</summary>
+/// designer styles are mapped to 'Windows' as StyledComponents does - which
+/// is what the design-time preview gets, since inside the IDE the active
+/// style is the IDE's own.</summary>
 function HelpChatActiveVclStyleName: string;
-/// <summary>Looks up a style in the curated table (case-insensitive).</summary>
+/// <summary>Looks up a style in the curated table (case-insensitive). False,
+/// with <c>AColors</c> emptied, for a style the table does not know - a
+/// third-party one, or one newer than this library.</summary>
 function HelpChatFindVclStyleColors(const AStyleName: string; out AColors: THelpChatVclStyleColors): Boolean;
-/// <summary>The theme of a VCL style: the active one when AStyleName is empty.</summary>
+/// <summary>The theme of a VCL style: the active one when AStyleName is empty.
+/// For a style that is not the active one only the table can answer, so a
+/// name the table does not know gets the colours of the active style under
+/// that name. The record comes back completed (<c>Complete</c>): every
+/// variable of the page has a value. The stylesheet of the application is
+/// not here - the component adds it.</summary>
 function HelpChatThemeFromVclStyle(const AStyleName: string = ''): THelpChatTheme;
 /// <summary>"#rrggbb" of a TColor (system colours resolved).</summary>
 function HelpChatColorToHex(const AColor: TColor): string;
 
 const
+  /// <summary>The curated table, one row per VCL style Delphi ships (and
+  /// the styles of the IDE designer). Taken from what StyledComponents
+  /// registers: a new style is a new row, and the bound of the array.</summary>
   HELPCHAT_VCL_STYLE_TABLE: array[0..116] of THelpChatVclStyleColors = (
     (Name: 'Windows'; IsDark: False; Text: '#000000'; TextOnAccent: '#000000'; Button: '#fdfdfd'; Panel: '#fdfdfd'; Accent: '#e0eef9'; Border: '#d0d0d0'; BorderHot: '#0078d4'),
     (Name: 'Amakrits'; IsDark: True; Text: '#ffffff'; TextOnAccent: '#000000'; Button: '#292929'; Panel: '#292929'; Accent: '#6ee4d3'; Border: '#020202'; BorderHot: '#020202'),

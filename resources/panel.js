@@ -206,11 +206,23 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-  function showSystem(text) {
+  // A system bubble (the answer of a command, a notice) is never stored, so
+  // the user may take it away: the X removes it from the page and nothing else.
+  function systemBubble(html) {
     var div = document.createElement('div');
     div.className = 'hc-chat-msg hc-chat-system';
-    div.innerHTML = '<div class="hc-chat-bubble">' + escapeHtml(text) + '</div>';
+    div.innerHTML = '<div class="hc-chat-bubble"><button type="button" class="hc-chat-dismiss"' +
+      ' title="' + escapeHtml(HC.labels.close || '') + '" aria-label="' + escapeHtml(HC.labels.close || '') +
+      '">&times;</button>' + html + '</div>';
+    div.querySelector('.hc-chat-dismiss').addEventListener('click', function () {
+      if (div.parentNode) div.parentNode.removeChild(div);
+      focusInput();
+    });
     body.appendChild(div);
+    return div;
+  }
+  function showSystem(text) {
+    systemBubble(escapeHtml(text));
     scrollBottom();
   }
   function setBusy(on) {
@@ -819,10 +831,7 @@
     return '<p class="hc-chat-cmd-title"><b>' + escapeHtml(title + ' (/' + name + '):') + '</b></p>';
   }
   function showSystemHtml(html) {
-    var div = document.createElement('div');
-    div.className = 'hc-chat-msg hc-chat-system';
-    div.innerHTML = '<div class="hc-chat-bubble">' + html + '</div>';
-    body.appendChild(div);
+    var div = systemBubble(html);
     // An answer taller than the panel is read from its heading, not from its end.
     if (div.offsetHeight > body.clientHeight) div.scrollIntoView({ block: 'start' }); else scrollBottom();
   }
@@ -1086,11 +1095,13 @@
   window.hcApplyTheme = function (vars) {
     var root = document.documentElement;
     var style = document.getElementById('hc-theme');
-    if (style) style.textContent = '';
+    // What stays in the element is the stylesheet of the application; the
+    // colours go on the root, where they win over a variable it sets.
+    if (style) style.textContent = (vars && vars.css) || '';
     var names = ['--hc-bg', '--hc-surface', '--hc-text', '--hc-muted', '--hc-border', '--hc-accent',
       '--hc-accent-text', '--hc-user-bg', '--hc-user-text', '--hc-assistant-bg', '--hc-assistant-text',
       '--hc-system-bg', '--hc-system-text', '--hc-error-bg', '--hc-error-text', '--hc-code-bg',
-      '--hc-shadow', '--hc-font'];
+      '--hc-link', '--hc-shadow', '--hc-font'];
     names.forEach(function (n) { root.style.removeProperty(n); });
     root.style.removeProperty('color-scheme');
     if (!vars) return;

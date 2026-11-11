@@ -246,14 +246,15 @@ begin
   Writeln('  --storage <mode>     memory | disk');
   Writeln('  --folder <dir>       where disk storage keeps the conversations');
   Writeln('  --idle <minutes>     end a session after this much inactivity');
-  Writeln('  --provider <name>    stub | docsearch | claude');
+  Writeln('  --provider <name>    stub | docsearch | claude | openai | gemini');
   Writeln('  --index <file>       documentation index (help-index.json)');
   Writeln('  --lang <auto|code>   language: en, it, es, fr, de, pt');
   Writeln('  --quiet              no log on the console');
   Writeln('  --help               this text');
   Writeln('');
-  Writeln('The API key of the model is read from the configuration file (Claude.ApiKey)');
-  Writeln('or from the ANTHROPIC_API_KEY environment variable, and never leaves this process.');
+  Writeln('The API key of the model is read from the configuration file (ApiKey in the');
+  Writeln('section of the provider: Claude, OpenAI, Gemini) or from its environment variable');
+  Writeln('(ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY), and never leaves this process.');
 end;
 
 function THelpChatServerApp.ParseCommandLine: Boolean;

@@ -763,7 +763,7 @@ begin
       AppSecretStoreApiKey('Claude', LProtected);
       // What stays in memory is the encrypted one, as if it had just been
       // read from the file: the clear text lives as long as the request.
-      HelpChat.Settings.Claude.ApiKey := LProtected;
+      HelpChat.Settings.Claude.ApiKeyEncrypted := LProtected;
     end);
 end;
 

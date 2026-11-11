@@ -8,7 +8,7 @@
 {       Licensed under the Apache License, Version 2.0                         }
 {                                                                              }
 {******************************************************************************}
-unit HelpChatAI.Tests.Assistants;
+unit HelpChatAI.Tests.Models;
 
 interface
 
@@ -20,13 +20,15 @@ uses
 
 type
   [TestFixture]
-  TAssistantsTests = class
+  TModelsTests = class
   public
     [Test] procedure Settings_NoList_IsTheImplicitOneOfTheProvider;
     [Test] procedure Settings_RoundTrip_ListAndActive;
     [Test] procedure Settings_LoadJson_ListReplacesWhole;
     [Test] procedure Settings_Apply_OverridesTheSection_AndIsReversible;
     [Test] procedure Settings_Apply_UnknownName_ChangesNothing;
+    [Test] procedure Settings_Apply_NoProviderOfItsOwn_IsTheConfiguredOne;
+    [Test] procedure Settings_KeyOfTheSection_NeverGoesToAnotherHost;
     [Test] procedure Settings_Assign_CarriesTheOverrides;
     [Test] procedure Icons_ModelFirst_ThenEndpoint_ThenProvider;
     [Test] procedure Icons_EveryShippedIdHasAnSvg_WithoutTitle;
@@ -38,32 +40,33 @@ type
 implementation
 
 uses
+  Winapi.Windows,
   System.SysUtils,
   HelpChatAI.Messages,
   HelpChatAI.Icons,
   HelpChatAI.Tests.Helpers;
 
-procedure TAssistantsTests.Settings_NoList_IsTheImplicitOneOfTheProvider;
+procedure TModelsTests.Settings_NoList_IsTheImplicitOneOfTheProvider;
 var
   LSettings: THelpChatSettings;
-  LList: TArray<THelpChatAssistantInfo>;
+  LList: TArray<THelpChatModelInfo>;
 begin
   LSettings := THelpChatSettings.Create;
   try
     LSettings.Provider := 'claude';
-    LList := LSettings.ResolveAssistants;
+    LList := LSettings.ResolveModels;
     Assert.AreEqual(1, Length(LList));
     Assert.AreEqual('Claude', LList[0].Name);
     Assert.AreEqual('claude', LList[0].Provider);
     Assert.AreEqual(HELPCHAT_CLAUDE_DEF_MODEL, LList[0].Model);
     Assert.IsTrue(LList[0].Active);
-    Assert.AreEqual('Claude', LSettings.ActiveAssistantName);
-    Assert.IsTrue(LSettings.ApplyAssistant('claude'), 'its own name, case apart, is accepted');
-    Assert.IsFalse(LSettings.ApplyAssistant('Gemini'), 'nothing else is there to switch to');
+    Assert.AreEqual('Claude', LSettings.ActiveModelName);
+    Assert.IsTrue(LSettings.ApplyModel('claude'), 'its own name, case apart, is accepted');
+    Assert.IsFalse(LSettings.ApplyModel('Gemini'), 'nothing else is there to switch to');
     Assert.AreEqual('claude', LSettings.Provider);
 
     LSettings.Provider := 'docsearch';
-    LList := LSettings.ResolveAssistants;
+    LList := LSettings.ResolveModels;
     Assert.AreEqual('docsearch', LList[0].Name);
     Assert.AreEqual('', LList[0].Model, 'no model behind it');
   finally
@@ -71,20 +74,20 @@ begin
   end;
 end;
 
-procedure TAssistantsTests.Settings_RoundTrip_ListAndActive;
+procedure TModelsTests.Settings_RoundTrip_ListAndActive;
 var
   LSource, LCopy: THelpChatSettings;
 begin
   LSource := THelpChatSettings.Create;
   LCopy := THelpChatSettings.Create;
   try
-    with LSource.Assistants.Add do
+    with LSource.Models.Add do
     begin
       Name := 'Claude';
       Provider := 'claude';
       Model := 'claude-haiku-4-5';
     end;
-    with LSource.Assistants.Add do
+    with LSource.Models.Add do
     begin
       Name := 'Gemma (locale)';
       Provider := 'openai';
@@ -93,67 +96,67 @@ begin
       ApiKey := 'none';
       Icon := 'gemma';
     end;
-    LSource.Assistant := 'Gemma (locale)';
+    LSource.SelectedModel := 'Gemma (locale)';
 
     LCopy.LoadFromJSON(LSource.SaveToJSON);
 
-    Assert.AreEqual(2, LCopy.Assistants.Count);
-    Assert.AreEqual('Claude', LCopy.Assistants[0].Name);
-    Assert.AreEqual('claude', LCopy.Assistants[0].Provider);
-    Assert.AreEqual('claude-haiku-4-5', LCopy.Assistants[0].Model);
-    Assert.AreEqual('Gemma (locale)', LCopy.Assistants[1].Name);
-    Assert.AreEqual('openai', LCopy.Assistants[1].Provider);
-    Assert.AreEqual('gemma4:12b', LCopy.Assistants[1].Model);
-    Assert.AreEqual('http://localhost:11434/v1', LCopy.Assistants[1].BaseUrl);
-    Assert.AreEqual('none', LCopy.Assistants[1].ApiKey);
-    Assert.AreEqual('gemma', LCopy.Assistants[1].Icon);
-    Assert.AreEqual('Gemma (locale)', LCopy.Assistant);
-    Assert.AreEqual('Gemma (locale)', LCopy.ActiveAssistantName);
+    Assert.AreEqual(2, LCopy.Models.Count);
+    Assert.AreEqual('Claude', LCopy.Models[0].Name);
+    Assert.AreEqual('claude', LCopy.Models[0].Provider);
+    Assert.AreEqual('claude-haiku-4-5', LCopy.Models[0].Model);
+    Assert.AreEqual('Gemma (locale)', LCopy.Models[1].Name);
+    Assert.AreEqual('openai', LCopy.Models[1].Provider);
+    Assert.AreEqual('gemma4:12b', LCopy.Models[1].Model);
+    Assert.AreEqual('http://localhost:11434/v1', LCopy.Models[1].BaseUrl);
+    Assert.AreEqual('none', LCopy.Models[1].ApiKey);
+    Assert.AreEqual('gemma', LCopy.Models[1].Icon);
+    Assert.AreEqual('Gemma (locale)', LCopy.SelectedModel);
+    Assert.AreEqual('Gemma (locale)', LCopy.ActiveModelName);
   finally
     LCopy.Free;
     LSource.Free;
   end;
 end;
 
-procedure TAssistantsTests.Settings_LoadJson_ListReplacesWhole;
+procedure TModelsTests.Settings_LoadJson_ListReplacesWhole;
 var
   LSettings: THelpChatSettings;
 begin
   LSettings := THelpChatSettings.Create;
   try
-    LSettings.LoadFromJSON('{"Assistants":[{"Name":"A","Provider":"claude"},' +
+    LSettings.LoadFromJSON('{"Models":[{"Name":"A","Provider":"claude"},' +
       '{"Name":"B","Provider":"gemini"}]}');
-    Assert.AreEqual(2, LSettings.Assistants.Count);
+    Assert.AreEqual(2, LSettings.Models.Count);
     // A later file with its own list is the list; one without leaves it.
-    LSettings.LoadFromJSON('{"Assistants":[{"Provider":"openai","Model":"gpt-x"}]}');
-    Assert.AreEqual(1, LSettings.Assistants.Count);
-    Assert.AreEqual('OpenAI gpt-x', LSettings.Assistants[0].Name, 'a nameless one is called by what it runs');
+    LSettings.LoadFromJSON('{"Models":[{"Provider":"openai","Model":"gpt-x"}]}');
+    Assert.AreEqual(1, LSettings.Models.Count);
+    Assert.AreEqual('OpenAI gpt-x', LSettings.Models[0].Name, 'a nameless one is called by what it runs');
     LSettings.LoadFromJSON('{"Provider":"claude"}');
-    Assert.AreEqual(1, LSettings.Assistants.Count);
-    Assert.AreEqual('OpenAI gpt-x', LSettings.ActiveAssistantName,
+    Assert.AreEqual(1, LSettings.Models.Count);
+    Assert.AreEqual('OpenAI gpt-x', LSettings.ActiveModelName,
       'Assistant empty: the first of the list');
   finally
     LSettings.Free;
   end;
 end;
 
-procedure TAssistantsTests.Settings_Apply_OverridesTheSection_AndIsReversible;
+procedure TModelsTests.Settings_Apply_OverridesTheSection_AndIsReversible;
 var
   LSettings: THelpChatSettings;
-  LList: TArray<THelpChatAssistantInfo>;
+  LList: TArray<THelpChatModelInfo>;
 begin
   LSettings := THelpChatSettings.Create;
   try
     LSettings.Provider := 'claude';
     LSettings.Claude.Model := 'claude-configured';
     LSettings.OpenAI.ApiKey := 'sk-configured';
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'Anthropic';
       Provider := 'claude';
       Model := 'claude-other';
     end;
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'Local';
       Provider := 'openai';
@@ -161,33 +164,33 @@ begin
       BaseUrl := 'http://localhost:11434/v1/';
       ApiKey := 'ollama';
     end;
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'Cloud';
       Provider := 'openai';   // no model, no endpoint: the section's own
     end;
 
-    Assert.IsTrue(LSettings.ApplyAssistant('local'));
+    Assert.IsTrue(LSettings.ApplyModel('local'));
     Assert.AreEqual('openai', LSettings.Provider);
-    Assert.AreEqual('Local', LSettings.Assistant);
+    Assert.AreEqual('Local', LSettings.SelectedModel);
     Assert.AreEqual('gemma4:12b', LSettings.OpenAI.ResolveModel);
     Assert.AreEqual('http://localhost:11434/v1', LSettings.OpenAI.NormalizedBaseUrl);
     Assert.AreEqual('ollama', LSettings.OpenAI.ResolveApiKey);
     Assert.AreEqual('', LSettings.OpenAI.Model, 'the configuration is not rewritten');
     Assert.AreEqual(HELPCHAT_OPENAI_DEF_MODEL, LSettings.OpenAI.ConfiguredModel);
 
-    Assert.IsTrue(LSettings.ApplyAssistant('Cloud'));
+    Assert.IsTrue(LSettings.ApplyModel('Cloud'));
     Assert.AreEqual(HELPCHAT_OPENAI_DEF_MODEL, LSettings.OpenAI.ResolveModel, 'the override is gone');
     Assert.AreEqual(HELPCHAT_OPENAI_DEF_BASEURL, LSettings.OpenAI.NormalizedBaseUrl);
     Assert.AreEqual('sk-configured', LSettings.OpenAI.ResolveApiKey);
 
-    Assert.IsTrue(LSettings.ApplyAssistant('Anthropic'));
+    Assert.IsTrue(LSettings.ApplyModel('Anthropic'));
     Assert.AreEqual('claude', LSettings.Provider);
     Assert.AreEqual('claude-other', LSettings.Claude.ResolveModel);
     Assert.AreEqual('claude-configured', LSettings.Claude.ConfiguredModel);
 
     // The list describes each one on its own, whatever is applied.
-    LList := LSettings.ResolveAssistants;
+    LList := LSettings.ResolveModels;
     Assert.AreEqual(3, Length(LList));
     Assert.AreEqual('claude-other', LList[0].Model);
     Assert.IsTrue(LList[0].Active);
@@ -201,56 +204,90 @@ begin
   end;
 end;
 
-procedure TAssistantsTests.Settings_Apply_UnknownName_ChangesNothing;
+procedure TModelsTests.Settings_Apply_NoProviderOfItsOwn_IsTheConfiguredOne;
+var
+  LSettings: THelpChatSettings;
+  LList: TArray<THelpChatModelInfo>;
+begin
+  // A model that names no provider runs on the configured one - also after
+  // the user went through a model of another provider and came back.
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.Provider := 'claude';
+    with LSettings.Models.Add do
+    begin
+      Name := 'Default';
+      Model := 'claude-other';
+    end;
+    with LSettings.Models.Add do
+    begin
+      Name := 'Local';
+      Provider := 'openai';
+      Model := 'gemma4';
+    end;
+    Assert.IsTrue(LSettings.ApplyModel('Local'));
+    Assert.AreEqual('openai', LSettings.Provider);
+    LList := LSettings.ResolveModels;
+    Assert.AreEqual('claude', LList[0].Provider,
+      'the list describes each model on its own, whichever is in use');
+    Assert.IsTrue(LSettings.ApplyModel('Default'));
+    Assert.AreEqual('claude', LSettings.Provider, 'back to the configured provider');
+    Assert.AreEqual('claude-other', LSettings.Claude.ResolveModel);
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TModelsTests.Settings_Apply_UnknownName_ChangesNothing;
 var
   LSettings: THelpChatSettings;
 begin
   LSettings := THelpChatSettings.Create;
   try
     LSettings.Provider := 'claude';
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'A';
       Provider := 'gemini';
     end;
-    Assert.IsFalse(LSettings.ApplyAssistant('B'));
+    Assert.IsFalse(LSettings.ApplyModel('B'));
     Assert.AreEqual('claude', LSettings.Provider);
-    Assert.AreEqual('', LSettings.Assistant);
-    Assert.AreEqual('A', LSettings.ActiveAssistantName, 'the first of the list, until one is applied');
+    Assert.AreEqual('', LSettings.SelectedModel);
+    Assert.AreEqual('A', LSettings.ActiveModelName, 'the first of the list, until one is applied');
   finally
     LSettings.Free;
   end;
 end;
 
-procedure TAssistantsTests.Settings_Assign_CarriesTheOverrides;
+procedure TModelsTests.Settings_Assign_CarriesTheOverrides;
 var
   LSettings, LCopy: THelpChatSettings;
 begin
   LSettings := THelpChatSettings.Create;
   LCopy := THelpChatSettings.Create;
   try
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'Local';
       Provider := 'openai';
       Model := 'qwen3-coder:30b';
       BaseUrl := 'http://localhost:11434/v1';
     end;
-    LSettings.ApplyAssistant('Local');
+    LSettings.ApplyModel('Local');
     // What a request works on is a snapshot: it must see the same model.
     LCopy.Assign(LSettings);
     Assert.AreEqual('openai', LCopy.Provider);
     Assert.AreEqual('qwen3-coder:30b', LCopy.OpenAI.ResolveModel);
     Assert.AreEqual('http://localhost:11434/v1', LCopy.OpenAI.NormalizedBaseUrl);
-    Assert.AreEqual(1, LCopy.Assistants.Count);
-    Assert.AreEqual('Local', LCopy.Assistant);
+    Assert.AreEqual(1, LCopy.Models.Count);
+    Assert.AreEqual('Local', LCopy.SelectedModel);
   finally
     LCopy.Free;
     LSettings.Free;
   end;
 end;
 
-procedure TAssistantsTests.Icons_ModelFirst_ThenEndpoint_ThenProvider;
+procedure TModelsTests.Icons_ModelFirst_ThenEndpoint_ThenProvider;
 begin
   Assert.AreEqual('claude', HelpChatProviderIconFor('claude-haiku-4-5', '', 'claude'));
   Assert.AreEqual('gemini', HelpChatProviderIconFor('gemini-3.8-flash', '', 'gemini'));
@@ -279,7 +316,7 @@ begin
   Assert.AreEqual('', HelpChatProviderIconFor('', '', TEST_PROVIDER_ECHO));
 end;
 
-procedure TAssistantsTests.Icons_EveryShippedIdHasAnSvg_WithoutTitle;
+procedure TModelsTests.Icons_EveryShippedIdHasAnSvg_WithoutTitle;
 var
   LId, LSvg: string;
 begin
@@ -296,7 +333,7 @@ begin
   Assert.AreEqual('', HelpChatProviderIconSvg(''));
 end;
 
-procedure TAssistantsTests.Flags_EveryLanguageHasOne;
+procedure TModelsTests.Flags_EveryLanguageHasOne;
 var
   L: THelpChatLanguage;
   LSvg: string;
@@ -312,24 +349,24 @@ begin
   Assert.AreEqual('', HelpChatFlagSvg('../'), 'the code becomes a resource name');
 end;
 
-procedure TAssistantsTests.Engine_Select_ChangesTheNextRequest;
+procedure TModelsTests.Engine_Select_ChangesTheNextRequest;
 var
   LSettings: THelpChatSettings;
   LEngine: THelpChatEngine;
   LResult: THelpChatSendResult;
   LMessage: THelpChatMessage;
-  LList: TArray<THelpChatAssistantInfo>;
+  LList: TArray<THelpChatModelInfo>;
 begin
   LSettings := THelpChatSettings.Create;
   try
     LSettings.PersistConversation := False;
     LSettings.DocIndexFile := 'Z:\no\index.json';
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'Echo';
       Provider := TEST_PROVIDER_ECHO;
     end;
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'Broken';
       Provider := TEST_PROVIDER_FAIL;
@@ -338,8 +375,8 @@ begin
     try
       LEngine.Start;
       Assert.AreEqual(TEST_PROVIDER_ECHO, LSettings.Provider, 'Start applies the first of the list');
-      Assert.IsTrue(LEngine.CanSelectAssistant);
-      LList := LEngine.Assistants;
+      Assert.IsTrue(LEngine.CanSelectModel);
+      LList := LEngine.Models;
       Assert.AreEqual(2, Length(LList));
       Assert.AreEqual('', LList[0].Icon, 'a test provider has no icon');
 
@@ -350,8 +387,8 @@ begin
         end));
       Assert.IsTrue(LMessage.Content.StartsWith('echo:'), LMessage.Content);
 
-      Assert.IsTrue(LEngine.SelectAssistant('Broken'));
-      Assert.AreEqual('Broken', LEngine.ActiveAssistant.Name);
+      Assert.IsTrue(LEngine.SelectModel('Broken'));
+      Assert.AreEqual('Broken', LEngine.ActiveModelInfo.Name);
       LResult := LEngine.Send('hello again');
       Assert.IsTrue(WaitFor(function: Boolean
         begin
@@ -359,8 +396,8 @@ begin
         end));
       Assert.IsTrue(LMessage.IsError, 'the failing provider answered this one');
 
-      Assert.IsFalse(LEngine.SelectAssistant('Nobody'));
-      Assert.AreEqual('Broken', LEngine.ActiveAssistant.Name);
+      Assert.IsFalse(LEngine.SelectModel('Nobody'));
+      Assert.AreEqual('Broken', LEngine.ActiveModelInfo.Name);
     finally
       LEngine.Free;
     end;
@@ -369,7 +406,7 @@ begin
   end;
 end;
 
-procedure TAssistantsTests.Engine_Start_AppliesTheConfiguredOne;
+procedure TModelsTests.Engine_Start_AppliesTheConfiguredOne;
 var
   LSettings: THelpChatSettings;
   LEngine: THelpChatEngine;
@@ -379,23 +416,23 @@ begin
     LSettings.PersistConversation := False;
     LSettings.DocIndexFile := 'Z:\no\index.json';
     LSettings.Provider := 'claude';   // what the list says wins over this
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'Echo';
       Provider := TEST_PROVIDER_ECHO;
     end;
-    with LSettings.Assistants.Add do
+    with LSettings.Models.Add do
     begin
       Name := 'Slow';
       Provider := TEST_PROVIDER_SLOW;
     end;
-    LSettings.Assistant := 'Slow';
+    LSettings.SelectedModel := 'Slow';
     LEngine := THelpChatEngine.Create(LSettings);
     try
       LEngine.Start;
       Assert.AreEqual(TEST_PROVIDER_SLOW, LSettings.Provider);
-      Assert.AreEqual('Slow', LEngine.ActiveAssistant.Name);
-      Assert.IsTrue(LEngine.ActiveAssistant.Active);
+      Assert.AreEqual('Slow', LEngine.ActiveModelInfo.Name);
+      Assert.IsTrue(LEngine.ActiveModelInfo.Active);
     finally
       LEngine.Free;
     end;
@@ -404,7 +441,69 @@ begin
   end;
 end;
 
+procedure TModelsTests.Settings_KeyOfTheSection_NeverGoesToAnotherHost;
+var
+  LSettings: THelpChatSettings;
+  LSaved: string;
+begin
+  // A model served by another host and with no key of its own must not be
+  // sent the key of api.openai.com; a path on the same host still is.
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.OpenAI.ApiKey := 'sk-openai';
+    with LSettings.Models.Add do
+    begin
+      Name := 'Lan';
+      Provider := 'openai';
+      BaseUrl := 'http://192.168.1.20:11434/v1';
+    end;
+    with LSettings.Models.Add do
+    begin
+      Name := 'SameHost';
+      Provider := 'openai';
+      BaseUrl := HELPCHAT_OPENAI_DEF_BASEURL + '/v1/';
+    end;
+    with LSettings.Models.Add do
+    begin
+      Name := 'Groq';
+      Provider := 'openai';
+      BaseUrl := 'https://api.groq.com/openai/v1';
+      ApiKey := 'gsk-own';
+    end;
+    Assert.IsTrue(LSettings.ApplyModel('Lan'));
+    Assert.AreEqual('', LSettings.OpenAI.ResolveApiKey, 'another host, no key of its own');
+    Assert.IsTrue(LSettings.ApplyModel('SameHost'));
+    Assert.AreEqual('sk-openai', LSettings.OpenAI.ResolveApiKey, 'the same service');
+    Assert.IsTrue(LSettings.ApplyModel('Groq'));
+    Assert.AreEqual('gsk-own', LSettings.OpenAI.ResolveApiKey);
+
+    // The same for the environment variable, which is named after the
+    // service: a section pointed at another server does not get it.
+    LSaved := GetEnvironmentVariable(HELPCHAT_OPENAI_APIKEY_ENVVAR);
+    SetEnvironmentVariable(PChar(HELPCHAT_OPENAI_APIKEY_ENVVAR), 'sk-env');
+    try
+      LSettings.SelectedModel := '';
+      LSettings.Models.Clear;
+      LSettings.OpenAI.ClearOverrides;   // what the model in use had brought
+      LSettings.Provider := 'openai';
+      LSettings.OpenAI.ApiKey := '';
+      Assert.AreEqual('sk-env', LSettings.OpenAI.ResolveApiKey, 'the service itself');
+      LSettings.OpenAI.BaseUrl := 'http://localhost:11434/v1';
+      Assert.AreEqual('', LSettings.OpenAI.ResolveApiKey, 'not to a server that is not OpenAI');
+      LSettings.OpenAI.ApiKey := 'own';
+      Assert.AreEqual('own', LSettings.OpenAI.ResolveApiKey, 'the key written for it still is');
+    finally
+      if LSaved = '' then
+        SetEnvironmentVariable(PChar(HELPCHAT_OPENAI_APIKEY_ENVVAR), nil)
+      else
+        SetEnvironmentVariable(PChar(HELPCHAT_OPENAI_APIKEY_ENVVAR), PChar(LSaved));
+    end;
+  finally
+    LSettings.Free;
+  end;
+end;
+
 initialization
-  TDUnitX.RegisterTestFixture(TAssistantsTests);
+  TDUnitX.RegisterTestFixture(TModelsTests);
 
 end.

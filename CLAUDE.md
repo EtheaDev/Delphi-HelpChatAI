@@ -56,6 +56,9 @@ Setup/                   Setup.iss, BuildSetup.bat and HelpChatSetup.ico, the ic
 README.htm               README.md as HTML, installed and linked as ReadMe in the Start menu:
                          the maintainer regenerates it after reviewing README.md, so an
                          agent never edits it - change README.md and say the HTML is due
+InternalDocs/            design notes and analyses, not published: the agent that syncs GitHub
+                         ignores this folder (Configuration-Profiles.md: several assistants in
+                         one application, the design shipped in 1.7.0)
 Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
 "CRM Demo"/              the sample application, in two frameworks: the Windows 10 CRM demo
                          of Embarcadero with HelpChatAI in it, and one manual for both in
@@ -215,18 +218,40 @@ the edit on every version, not on the one that happens to be open.
   know it, exactly like the colours. The icon is a `data:image/png` URI and nothing else is
   accepted (`AssistantIconTag` checks the prefix): the CSP of the page allows `'self'` and
   `data:` for an image, so an http URL would be dropped without a word.
-- **An assistant is a name over a provider, and the list lives in the engine.**
-  `Settings.Assistants` (`THelpChatAssistantSettings`: Name, Provider, Model, BaseUrl, ApiKey,
-  Icon) is what the user may switch between; `Settings.Assistant` is the one in use. One per
+- **The profile is the assistant; the panel switches models.** Since 1.7 three names for three
+  things (design and log: `InternalDocs/Configuration-Profiles.md`): `AssistantName` is what the
+  user reads ("Giulio"), `Profile` (component, copied to `Settings.Profile`, never read from a
+  file) is the key of its section under `"Profiles"` in the configuration, `Models` is the
+  drop-down of the panel. `THelpChatSettings.LoadFromJSON` applies the root of a file and then,
+  on top, `Profiles.<Profile>` with the same keys (`LoadFromJSONObject`); in a profile a
+  `Models` entry may be a bare name, a model of the catalogue already loaded. The catalogue
+  is kept apart from the list (`FCatalogue`: the list of the last root that had one, else the
+  component's own): a profile narrows `Models` to what it offers, and the profile of the
+  file read next must still be able to name another model of the same catalogue - with the
+  list as the catalogue, that raised "not a model of the configuration". `Instructions`
+  (what the expert is) and `SystemPrompt` (replaces the built-in rules) live at the root, not in
+  a provider section: switching model must not change the expert, so `ResolveSystemPrompt` is
+  on the settings. The conversation, state and window files carry the profile in their name
+  (`ProfileFileName`), the default assistant keeping today's. The keys of 1.6 (`Assistants`,
+  `Assistant`, `<Provider>.SystemPrompt`) raise `EHelpChatConfigError` instead of being ignored:
+  a drop-down empty for no visible reason is worse than an error that names the new key.
+- **A model is a name over a provider, and the list lives in the engine.**
+  `Settings.Models` (`THelpChatModelEntry`: Name, Provider, Model, BaseUrl, ApiKey,
+  Icon) is what the user may switch between; `Settings.SelectedModel` is the one in use. One per
   provider would not do: three local models on one Ollama are three entries on `openai`. The
-  sections keep the configuration as the file had it: `ApplyAssistant` sets `Provider` and
+  sections keep the configuration as the file had it: `ApplyModel` sets `Provider` and
   puts model, endpoint and key as **overrides** on the section (`SetOverrides`, read by
   `ResolveModel`, `NormalizedBaseUrl`, `RawApiKey`, copied by `Assign`, never saved), so a
   switch is reversible and the Object Inspector never shows a value the panel wrote. A
-  provider must therefore read `ResolveModel`, never `Model`. With no list, `Provider` is the
-  one implicit assistant and nothing can be switched (`CanSelectAssistant`). The engine applies
+  provider must therefore read `ResolveModel`, never `Model`. `Provider` itself is overridden
+  the same way: while a model that names a provider is in use it reads as that one, and
+  `ConfiguredProvider` is what the configuration said - what a model with no provider of its
+  own goes back to, what `ResolveModels` describes such a model with, and what `SaveToJSON`
+  writes (writing `Provider`, from code or from a file, sets the configured one again).
+  With no list, `Provider` is the
+  one implicit model and nothing can be switched (`CanSelectModel`). The engine applies
   the active one in `Start` - before the index reads `GroundingMaxChars` - and remembers the
-  choice in `helpchatai-state.json` next to the conversation file, never in a configuration
+  choice in `helpchatai-state[-<Profile>].json` next to the conversation file, never in a configuration
   file. The page asks `GET /api/assistants` the way it asks for the history, posts
   `/api/assistant/select`, and a remote server answers 403 to that: the engine there is
   everybody's. The icon is an id of `HelpChatAI.Icons` (lobe-icons SVG in
@@ -234,7 +259,7 @@ the edit on every version, not on the one that happens to be open.
   the others), deduced by `HelpChatProviderIconFor` from the model name first, the endpoint
   second, the provider last - a `gemma4` served by `openai` shows Gemma - and served inline in
   the JSON so that a monochrome icon (`currentColor`) follows the theme; `docsearch` and `stub`
-  get none, and the page shows no badge for a lone assistant without one. `ApplyAssistant` and
+  get none, and the page shows no badge for a lone model without one. `ApplyModel` and
   `Assign` share a `TMonitor` lock: the switch arrives on an HTTP thread while a worker
   snapshots the settings.
 - **The language is the engine's too, and the user picks it the same way.** Six of them
@@ -287,7 +312,7 @@ the edit on every version, not on the one that happens to be open.
   `ExecuteCommand` (any command, enabled or not: the page posts `host=1`, which only
   `THelpChatLocalServer` honours through `HostMayRunAnyCommand`), `ExplainCommand` (the same
   answer as plain text, no panel; never runs `run`, which would wait for the calling main
-  thread), `ClearConversation`, `Assistants`/`SelectAssistant`, `RetryLastQuestion`,
+  thread), `ClearConversation`, `Models`/`SelectModel`, `RetryLastQuestion`,
   `SaveConversationPdf`, `CopyLastAnswer`, `AttachFile`. A new button or command gets its method
   on both components in the same change.
 - **The alpha of an image list cannot be read back.** GDI writes no alpha channel, so a bitmap
@@ -315,7 +340,14 @@ the edit on every version, not on the one that happens to be open.
   outbound call = a new placeholder there and in `THelpChatPanel.RenderPage`.
 - **A remote transport connects on first use, not on Active.** An application whose help server
   is down or unreachable must still start; the failure belongs to the moment the user asks for
-  help. `IsActive` means "ready", `HasSession` means "a conversation is open".
+  help. `IsActive` means "ready", `HasSession` means "a conversation is open". **A session
+  the server expired is opened again, not kept**: every call of the session goes through
+  `SessionCall`, a 403 opens a new session and repeats the call, and `GetPanelUrl` checks a
+  session that was quiet for `HELPCHAT_REMOTE_CHECK_SECONDS`. The URL then carries another
+  token, so the components ask `GetPanelUrl` at every opening and reload the page when it
+  differs from the one loaded. On the server a session that ends is **retired, not freed**
+  (`Retire`/`PurgeRetired`, `HELPCHAT_REMOTE_RETIRE_SECONDS`): a request that found it a
+  moment earlier is using it outside the lock.
 - **The panel is one self-contained page.** Edit `resources/*`, run `Tools\BuildResources.cmd`
   (brcc32 -> `source/HelpChatAI.Panel.res`), rebuild. The API contract (paths, token header,
   HTML fragments, `data-pending`) is in `HelpChatAI.Panel` and `panel.js`; the server tests
@@ -369,11 +401,40 @@ the edit on every version, not on the one that happens to be open.
   Deepest `HelpKeyword`/`HelpContext` wins (focused control upwards, form last); the active
   `TTabSheet` caption is the screen label.
 - **F1 goes through the Delphi help system (VCL).** `THelpChatHelpViewer` (`HelpChatAI.HelpViewer`,
-  RTL: ICustomHelpViewer + IExtendedHelpViewer registered via `System.HelpIntfs.RegisterViewer`,
-  the component implements `IHelpChatHelpTarget`) receives keyword and context requests; the
-  `TApplicationEvents.OnMessage` F1 handler only steps in when no control in the chain declares
-  help, ignores key auto-repeat, and `OpenWithQuestion` debounces the same question within
-  1.5 s. Do not hook `Application.OnHelp`.
+  RTL: ICustomHelpViewer + IExtendedHelpViewer registered via `System.HelpIntfs.RegisterViewer`)
+  receives keyword and context requests; the `TApplicationEvents.OnMessage` F1 handler only
+  steps in when no control in the chain declares help, ignores key auto-repeat, and
+  `OpenWithQuestion` debounces the same question within 1.5 s. Do not hook `Application.OnHelp`.
+- **F1 belongs to the application, so it has one owner per process.** Several assistants may be
+  active at once, each on its own form (`ResolveHostForm`: `HostForm`, else the form that owns
+  the component - through a frame -, else the main form). The process-wide half lives in a
+  coordinator in the implementation of each component unit (`TVclHelpChatCoordinator`,
+  `TFmxHelpChatCoordinator`), created by the first active assistant and freed with the last:
+  **one** `TApplicationEvents` and **one** help viewer (implementing `IHelpChatHelpTarget`), and
+  the active assistants with the most recently active first. With one per component, two
+  assistants answered the same key and the help manager had two viewers to choose between. F1
+  goes to the assistant of the active form, else to the one whose form was active last
+  (`CurrentAssistant`); a help request goes to the assistant of the form of the focused
+  control. The VCL notices activation by comparing `Screen.ActiveCustomForm` on every message
+  (no form is hooked) - which only sees what a dispatched message or an idle turn shows: two
+  forms activated by code with nothing posted in between, and the first was never noticed
+  (a test that passed or failed with the timing showed it). So when the active form hosts no
+  assistant the coordinator asks `Screen.CustomForms` first (`MostRecentItem`): the VCL keeps
+  it with the form focused last first, while the focus moves, and the tracked list is only
+  the fallback. FMX subscribes to `TFormActivateMessage`, and the `OnKeyDown` of each host
+  form is chained **once per form**, by a `TFmxFormKeyHook` the assistants of that form share
+  (`HandleKeyDown` forwarding to the coordinator); the VCL bubbles do the same with the
+  `WindowProc` of their parent (`TBubbleParentHook`). Each assistant used to chain by itself
+  and keep the handler it found: with two on one form the one that left first could not
+  unhook, and stayed in the chain of the other as a method of a freed object. A hook that
+  cannot be removed (somebody hooked after it) stays, passing things on, until its form goes.
+  And **a free notification is never removed** for a form or a container: it is not counted,
+  the same form is usually `HostForm`, hooked form and container at once, and removing it
+  for one cancelled it for the others. The
+  viewer is registered only while some assistant has `RegisterHelpViewer`, because the
+  design-time preview runs a component inside the IDE. The coordinator never frees its
+  `TApplicationEvents` from inside its own handler: it waits for the next idle turn.
+  `HelpChatAI.Tests.Coordinator` activates real forms to check all of it.
 - **FMX differs where FMX differs.** No help routing: `TFmxHelpChatAI` chains the host form's
   `OnKeyDown` (previous handler first) and offers `HandleKeyDown` for other forms. Help
   properties live on `TStyledControl` (forms have none); with nothing focused the active tab of
@@ -407,7 +468,8 @@ the edit on every version, not on the one that happens to be open.
   icon keeps its alpha through `HelpChatIconBitmap` (the white/black trick below). It is raised with `SetWindowPos(HWND_TOP)`, and it
   hooks its parent's `WindowProc` to post itself `HELPCHAT_CM_BRINGTOTOP` whenever the host
   adds a child or is resized (`CM_CONTROLLISTCHANGE`, `WM_PARENTNOTIFY`, `WM_SIZE`). The hook
-  is restored only while the chain is still ours. FMX needs none of this: there everything is
+  is one per parent, shared by its bubbles (see the coordinator rule), and is restored only
+  while the chain is still ours. FMX needs none of this: there everything is
   drawn, so a control cannot hide another.
 - **The icon follows the Delphi contract, and ships its own fallback.** `Images`, `ImageIndex`
   and `ImageName` live on the bubble and are mirrored by `TVclHelpChatAI`: an image list of the
@@ -440,6 +502,17 @@ the edit on every version, not on the one that happens to be open.
   page load and pushed with `window.hcApplyTheme` at runtime. Per-framework producers:
   `Vcl.HelpChatAI.Theme` (table of VCL styles + StyleServices fallback), FMX to come. Adding a
   variable = panel.css + `ForEachVariable` in HelpChatAI.Theme + the `names` list in panel.js.
+- **The application's CSS travels with the theme, ahead of the colours.** `PanelStyleSheet`
+  (a `TFileName` on both components, next to `PdfStyleSheet`, read once at activation, a
+  named file that is missing raises `EHelpChatConfigError`) fills `THelpChatTheme.StyleSheet`
+  before `OnGetTheme`, which may change it. `ToCss` writes it **before** the `:root` rule and
+  `ToJson` carries it as `"css"`, which `hcApplyTheme` puts back into `<style id="hc-theme">`
+  while the colours go on the root element: so the `--hc-*` variables stay the theme's at load
+  and at runtime alike, and the CSS reaches a remote session through the same `themeCss` post,
+  with no endpoint of its own. `RenderPage` passes it through `CssForStyleTag` ("</" can never
+  close the element: a remote client posts it). `--hc-radius` is the one variable no theme
+  sets, so a stylesheet owns it. The classes `hc-chat-*` are the contract such a file relies
+  on: renaming one is a breaking change, to be written in the release notes.
 - **The WebView is confined.** `TVclHelpChatAIPanel` cancels every navigation outside the
   panel origin and hands the link to `OnOpenLink`, else opens http(s)/mailto links in the
   system browser; new windows likewise. `panel.js` never lets a link navigate the panel:
@@ -459,7 +532,12 @@ the edit on every version, not on the one that happens to be open.
   detaches stuck workers; they must never touch a freed store (the shared state pattern in
   `HelpChatAI.Runner`).
 - **Settings are snapshotted per request** (`THelpChatSettings.Assign`). Providers read their
-  copy; property changes apply to the next message.
+  copy; property changes apply to the next message. The snapshot is also where the provider
+  and the language of a reply are decided (`THelpChatRunner.Submit`): the engine passes no
+  provider name, so name, endpoint and key are of the same model even when the user switches
+  meanwhile, and `Language` is written as `ResolveLanguage` - left as `hclAuto`, every
+  message of a provider resolved against `HelpChatDefaultLanguage`, which is per process
+  while engines are per profile.
 - **Model output is untrusted.** Render only through `HelpChatMarkdownToSafeHtml` (safe mode +
   `HelpChatSanitizeUrls`, then `HelpChatAutoLinkUrls` for bare URLs the model writes as text).
   The dialect is **mdGFM**, not CommonMark: models answer with tables, strikethrough and task
@@ -548,8 +626,14 @@ the edit on every version, not on the one that happens to be open.
 - **The configuration check is RTL, the design-time glue is not.** `HelpChatAI.Diagnostics`
   (engine package) answers "would this work?" over a `THelpChatSettings`: provider, key, index,
   pages folder, or the remote server when one is configured. `HelpChatSettingsForFolder` builds
-  the copy an application living in a given folder would see — paths expanded, the two
-  `helpchatai.json` merged. Everything that needs the IDE stays in the design packages: the
+  the copy an application living in a given folder would see — paths expanded, the
+  `helpchatai.json` files merged (the per-user one too, when told which executable it is).
+  With a catalogue of models the provider checked is the one of the model the engine would
+  apply (`ActiveModelName`), `DocAreas` is compared with the areas the index has, and two
+  routines take what the settings alone cannot tell: `HelpChatCheckProfile` (the files that
+  were read: a profile none of them defines is a warning) and `HelpChatCheckActions` (the
+  actions of the running application, for `/check`: a name of `AllowedActions` nobody
+  registered). Everything that needs the IDE stays in the design packages: the
   output folder of the active project (`GetActiveProject`, `ExpandRootMacro`) and the WebView2
   loader. Those ~20 lines are duplicated in `FMX.HelpChatAI.Register` on purpose: sharing them
   would mean `dclHelpChatAIFmx` requiring `dclHelpChatAIVcl`, and with it the whole VCL runtime.
@@ -562,6 +646,29 @@ the edit on every version, not on the one that happens to be open.
   `bds.exe` and the RTL only ever asks for the bare name — once the module is in the process,
   that bare name finds it. The About box and the splash are registered by the VCL design
   package alone: one library, one entry.
+- **The configuration editor is two views over one controller.** `HelpChatAI.ConfigController`
+  (engine package, RTL) holds every rule: the files a component reads (`FilesFor`: shared,
+  application, per-user of the project's executable - never of bds.exe - or the one
+  `ConfigFileName` names), one edited at a time in a `TJSONObject` so that a file written by
+  hand keeps its other keys in their order (a value is replaced in place, `TJSONPair.JsonValue`),
+  the root or the profile, the catalogue of models (an `ApiKeyEncrypted` already there is kept),
+  opened first on the file the configuration comes from (`ConfiguringFile`: the last file read
+  that defines the profile, else that sets a value other than a key, else that holds a key, else
+  the application's - always the application's opened an empty file while the shared one held
+  everything), a Help button on `HELPCHAT_CONFIG_EDITOR_HELP_URL` (the `Component-Editor` page),
+  and the provenance of every value - defaults, component, then each file's root and profile,
+  applied one at a time and diffed through `SaveToJSON`, plus the keys a layer writes even with
+  the value already in force. `Vcl.HelpChatAI.ConfigEditor` (dclHelpChatAIVcl, a DFM) and
+  `FMX.HelpChatAI.ConfigEditor` (dclHelpChatAIFmx, an FMX form, FireMonkey controls) are
+  clones that show and forward, with the same `Execute` contract; neither design package
+  requires the other. It is verb 0, so a double click opens it. The VCL one follows the light
+  or dark theme of the IDE in its `FormCreate` (`IDETheme.Utils`, from `designide`: the panels
+  painted with the colours of `ThemeProperties.StyleServices`, `IDEThemeManager.RegisterFormClass`,
+  `ThemeProperties.ApplyTheme`; the theme font by hand on 10.4 only), the way the editors of
+  SVGIconImageList do - which is also where the FireMonkey twin would take its light and dark
+  style books from, if it is to follow the IDE as well. Secrets: the clear node only,
+  masked, never into the DFM (`SetComponentValue` refuses). `HelpChatAI.Tests.ConfigController`
+  tests the rules without a view; the forms were checked by loading them in a harness.
 - **What the Object Inspector shows is a design decision.** `HostForm` is public, not
   published: at design time the form of another unit is not a component of this one, so the
   combo would always be empty. `Container` has an editor that lists only the controls with
@@ -610,6 +717,45 @@ the edit on every version, not on the one that happens to be open.
   `TVclHelpChatImageNameProperty` (the pattern of SVGIconImageList and StyledComponents:
   `ICustomPropertyListDrawing`, the images drawn in the drop-down). With no `Images` of the
   application they list the built-in icons, which is the only way to discover their names.
+- **One engine per profile, and the actions travel with the question.** Two instances of one
+  form are two components with the same profile: `THelpChatEngines.Acquire(Self, FSettings)`
+  (`HelpChatAI.Engine`) hands both the engine of that profile - created by the first with a
+  **copy** of its settings, freed by the last `Release` - so the index is loaded once and the
+  conversation is one. The components read `RunSettings` (the engine's while active) for what
+  the user changes in the panel, never their own `Settings`. The copy's secret handler is a
+  proxy that asks the assistants still holding the engine, and the registry entries live as
+  long as the process: a reply in flight carries that handler in its snapshot. An engine has
+  no actions of its own any more: each component gives its broker to its transport
+  (`IHelpChatTransport.SetActions`), the session hands it to `THelpChatEngine.Send(..., AActions)`
+  and to `THelpChatCommandRequest.Actions`, so `create_order` fills the window it was asked
+  from. `THelpChatEngine.Actions` remains for code that drives an engine by itself (the
+  console server, the tests). Two things follow from an engine that outlives each of its
+  assistants. **What the user changes in the panel is the engine's**: `ActiveLanguage`,
+  `LanguageChanged` and the language of the process at activation read `RunSettings`, never
+  the component's own `Settings` - reading those took the process back to the configured
+  language the moment the user picked another. **A reply may call an action of a window that
+  is gone**: closing one of two windows no longer stops the engine, so the broker has
+  `HostActive`, False from deactivation to the next activation - `Invoke` then answers
+  `aoCancelled` at once and what was queued is answered the same way, instead of running on
+  a form being torn down or parking a worker for the 60 s of the timeout. And activation is
+  all-or-nothing: whatever fails after `Acquire` releases the engine, because a holder left
+  in the registry keeps a pointer to the settings of a component that may be freed.
+- **An expert knows an area of the manual, not a manual of its own.** One manual, one index:
+  `THelpChatIndexBuilder.ExtractAreas` gives a page the first sub-folder of its path, or the
+  `areas:` of its front matter (`areas: []` = everybody's), and writes `"areas"` only for the
+  pages that have some - a flat manual keeps its index byte for byte. `Settings.DocAreas`
+  ("Orders, Customers", an array in JSON) goes to `THelpChatDocIndex.Areas` at `Start`;
+  `VisibleEntries` keeps the pages of those areas and the pages of none, **before** the scoring,
+  so the idf is the area's. `Count` is still the whole index; `Search` and `Pages` are the
+  area's. `DocFolder` stays the root, so a link across areas still opens in the panel.
+- **An assistant does what its form registers, plus what the application shares, minus what its
+  profile forbids.** `HelpChatSharedActions` (`HelpChatAI.Actions`) is a broker of definitions
+  only: the broker of a component consults it after its own (`Shared`, set at activation
+  unless `UseSharedActions` is False; an own action of the same name redefines it) through
+  `Resolve` and `AvailableNames`, and a shared action is queued, confirmed and run by the
+  component's broker - the host that was asked. `Allowed` (from `Settings.AllowedActions`)
+  filters both, for declaration and for invocation alike: a configuration narrows, a name
+  nobody registered gives nothing.
 - **Actions are what the assistant may do, and only that.** `HelpChatAI.Actions`: the application
   registers name, description, parameters and handler; `ToolsJson` is what a provider declares
   (`SupportsActions`), `Invoke` is how it calls one. The handler runs on the application's main
@@ -623,8 +769,11 @@ the edit on every version, not on the one that happens to be open.
   through `Vcl.HelpChatAI.ConfirmDialog`: `HelpChatVclConfirmAction` creates the class in
   `VclHelpChatConfirmDialogClass` (the DFM form of the library, or one the application
   registered with `RegisterVclHelpChatConfirmDialog`, which must implement
-  `IVclHelpChatConfirmDialog`), owned by the host form, one at a time - a question arriving
-  while one is open dismisses it as No. The form is a DFM on purpose: one built with
+  `IVclHelpChatConfirmDialog`), owned by the host form, one at a time **per assistant** - a
+  question of the same assistant arriving while one is open dismisses it as No, a question
+  of another assistant (`Asker` of the request) opens over it and leaves it waiting:
+  dismissing it would refuse an action nobody refused and end that plan. The form is a DFM
+  on purpose: one built with
   `CreateNew` and laid out by hand got the font of the primary screen and the layout of
   another, because `ScaleValue` multiplies by the factor of the last rescaling (1 for a form
   nobody rescaled) while the font of a new form is already at the DPI of the screen; the VCL
@@ -672,7 +821,12 @@ the edit on every version, not on the one that happens to be open.
   for actions it executes them, appends the assistant turn and the `tool_result` turn to the
   conversation and calls again, up to `Claude.MaxToolRounds`. The text of every round is
   concatenated (with a paragraph break) and streamed as it arrives, so what the user reads and
-  what the store keeps are the same string.
+  what the store keeps are the same string. The rounds are requests, so **with one round no
+  action is declared at all** (`THelpChatProviderBase.OffersActions`: there would be no
+  second request to tell the model how it went), and when the last round still asks for an
+  action it is not run and the reply says so (`NoteActionsNotRun`, `hcmActionsNotRun`) -
+  it used to end as if the action had been done. In `openai` the calls are the signal, not
+  `finish_reason`: several compatible servers end a tool turn with "stop".
 - **Actions are local for now.** With `Settings.Remote` the model runs on the server and the
   actions live in the client: the definitions and the calls do not travel yet. The broker queue
   is shaped for it (`TakePending`/`Complete` over HTTP, the host channel already exists), but
@@ -791,26 +945,37 @@ the edit on every version, not on the one that happens to be open.
   (`HELPCHAT_MODEL_DEF_DATE_RULE`, written out with `TFormatSettings.Invariant` so the month
   is November and the model translates it): without it a document it writes is dated
   "today", which is what it did.
-- **The library never decrypts a secret: it asks.** `OnDecryptSecret`
-  (`THelpChatSecretEvent`, published on both components, public on
-  `THelpChatSettings` because the console server has no component to put it on) is called
-  just before a secret is used - `Claude.ApiKey`, `OpenAI.ApiKey`, `Gemini.ApiKey`,
-  `Remote.AppKey`, `Remote.UserToken`, told apart by `AName` - on the value of the property
-  *and* on the one of the environment variable. No format is imposed and no cipher is
-  registered: an application that installs no handler sees no change, and a value the
-  handler left alone comes out as it went in. Three things that are not obvious: the
-  handler lives on the **settings** and `Assign` copies it, because what reads the key is
-  the snapshot a request works on, not the component; the calls are serialized by a
-  critical section because they arrive on a worker thread, and nothing is cached, so the
-  clear text lives as long as the request; and the virtual method is `RawApiKey`, not
-  `ResolveApiKey`, so that the one place where a secret is revealed stays one place
-  (gemini overrides it for `GOOGLE_API_KEY`). Inside the IDE no handler runs: the
-  configuration check still passes, because it only asks whether a key is there, but the
-  design-time preview of a component with an encrypted key is refused by the service.
+- **The library never decrypts a secret: it asks - and only for the encrypted node.** Every
+  secret has two nodes (1.7): `ApiKey` in clear, which the developer writes and the IDE
+  reads, and `ApiKeyEncrypted`, which the application writes with its own cipher; the same
+  pair for a model of the catalogue, `Remote.AppKey` and `Remote.UserToken`. None is
+  published: a key belongs to a file. `HelpChatResolveSecret` (`HelpChatAI.Settings`) is the
+  one rule: at run time the encrypted node wins, through `OnDecryptSecret`, else the clear
+  one as it is; inside the IDE (`HelpChatDesignTime`, set by both `Register` procedures) the
+  clear one, else the encrypted one as it is - nobody can decrypt there, and a check only
+  asks whether a key exists (`HasConfiguredApiKey`). The model chosen in the panel brings its
+  key as a whole (`SetOverrides` with both nodes); with none, `EnvironmentApiKey` (virtual,
+  gemini adds `GOOGLE_API_KEY`) - never through the handler. **A key never follows a model
+  to another host**: a model of the catalogue that names a `BaseUrl` on another scheme, host
+  or port than the section's own endpoint, and no key of its own, gets none
+  (`KeyBelongsElsewhere`) - neither the section's nor the environment's, which would hand
+  the OpenAI key to Groq or to a server on the LAN. Same host, another path: the key
+  stands (a gateway). The environment variable is stricter still, because it is named after
+  the service: it is read only while the endpoint in force is the provider's
+  `DefaultBaseUrl` (same scheme, host and port) - a section whose own `BaseUrl` points at
+  Ollama, Groq or Azure says its key in the configuration, or has none. `OnDecryptSecret`
+  (`THelpChatSecretEvent`, published on both components, public on `THelpChatSettings`
+  because the console server has no component to put it on) imposes no format and registers
+  no cipher. Two things that are not obvious: the handler lives on the **settings** and
+  `Assign` copies it, because what reads the key is the snapshot a request works on, not the
+  component; the calls are serialized by a critical section because they arrive on a worker
+  thread, and nothing is cached, so the clear text lives as long as the request. The
+  component editor reads and writes the clear node only, and needs no cipher.
   **The example is the demo's, and so is DCPcrypt**: `CRM Demo/common/uAppSecret.pas`
   (AES-256 CBC, random IV, PKCS#7, the passphrase in two XORed halves) and the
   `License activation` window of each demo, which is where a real application would ask
-  its licensing service for the key. Its header says what it is - obfuscation, not
+  its licensing service for the key - and which writes `ApiKeyEncrypted`, next to the
+  developer's clear `ApiKey`. Its header says what it is - obfuscation, not
   secrecy - and that is the honest claim: it is worth something against a configuration
   file that travels, nothing against whoever owns the machine. `DCPcrypt.EncryptString` is
   not used, and a second example should not use it either: it treats the string as

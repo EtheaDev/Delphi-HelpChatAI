@@ -27,6 +27,8 @@ type
     [Test] procedure Sse_HandlesChunkBoundaryInsideALine;
     [Test] procedure Sse_ErrorPayload_IsKept;
     [Test] procedure Sse_AssemblesToolCallsByIndex;
+    [Test] procedure Sse_ToolCallsWithoutIndex_AreToldApartByTheirId;
+    [Test] procedure Sse_BytesThatAreNotUtf8_AreSkipped;
     [Test] procedure Tools_AreWrappedAsFunctions;
     [Test] procedure RequestBody_Shape;
     [Test] procedure RequestBody_CarriesToolsAndTheToolTurns;
@@ -141,6 +143,42 @@ begin
   Assert.AreEqual('open_screen', LCalls[0].Name);
   Assert.AreEqual('{"name":"Clienti"}', LCalls[0].InputJson);
   Assert.AreEqual('tool_calls', FStream.FinishReason);
+end;
+
+procedure TOpenAITests.Sse_ToolCallsWithoutIndex_AreToldApartByTheirId;
+var
+  LCalls: TArray<THelpChatToolCall>;
+begin
+  // Some servers that speak this API send no index: two calls must not be
+  // glued into one, and a fragment without an id belongs to the call before.
+  Feed('data: {"choices":[{"delta":{"tool_calls":[' +
+    '{"id":"call_1","function":{"name":"open_screen","arguments":"{\"name\":"}}]}}]}'#10#10);
+  Feed('data: {"choices":[{"delta":{"tool_calls":[' +
+    '{"function":{"arguments":"\"Clienti\"}"}}]}}]}'#10#10);
+  Feed('data: {"choices":[{"delta":{"tool_calls":[' +
+    '{"id":"call_2","function":{"name":"export_pdf","arguments":"{}"}}]}}]}'#10#10);
+  Feed('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}'#10#10);
+  FStream.Finish;
+
+  LCalls := FStream.ToolCalls;
+  Assert.AreEqual(2, Length(LCalls));
+  Assert.AreEqual('open_screen', LCalls[0].Name);
+  Assert.AreEqual('{"name":"Clienti"}', LCalls[0].InputJson);
+  Assert.AreEqual('export_pdf', LCalls[1].Name);
+  Assert.AreEqual('{}', LCalls[1].InputJson);
+end;
+
+procedure TOpenAITests.Sse_BytesThatAreNotUtf8_AreSkipped;
+var
+  LBad: TBytes;
+begin
+  // A line that is not UTF-8 must not raise out of the stream the HTTP
+  // client writes into: it is skipped, and what follows is still read.
+  LBad := TBytes.Create(Ord('d'), Ord('a'), Ord('t'), Ord('a'), Ord(':'), $C3, $28, $FF, 10);
+  FStream.Write(LBad[0], Length(LBad));
+  Feed('data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}'#10#10);
+  FStream.Finish;
+  Assert.AreEqual('ok', FStream.Text);
 end;
 
 procedure TOpenAITests.Tools_AreWrappedAsFunctions;

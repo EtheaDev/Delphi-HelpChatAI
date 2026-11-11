@@ -50,6 +50,20 @@ uses
   HelpChatAI.Types;
 
 type
+  /// <summary>
+  ///  The chat control: a layout with a <c>TWebBrowser</c> filling it. All it
+  ///  needs is a URL and the origin to stay inside
+  ///  (<see cref="OpenUrl" />): it knows neither the engine nor the
+  ///  transport, so any server that speaks the contract of the panel page can
+  ///  be shown in it. Main thread only, like every FireMonkey control.
+  ///
+  ///  Give it its parent once and leave it there: a native browser window is
+  ///  not moved between forms, which is why <c>TFmxHelpChatAI</c> creates a
+  ///  new panel for a new container instead of reparenting this one. Unlike
+  ///  the VCL twin it has no web-message bridge (nothing like
+  ///  <c>OnCloseRequested</c>), does not follow a style and has no
+  ///  <c>FocusInput</c>: the owner asks the page (<c>window.hcFocus</c>).
+  /// </summary>
   TFmxHelpChatAIPanel = class(TLayout)
   strict private
     FBrowser: TWebBrowser;
@@ -61,31 +75,67 @@ type
     FOnPageReady: TNotifyEvent;
     FOnOpenLink: THelpChatOpenLinkEvent;
 {$IFDEF D13+}
+    /// <summary>Delphi 13: a navigation is about to start and can still be
+    /// cancelled. One that leaves the panel is cancelled and handed to
+    /// <c>OpenLink</c>; one that stays marks the page as loading.</summary>
     procedure BrowserShouldLoadURL(Sender: TObject; const AURL: string; var ACancel: Boolean);
 {$ELSE}
+    /// <summary>Delphi 12: a navigation started and cannot be stopped. One
+    /// that leaves the panel is also opened outside, and
+    /// <c>BrowserDidFinishLoad</c> brings the panel back to its page.</summary>
     procedure BrowserShouldStartLoad(Sender: TObject; const AURL: string);
 {$ENDIF}
+    /// <summary>The page is loaded: runs the queued scripts, in order, then
+    /// fires <c>OnPageReady</c> - or, in Delphi 12, navigates back to the
+    /// panel when what loaded was a foreign page.</summary>
     procedure BrowserDidFinishLoad(ASender: TObject);
+    /// <summary>A load failed: the page is not ready, and the queued scripts
+    /// stay queued for the next load that succeeds.</summary>
     procedure BrowserDidFailLoad(ASender: TObject);
     procedure FlushScripts;
   protected
     /// <summary>True for URLs the panel may show itself; everything else opens
-    /// in the system browser.</summary>
+    /// in the system browser. The test is the origin given to
+    /// <c>OpenUrl</c> (case-insensitive) followed by nothing, a path, a
+    /// query or a fragment - never a longer port or a host after an "@";
+    /// with no origin, or for an empty URL and about:blank, everything is
+    /// the panel's.</summary>
     function IsPanelUrl(const AUrl: string): Boolean; virtual;
   public
+    /// <summary>Creates the browser inside the layout. On Windows it asks for
+    /// WebView2 and nothing else (<c>EdgeOnly</c>): the page needs fetch and
+    /// htmx, which the Internet Explorer control cannot run, so there is no
+    /// fallback on a machine without the WebView2 runtime.</summary>
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    /// <summary>Loads the panel page.</summary>
+    /// <summary>Loads the panel page. AUrl is what the transport gives
+    /// (<c>GetPanelUrl</c>, secret included), AOrigin the scheme://host:port
+    /// the browser is confined to (<c>GetPanelOrigin</c>). Scripts run from
+    /// now on are queued until the page has loaded.</summary>
     procedure OpenUrl(const AUrl, AOrigin: string);
-    /// <summary>Runs JavaScript in the page, now or as soon as it is loaded.</summary>
+    /// <summary>Runs JavaScript in the page, now or as soon as it is loaded.
+    /// Queued scripts run in the order they were given, once; they survive a
+    /// reload of the page but not the panel. No result comes back: FMX gives
+    /// none, which is why the page answers its host through the server.</summary>
     procedure RunScript(const AScript: string);
-    /// <summary>Opens a URL in the default browser of the platform.</summary>
+    /// <summary>Opens a URL in the default browser of the platform. Only
+    /// http, https and mailto: anything else is dropped without a word. The
+    /// macOS, iOS and Android branches compile but were never run.</summary>
     class procedure OpenExternal(const AUrl: string); static;
     /// <summary>A link leaving the panel: OnOpenLink first, else OpenExternal.</summary>
     procedure OpenLink(const AUrl: string);
+    /// <summary>The native browser, for what this class does not wrap. Do
+    /// not navigate it elsewhere: the confinement brings it back or opens
+    /// the address outside.</summary>
     property Browser: TWebBrowser read FBrowser;
+    /// <summary>True from the end of a load of the panel page to the start
+    /// of the next navigation. While False, <c>RunScript</c> queues.</summary>
     property PageReady: Boolean read FPageReady;
+    /// <summary>The URL last given to <c>OpenUrl</c>; in Delphi 12 it is
+    /// also where the panel goes back to after a foreign page.</summary>
     property PanelUrl: string read FUrl;
+    /// <summary>The origin last given to <c>OpenUrl</c>; empty = no
+    /// confinement yet.</summary>
     property PanelOrigin: string read FOrigin;
     /// <summary>The page finished loading (also after a reload): the owner pushes its state.</summary>
     property OnPageReady: TNotifyEvent read FOnPageReady write FOnPageReady;
@@ -186,8 +236,16 @@ end;
 
 function TFmxHelpChatAIPanel.IsPanelUrl(const AUrl: string): Boolean;
 begin
+  // Empty and about:blank are what a browser reports before its first page;
+  // no origin means OpenUrl was not called yet, and nothing is confined.
+  // The origin has no trailing slash (http://127.0.0.1:5123): a plain prefix
+  // would also accept http://127.0.0.1:51234/ and http://127.0.0.1:5123@host/,
+  // so what follows the origin must be where a path, a query or a fragment
+  // starts - or nothing at all.
   Result := (AUrl = '') or SameText(AUrl, 'about:blank') or (FOrigin = '') or
-    AUrl.StartsWith(FOrigin, True);
+    (AUrl.StartsWith(FOrigin, True) and
+     ((Length(AUrl) = Length(FOrigin)) or FOrigin.EndsWith('/') or
+      CharInSet(AUrl[Length(FOrigin) + 1], ['/', '?', '#'])));
 end;
 
 procedure TFmxHelpChatAIPanel.OpenUrl(const AUrl, AOrigin: string);
@@ -210,6 +268,8 @@ procedure TFmxHelpChatAIPanel.FlushScripts;
 var
   I: Integer;
 begin
+  // In the order they were asked for: a question queued after a theme must
+  // find the theme applied.
   for I := 0 to FPendingScripts.Count - 1 do
     FBrowser.EvaluateJavaScript(FPendingScripts[I]);
   FPendingScripts.Clear;

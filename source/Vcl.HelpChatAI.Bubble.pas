@@ -36,9 +36,21 @@
 ///  top with SetWindowPos, which is what this control does — and it asks to be
 ///  put back on top whenever the host form creates a child or is resized.
 ///
-///  It is drawn by hand: an ellipse in the colours of the active VCL style
-///  (BubbleColor overrides them) with the assistant icon in the middle. The
-///  window is clipped to the ellipse, so the corners show whatever is behind.
+///  It is drawn by hand, with GDI+: an ellipse in the colours of the active
+///  VCL style (BubbleColor overrides them) with the assistant icon in the
+///  middle. From Windows 8 on it is a layered child window with per-pixel
+///  alpha, so its edge blends with whatever is behind and a click on a
+///  transparent corner goes through; where that is not possible (the
+///  designer, Windows 7, no manifest) the window is clipped to the ellipse
+///  by a region instead.
+///
+///  There is one bubble per assistant, on the host form of that assistant:
+///  nothing here is per process but the shared collection of built-in icons.
+///  A bubble listens to the window procedure of its own parent through one
+///  hook per parent, shared by the bubbles on it: two assistants that
+///  resolve to the same form come and go in any order.
+///  The control knows nothing of the chat: it is a button with an icon, and
+///  what a click does is the <c>OnClick</c> its owner assigns.
 ///
 ///  The icon follows the usual Delphi contract: hook an image list to Images
 ///  and pick it with ImageIndex or ImageName. With no image list of your own,
@@ -98,8 +110,12 @@ type
   /// </summary>
   THelpChatBubbleActionLink = class(TControlActionLink)
   strict protected
+    /// <summary>The bubble this link serves; the inherited client is typed
+    /// <c>TControl</c>, whose image properties are not reachable.</summary>
     FClient: TVclHelpChatAIBubble;
     procedure AssignClient(AClient: TObject); override;
+    /// <summary>Linked while the bubble still has the value of the action:
+    /// a property set by hand on the bubble stops following it.</summary>
     function IsEnabledLinked: Boolean; override;
     function IsImageIndexLinked: Boolean; override;
     function IsImageNameLinked: Boolean; override;
@@ -109,20 +125,29 @@ type
 
   /// <summary>
   ///  The round "ask the assistant" button. Windowed, so it stays visible over
-  ///  the controls of the host form.
+  ///  the controls of the host form. The component creates one at run time
+  ///  on the host form of the assistant and mirrors its own <c>Images</c>,
+  ///  <c>ImageIndex</c> and <c>ImageName</c> on it; an application may also
+  ///  create one itself and give it an <c>OnClick</c> or an <c>Action</c>.
+  ///  Main thread only, like every control.
   /// </summary>
   TVclHelpChatAIBubble = class(TCustomControl)
   strict private
     FImages: TCustomImageList;
+    // Tells the bubble to repaint when the image list of the application
+    // changes its pictures.
     FImageChangeLink: TChangeLink;
     FImageIndex: TImageIndex;
     FImageName: TImageName;
+    // The built-in icons at the size of this bubble; created on first use,
+    // owned by the bubble, over the collection shared by the process.
     FBuiltIn: TVirtualImageList;
     FBubbleColor: TColor;
     FHot: Boolean;
     FPressed: Boolean;
+    // The parent whose messages this bubble listens to, through the hook
+    // the bubbles of one parent share (TBubbleParentHook).
     FHookedParent: TWinControl;
-    FOldParentProc: TWndMethod;
     // A layered child window (Windows 8 and later, with the manifest every
     // Delphi application carries) painted with per-pixel alpha: the only way
     // to an edge that is smooth over whatever lies under the bubble. False
@@ -130,8 +155,17 @@ type
     // window is clipped by a region, as it always was, and only the drawing
     // inside it is antialiased.
     FLayered: Boolean;
+    /// <summary>Whether to ask Windows for a layered window at all: not in
+    /// the designer, not before Windows 8.</summary>
     function WantsLayered: Boolean;
+    /// <summary>Draws the bubble into a premultiplied 32-bit section and
+    /// pushes it to the layered window. False when Windows refused, which
+    /// the caller takes as "fall back to the region".</summary>
     function RenderLayered: Boolean;
+    /// <summary>The drawing itself, shared by the two ways of showing it:
+    /// the disc, its rim, then the icon with its alpha or a question mark.
+    /// <c>AGraphics</c> is a <c>TGPGraphics</c>, typed <c>TObject</c> so
+    /// that the interface of the unit does not use the GDI+ units.</summary>
     procedure DrawBubble(const AGraphics: TObject; const AWidth, AHeight: Integer);
     procedure SetImages(const Value: TCustomImageList);
     procedure SetImageIndex(const Value: TImageIndex);
@@ -140,11 +174,27 @@ type
     procedure ImageListChange(Sender: TObject);
     function BuiltInImages: TVirtualImageList;
     function IsImageNameStored: Boolean;
+    /// <summary>Sizes the built-in list to the share of the side the icon
+    /// takes, so that the collection hands out the picture made for it.</summary>
     procedure UpdateGlyphSize;
+    /// <summary>The shape of the window: none when layered (the alpha is
+    /// the shape), an ellipse otherwise.</summary>
     procedure UpdateRegion;
+    /// <summary>Starts listening to the messages of the parent. Its
+    /// <c>WindowProc</c> is replaced once, by an object the bubbles of that
+    /// parent share, so two assistants on one form can come and go in any
+    /// order. Never in the designer.</summary>
     procedure HookParent(const AParent: TWinControl);
+    /// <summary>Stops listening; the last bubble to leave puts the
+    /// procedure of the parent back, when the parent still points at the
+    /// hook.</summary>
     procedure UnhookParent;
-    procedure ParentWndProc(var AMessage: TMessage);
+  private
+    /// <summary>Called by the hook after the parent handled a message: a
+    /// request to come back on top for the messages that can bury the
+    /// bubble.</summary>
+    procedure ParentMessage(const AMsg: Cardinal);
+  strict private
     procedure CMMouseEnter(var Message: TMessage); message CM_MOUSEENTER;
     procedure CMMouseLeave(var Message: TMessage); message CM_MOUSELEAVE;
     procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
@@ -153,14 +203,24 @@ type
     procedure CMBringToTop(var Message: TMessage); message HELPCHAT_CM_BRINGTOTOP;
   strict protected
     function GetActionLinkClass: TControlActionLinkClass; override;
+    /// <summary>An image list that goes away takes the bubble back to the
+    /// built-in icons.</summary>
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    /// <summary>Asks for <c>WS_EX_LAYERED</c> where it can work.</summary>
     procedure CreateParams(var Params: TCreateParams); override;
+    /// <summary>Finds out whether the window really is layered - the first
+    /// push is the test - and falls back to the region when it is not; then
+    /// shapes the window and raises it.</summary>
     procedure CreateWnd; override;
+    /// <summary>Moves the hook with the bubble: off the old parent, onto
+    /// the new one.</summary>
     procedure SetParent(AParent: TWinControl); override;
     procedure Resize; override;
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    /// <summary>The region fallback only: a layered window is never asked
+    /// to paint.</summary>
     procedure Paint; override;
     /// <summary>Colour of the disc: BubbleColor, else the style highlight.</summary>
     function FillColor: TColor;
@@ -171,9 +231,16 @@ type
     /// <summary>Index to draw: ImageName wins over ImageIndex; -1 for none.</summary>
     function ActiveImageIndex: Integer;
   public
+    /// <summary>A 44-pixel disc (at 96 DPI) with no image list: until
+    /// <c>Images</c> is set it shows the default built-in assistant.</summary>
     constructor Create(AOwner: TComponent); override;
+    /// <summary>Takes its hook off the parent first, when the chain is
+    /// still its own.</summary>
     destructor Destroy; override;
-    /// <summary>Puts the window back on top of its siblings.</summary>
+    /// <summary>Puts the window back on top of its siblings, without
+    /// activating it. Nothing while it has no window or is hidden. The
+    /// bubble calls it by itself whenever the parent changes its children
+    /// or its size.</summary>
     procedure BringToTop;
     /// <summary>A layered window gets no WM_PAINT: every change of state is
     /// pushed to it here instead.</summary>
@@ -211,7 +278,10 @@ type
 /// <summary>
 ///  The icons compiled into the component, as a collection shared by every
 ///  bubble of the process: AIAssistant_Male, AIAssistant_Female,
-///  Assistant_Male and Assistant_Female, each in nine sizes.
+///  Assistant_Male and Assistant_Female, each in nine sizes. Created on
+///  first use, on the main thread, and freed when the unit finalizes: never
+///  free it, and do not add to it - every assistant of the application
+///  reads the same one.
 /// </summary>
 function HelpChatAssistantIcons: TImageCollection;
 
@@ -242,6 +312,7 @@ implementation
 
 uses
   System.Math,
+  System.Generics.Collections,
   System.NetEncoding,
   System.Types,   // Point is inline: without this unit Delphi 10.4 reports H2443
   Winapi.GDIPAPI,
@@ -253,8 +324,134 @@ type
   // Color is protected in TControl: the region fallback paints its corners with it.
   TWinControlAccess = class(TWinControl);
 
+  // The WindowProc of a parent, replaced once for all the bubbles on it.
+  // Each bubble used to replace it by itself and keep the one it found:
+  // with two on a form, the one destroyed first could not restore anything
+  // (the parent no longer pointed at it) and stayed in the chain of the
+  // other as a method of a freed object. Here the parent calls one object,
+  // which lives until no bubble needs it - or, when somebody else hooked
+  // the parent after it and is calling it as "the previous procedure",
+  // until the parent goes away.
+  TBubbleParentHook = class(TComponent)
+  strict private
+    FParent: TWinControl;
+    FOldProc: TWndMethod;
+    FBubbles: TList<TVclHelpChatAIBubble>;
+    procedure WndProc(var AMessage: TMessage);
+    function IsCurrent: Boolean;
+    class function Find(const AParent: TWinControl): TBubbleParentHook; static;
+  protected
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+  public
+    constructor CreateFor(const AParent: TWinControl);
+    destructor Destroy; override;
+    class procedure Attach(const AParent: TWinControl; const ABubble: TVclHelpChatAIBubble); static;
+    class procedure Detach(const AParent: TWinControl; const ABubble: TVclHelpChatAIBubble); static;
+  end;
+
 var
+  // The one thing of this unit that is per process: pictures, read-only
+  // once filled, so every bubble and every assistant can share them.
   GAssistantIcons: TImageCollection = nil;
+  GParentHooks: TList<TBubbleParentHook> = nil;
+
+{ TBubbleParentHook }
+
+constructor TBubbleParentHook.CreateFor(const AParent: TWinControl);
+begin
+  inherited Create(nil);
+  FBubbles := TList<TVclHelpChatAIBubble>.Create;
+  FParent := AParent;
+  FParent.FreeNotification(Self);
+  FOldProc := FParent.WindowProc;
+  FParent.WindowProc := WndProc;
+  if GParentHooks = nil then
+    GParentHooks := TList<TBubbleParentHook>.Create;
+  GParentHooks.Add(Self);
+end;
+
+destructor TBubbleParentHook.Destroy;
+begin
+  if Assigned(GParentHooks) then
+    GParentHooks.Remove(Self);
+  FBubbles.Free;
+  inherited;
+end;
+
+function TBubbleParentHook.IsCurrent: Boolean;
+var
+  LProc: TWndMethod;
+  LOurs, LCurrent: TMethod;
+begin
+  LProc := WndProc;
+  LOurs := TMethod(LProc);
+  LCurrent := TMethod(FParent.WindowProc);
+  Result := (LCurrent.Code = LOurs.Code) and (LCurrent.Data = LOurs.Data);
+end;
+
+class function TBubbleParentHook.Find(const AParent: TWinControl): TBubbleParentHook;
+var
+  LHook: TBubbleParentHook;
+begin
+  Result := nil;
+  if Assigned(GParentHooks) then
+    for LHook in GParentHooks do
+      if LHook.FParent = AParent then
+        Exit(LHook);
+end;
+
+class procedure TBubbleParentHook.Attach(const AParent: TWinControl;
+  const ABubble: TVclHelpChatAIBubble);
+var
+  LHook: TBubbleParentHook;
+begin
+  LHook := Find(AParent);
+  if LHook = nil then
+    LHook := TBubbleParentHook.CreateFor(AParent);
+  if not LHook.FBubbles.Contains(ABubble) then
+    LHook.FBubbles.Add(ABubble);
+end;
+
+class procedure TBubbleParentHook.Detach(const AParent: TWinControl;
+  const ABubble: TVclHelpChatAIBubble);
+var
+  LHook: TBubbleParentHook;
+begin
+  LHook := Find(AParent);
+  if LHook = nil then
+    Exit;
+  LHook.FBubbles.Remove(ABubble);
+  // Restore only while the chain is still ours: someone may have hooked
+  // after us, and then the hook stays, passing every message on.
+  if (LHook.FBubbles.Count = 0) and LHook.IsCurrent then
+  begin
+    AParent.WindowProc := LHook.FOldProc;
+    LHook.Free;
+  end;
+end;
+
+procedure TBubbleParentHook.WndProc(var AMessage: TMessage);
+var
+  I: Integer;
+  LMsg: Cardinal;
+begin
+  LMsg := AMessage.Msg;
+  if Assigned(FOldProc) then
+    FOldProc(AMessage);
+  // By index and backwards: handling the message may have removed a bubble.
+  for I := FBubbles.Count - 1 downto 0 do
+    if I < FBubbles.Count then
+      FBubbles[I].ParentMessage(LMsg);
+end;
+
+procedure TBubbleParentHook.Notification(AComponent: TComponent; Operation: TOperation);
+begin
+  inherited Notification(AComponent, Operation);
+  // The parent is going, its window is already gone: nothing calls the hook
+  // again. Last statement of the method on purpose.
+  if (Operation = opRemove) and (AComponent = FParent) then
+    Free;
+end;
 
 function HelpChatAssistantIcons: TImageCollection;
 var
@@ -297,17 +494,17 @@ begin
 end;
 
 /// <summary>
-///  One image of a list as a PNG with its transparency. The alpha of an image
-///  list cannot be read back: GDI writes no alpha channel, so a bitmap drawn
-///  from it comes back opaque. Drawing the same image twice, once over white
-///  and once over black, gives it back exactly - where the icon is transparent
-///  the two differ by 255, where it is solid they are equal - and the drawing
-///  over black already *is* the colour multiplied by the alpha, which is what
-///  a bitmap declared afDefined holds.
+///  The image AIndex of AImages as a 32-bit bitmap with its alpha
+///  (premultiplied, <c>afDefined</c>), or nil when there is no such image;
+///  the caller frees it. <c>AEnabled</c> False draws the disabled look of
+///  the list. The alpha of an image list cannot be read back: GDI writes no
+///  alpha channel, so a bitmap drawn from it comes back opaque. Drawing the
+///  same image twice, once over white and once over black, gives it back
+///  exactly - where the icon is transparent the two differ by 255, where it
+///  is solid they are equal - and the drawing over black already *is* the
+///  colour multiplied by the alpha, which is what a bitmap declared
+///  afDefined holds. Main thread: it draws through GDI.
 /// </summary>
-/// <summary>The image AIndex of AImages as a 32-bit bitmap with its alpha
-/// (premultiplied, <c>afDefined</c>), or nil. GDI writes no alpha, so the
-/// image is drawn twice, over white and over black: see HelpChatIconPng.</summary>
 function HelpChatIconBitmap(const AImages: TCustomImageList; const AIndex: Integer;
   const AEnabled: Boolean = True): TBitmap;
 var
@@ -384,6 +581,9 @@ begin
   LWhite.Free;
 end;
 
+/// <summary>Writes one image of a list to AStream as a PNG with its
+/// transparency (see HelpChatIconBitmap for how the alpha is recovered).
+/// False when there is no such image.</summary>
 function HelpChatIconPng(const AImages: TCustomImageList; const AIndex: Integer;
   const AStream: TStream): Boolean;
 var
@@ -677,34 +877,22 @@ begin
   if (AParent = nil) or (csDesigning in ComponentState) then
     Exit;
   FHookedParent := AParent;
-  FOldParentProc := AParent.WindowProc;
-  AParent.WindowProc := ParentWndProc;
+  TBubbleParentHook.Attach(AParent, Self);
 end;
 
 procedure TVclHelpChatAIBubble.UnhookParent;
-var
-  LProc: TWndMethod;
-  LOurs, LCurrent: TMethod;
 begin
   if FHookedParent = nil then
     Exit;
-  // Only unhook when the chain is still ours: someone may have hooked after us.
-  LProc := ParentWndProc;
-  LOurs := TMethod(LProc);
-  LCurrent := TMethod(FHookedParent.WindowProc);
-  if (LCurrent.Code = LOurs.Code) and (LCurrent.Data = LOurs.Data) then
-    FHookedParent.WindowProc := FOldParentProc;
+  TBubbleParentHook.Detach(FHookedParent, Self);
   FHookedParent := nil;
-  FOldParentProc := nil;
 end;
 
-procedure TVclHelpChatAIBubble.ParentWndProc(var AMessage: TMessage);
+procedure TVclHelpChatAIBubble.ParentMessage(const AMsg: Cardinal);
 begin
-  if Assigned(FOldParentProc) then
-    FOldParentProc(AMessage);
   // A new child, a resize or a reorder can bury the bubble: ask to come back
   // on top, but later — the host is in the middle of its own work right now.
-  case AMessage.Msg of
+  case AMsg of
     CM_CONTROLLISTCHANGE, CM_CONTROLCHANGE, WM_PARENTNOTIFY, WM_SIZE,
     WM_WINDOWPOSCHANGED:
       if HandleAllocated and Visible then
@@ -1053,5 +1241,8 @@ initialization
 
 finalization
   FreeAndNil(GAssistantIcons);
+  // A hook still here belongs to a parent that outlives the unit: it is
+  // left to it, only the list goes.
+  FreeAndNil(GParentHooks);
 
 end.

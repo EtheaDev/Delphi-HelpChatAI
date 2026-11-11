@@ -24,7 +24,7 @@
 {******************************************************************************}
 /// <summary>
 ///  The icons of the AI providers and models the panel can show next to the
-///  assistant in use: SVG files of lobe-icons (https://github.com/lobehub/lobe-icons,
+///  model in use: SVG files of lobe-icons (https://github.com/lobehub/lobe-icons,
 ///  MIT - the logos themselves stay trademarks of their owners), compiled into
 ///  <c>source\HelpChatAI.Providers.res</c> by <c>Tools\BuildResources.cmd</c>
 ///  from <c>Images\providers\*.svg</c>. An icon is an id (<c>claude</c>,
@@ -36,34 +36,53 @@
 ///  <c>HELPCHAT_PROVIDER_ICONS</c> and, when a model name points to it, a
 ///  prefix in <see cref="HelpChatProviderIconFor" />.
 ///  The same resource carries the flags of the languages of the chat
-///  (circle-flags, MIT, from <c>Imageslags</c>), one per language code.
+///  (circle-flags, MIT, from <c>Images\flags</c>), one per language code,
+///  compiled from the same <c>.rc</c>.
+///
+///  Nothing here knows the settings or the engine: strings in, SVG text out,
+///  read from the resources of the module the unit is linked into. Safe from
+///  any thread.
 /// </summary>
 unit HelpChatAI.Icons;
 
 interface
 
 const
-  /// <summary>The icon ids shipped in <c>HelpChatAI.Providers.res</c>.</summary>
+  /// <summary>The icon ids shipped in <c>HelpChatAI.Providers.res</c>, each
+  /// under the resource name <c>HCICON_&lt;ID&gt;</c>. They are what
+  /// <c>Icon</c> of a model of the catalogue may name; an id that is not
+  /// here is ignored and the icon is deduced instead.</summary>
   HELPCHAT_PROVIDER_ICONS: array[0..13] of string = (
     'azure', 'claude', 'cohere', 'deepseek', 'gemini', 'gemma', 'groq',
     'llama', 'lmstudio', 'mistral', 'ollama', 'openai', 'openrouter', 'qwen');
 
-/// <summary>True when AId is one of the shipped icons.</summary>
+/// <summary>True when AId is one of the shipped icons (trimmed, any
+/// case). False for an empty id.</summary>
 function HelpChatProviderIconExists(const AId: string): Boolean;
 
 /// <summary>The SVG of the icon AId, with its <c>title</c> removed (the panel
-/// puts its own tooltip on it); empty when there is no such icon.</summary>
+/// puts its own tooltip on it); empty when there is no such icon. Meant to
+/// be written inline into the page: a monochrome icon draws with
+/// <c>currentColor</c> and so follows the theme, and the policy of the page
+/// needs no image source for it. Read from the resource at every call.</summary>
 function HelpChatProviderIconSvg(const AId: string): string;
 
 /// <summary>The icon for a model served by a provider at an endpoint: the
 /// model name decides when it can (claude, gemini, gpt, gemma, qwen, mistral,
 /// deepseek, llama, command), the host of the endpoint next (an Ollama, an
 /// OpenRouter, a Groq, an Azure, an LM Studio), the provider last; empty when
-/// nothing is known, which is what docsearch and stub get.</summary>
+/// nothing is known, which is what docsearch and stub get. Matching is by
+/// prefix of the model name, after a vendor prefix such as <c>google/</c>
+/// is dropped, and a local server is recognized by its usual port (11434
+/// Ollama, 1234 LM Studio) - a guess good enough for a badge, nothing that
+/// decides how the model is called.</summary>
 function HelpChatProviderIconFor(const AModel, ABaseUrl, AProvider: string): string;
 
 /// <summary>The round flag of a language, by ISO code ("en", "it", "es",
-/// "fr", "de", "pt"), as SVG; empty for a code without one.</summary>
+/// "fr", "de", "pt"), as SVG; empty for a code without one. The resource is
+/// <c>HCFLAG_&lt;CODE&gt;</c>; anything that is not two letters is refused
+/// before it becomes part of a resource name. English shows the flag of
+/// Great Britain, Portuguese the one of Portugal.</summary>
 function HelpChatFlagSvg(const ALanguageCode: string): string;
 
 implementation

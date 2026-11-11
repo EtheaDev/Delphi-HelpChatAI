@@ -40,6 +40,10 @@
 ///  Commands are delivered on the main thread. Today the page sends 'close';
 ///  the same channel is where file exchange between page and application will
 ///  live.
+///
+///  It knows nothing of the engine: its only tie to the rest is the contract
+///  of the page (<c>/api/ui/{command}</c> and the token header, from
+///  <c>HelpChatAI.Panel</c>) and the way the servers bind a port.
 /// </summary>
 unit HelpChatAI.Server.HostChannel;
 
@@ -58,6 +62,14 @@ uses
   HelpChatAI.Panel;
 
 type
+  /// <summary>
+  ///  The loopback listener of one remote transport: created, started and
+  ///  freed by <see cref="THelpChatRemoteTransport" />, one per assistant.
+  ///  It answers <c>OPTIONS</c> (the preflight, 204) and
+  ///  <c>POST /api/ui/{command}</c>: 204 when the command was handed to
+  ///  <c>OnCommand</c>, 403 without the right token, 404 for anything else or
+  ///  when nobody listens.
+  /// </summary>
   THelpChatHostChannel = class
   strict private
     FServer: TIdHTTPServer;
@@ -66,26 +78,45 @@ type
     FBoundPort: Integer;
     FAllowedOrigin: string;
     FOnCommand: THelpChatUiCommandEvent;
+    /// <summary>Every request, on a connection thread of Indy. The handler
+    /// is copied and queued to the main thread; the request returns without
+    /// waiting for it.</summary>
     procedure HandleCommand(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo;
       AResponseInfo: TIdHTTPResponseInfo);
+    /// <summary>The CORS headers, on every answer: the allowed origin and
+    /// never <c>*</c>, whatever origin asked - a page from elsewhere reads
+    /// an origin that is not its own and the browser stops it. Nothing at
+    /// all without an <c>AllowedOrigin</c>.</summary>
     procedure WriteCors(AResponseInfo: TIdHTTPResponseInfo);
     procedure WriteEmpty(AResponseInfo: TIdHTTPResponseInfo; const ACode: Integer);
   public
     constructor Create;
+    /// <summary>Stops listening first. A command already queued to the main
+    /// thread is still delivered to the handler it was queued with.</summary>
     destructor Destroy; override;
     /// <summary>Binds a free port on 127.0.0.1 and generates the secret. Never
-    /// raises: a client that cannot listen simply has no host channel, and the
-    /// page is told so (its ✕ disappears).</summary>
+    /// raises: a client that cannot listen simply has no host channel, and
+    /// what the page asks of its host (Escape to close) goes nowhere. True
+    /// when listening, also when it already was.</summary>
     function Start: Boolean;
+    /// <summary>Closes the listener and forgets port and secret: a later
+    /// <c>Start</c> gets new ones, which a page already loaded does not
+    /// know.</summary>
     procedure Stop;
     function IsActive: Boolean;
     /// <summary>http://127.0.0.1:port, or empty when not listening.</summary>
     function GetOrigin: string;
-    /// <summary>Secret the page must send in <c>X-HelpChat-Token</c>.</summary>
+    /// <summary>Secret the page must send in <c>X-HelpChat-Token</c>: not the
+    /// token of the session, which the server knows, but one only this
+    /// process and its page share. Empty when not listening.</summary>
     property Token: string read FToken;
     /// <summary>The only origin allowed to call: the origin of the panel page.
     /// Set it before Start.</summary>
     property AllowedOrigin: string read FAllowedOrigin write FAllowedOrigin;
+    /// <summary>Receives the command (lower case, without the path) on the
+    /// main thread, through <c>TThread.Queue</c>: a console host has to call
+    /// <c>CheckSynchronize</c> to get it. nil = every command is answered
+    /// 404. Set it from the main thread.</summary>
     property OnCommand: THelpChatUiCommandEvent read FOnCommand write FOnCommand;
   end;
 
@@ -117,6 +148,7 @@ begin
   FServer := TIdHTTPServer.Create(nil);
   FServer.ServerSoftware := 'HelpChatHost';
   FServer.KeepAlive := True;
+  // Nothing to parse: a command is its path, and it has no body.
   FServer.ParseParams := False;
   FServer.OnCommandGet := HandleCommand;
   FServer.OnCommandOther := HandleCommand;
@@ -189,6 +221,8 @@ var
 begin
   AResponseInfo.CustomHeaders.Values['X-Content-Type-Options'] := 'nosniff';
   WriteCors(AResponseInfo);
+  // The preflight carries no token - a browser never sends custom headers
+  // with it - so it is answered before the secret is asked for.
   if ARequestInfo.CommandType = hcOPTION then
   begin
     WriteEmpty(AResponseInfo, 204);

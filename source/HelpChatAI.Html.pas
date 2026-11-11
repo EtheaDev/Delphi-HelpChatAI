@@ -26,12 +26,20 @@
 
 /// <summary>
 ///  HTML rendering of chat messages as fragments the panel inserts into its
-///  DOM: safe Markdown to HTML for assistant replies (CommonMark, safe mode:
-///  script/iframe/object and friends are escaped, never emitted), plain-text
-///  encoding for user, system and error messages. Transport-agnostic: the
-///  local HTTP server, a remote server and the FMX bridge all emit the same
-///  fragments. The reply of a model is untrusted content that ends up inside a
-///  WebView with a bridge to native code: safe mode is not optional.
+///  DOM: safe Markdown to HTML for assistant replies (GitHub Flavored
+///  Markdown, safe mode: script/iframe/object and friends are escaped, never
+///  emitted), plain-text encoding for user, system and error messages.
+///  Transport-agnostic: the local HTTP server and a remote server emit the
+///  same fragments, for the VCL and the FMX panel alike. The reply of a model
+///  is untrusted content that ends up inside a WebView whose page can ask
+///  things of the application: safe mode is not optional.
+///
+///  The unit also builds the printable documents (an answer, a conversation,
+///  a page of the manual) the client turns into a PDF. It needs the message
+///  record of <c>HelpChatAI.Types</c> and the Markdown processor, and nothing
+///  else of the library: no engine, no settings, no language - localized
+///  labels are passed in. Every routine is stateless and safe to call from
+///  any thread.
 /// </summary>
 unit HelpChatAI.Html;
 
@@ -50,10 +58,14 @@ const
 /// <summary>Plain text to HTML: encodes the text and turns newlines into &lt;br&gt;.</summary>
 function HelpChatTextToHtml(const AText: string): string;
 
-/// <summary>Markdown to a safe HTML fragment (CommonMark, active HTML escaped,
-/// link and image URLs restricted to <see cref="HelpChatIsSafeUrl" />).
+/// <summary>Markdown to a safe HTML fragment (the GFM dialect - models answer
+/// with tables, strikethrough and task lists, which CommonMark prints as
+/// text - active HTML escaped, link and image URLs restricted to
+/// <see cref="HelpChatIsSafeUrl" />, bare URLs turned into links).
 /// Tolerant of partial input, so it also renders the growing partial of a
-/// streaming reply. On any error it falls back to HTML-encoded text.</summary>
+/// streaming reply. Never raises: on any error it falls back to HTML-encoded
+/// text. Empty for blank input. The only way model output, a documentation
+/// page or anything else written in Markdown may reach the page.</summary>
 function HelpChatMarkdownToSafeHtml(const AMarkdown: string): string;
 
 /// <summary>True for URLs a chat bubble may link to: http(s), mailto, ftp(s),
@@ -63,17 +75,25 @@ function HelpChatMarkdownToSafeHtml(const AMarkdown: string): string;
 function HelpChatIsSafeUrl(const AUrl: string): Boolean;
 
 /// <summary>Rewrites every href/src attribute of an HTML fragment whose URL is
-/// not <see cref="HelpChatIsSafeUrl" /> to "#" (the original is dropped). The
-/// Markdown library escapes active elements but not dangerous link targets.</summary>
+/// not <see cref="HelpChatIsSafeUrl" /> to "#" (the original is dropped), and
+/// an empty one too - <c>href=""</c> reloads the page, and a blocked link
+/// must look dead. The Markdown engine blanks a dangerous target itself in
+/// safe mode; this is the second layer, which does not rely on the first.
+/// Only quoted attribute values are looked at, which is what that engine
+/// writes.</summary>
 function HelpChatSanitizeUrls(const AHtml: string): string;
 
 /// <summary>Turns bare http(s) URLs in the text of an HTML fragment into
 /// links. Models often write "see https://..." without Markdown syntax and
-/// CommonMark leaves it as text. Text inside a, code and pre elements and
-/// inside tags is left alone; trailing punctuation stays outside the link.</summary>
+/// the Markdown engine leaves it as text. Text inside a, code and pre
+/// elements and inside tags is left alone; trailing punctuation stays
+/// outside the link.
+/// The input must be HTML already (entity-encoded text): it is what
+/// <see cref="HelpChatMarkdownToSafeHtml" /> produces, not raw text.</summary>
 function HelpChatAutoLinkUrls(const AHtml: string): string;
 
-/// <summary>CSS class fragment of a role: user, assistant, system.</summary>
+/// <summary>CSS class fragment of a role: user, assistant, system. Anything
+/// that is neither user nor assistant is drawn as system.</summary>
 function HelpChatRoleClass(const ARole: THelpChatRole): string;
 
 /// <summary>
@@ -85,10 +105,19 @@ function HelpChatRoleClass(const ARole: THelpChatRole): string;
 ///  <c>data-pending</c> is the contract with the client: while present, keep
 ///  polling; when it disappears, stop. An empty pending bubble shows the typing
 ///  indicator.
+///
+///  Who wrote the content decides how it is rendered: a reply of the
+///  assistant, pending or complete, is Markdown in safe mode; a question, a
+///  system message and an error are plain text, never Markdown - an error
+///  even when its role is the assistant's. The message id is written into
+///  the attribute unencoded: it is expected to be an id the store generated
+///  (a persisted conversation brings back the ids its file holds).
 /// </summary>
 function HelpChatRenderBubble(const AMessage: THelpChatMessage): string;
 
-/// <summary>Renders the greeting as an assistant bubble with the greeting class.</summary>
+/// <summary>Renders the greeting as an assistant bubble with the greeting
+/// class. Plain text, and no <c>data-msgid</c>: the greeting is not a message
+/// of the conversation, so it is neither polled nor counted.</summary>
 function HelpChatRenderGreeting(const AGreeting: string): string;
 
 /// <summary>Renders the whole conversation, or the greeting when it is empty.</summary>
@@ -119,19 +148,28 @@ type
     /// the title of the document, which an answer in Markdown usually
     /// does.</summary>
     ShowTitle: Boolean;
-    /// <summary>The complete page.</summary>
+    /// <summary>The complete page, from doctype to closing tag. Title,
+    /// subtitle and language are encoded; <c>Css</c> and <c>BodyHtml</c>
+    /// are written as they are, so the body must already be safe HTML and
+    /// the stylesheet is trusted - it is the application's own file. An
+    /// empty <c>LangCode</c> is English.</summary>
     function Render: string;
   end;
 
 /// <summary>A printable document out of Markdown (the answer of a model, a
 /// page of the manual): the Markdown goes through
 /// <see cref="HelpChatMarkdownToSafeHtml" />, exactly like a bubble - what the
-/// model writes is untrusted on paper too.</summary>
+/// model writes is untrusted on paper too. The title block is left out when
+/// the Markdown opens with its own first-level heading. Subtitle and
+/// language are left for the caller to fill.</summary>
 function HelpChatMarkdownDocument(const ATitle, AMarkdown, ACss: string): THelpChatPrintableDoc;
 
 /// <summary>A printable document out of a conversation: one block per turn,
 /// the question as text and the answer as Markdown. The two labels are the
-/// localized names of who speaks, because this unit knows no language.</summary>
+/// localized names of who speaks, because this unit knows no language.
+/// Pending replies, errors and empty messages are skipped; a system message
+/// becomes a note between the turns. An empty <c>BodyHtml</c> means there
+/// was nothing worth printing.</summary>
 function HelpChatConversationDocument(const ATitle: string;
   const AMessages: TArray<THelpChatMessage>;
   const ACss, AUserLabel, AAssistantLabel: string): THelpChatPrintableDoc;
@@ -221,6 +259,7 @@ begin
 end;
 
 type
+  // Same reason as TUrlAttributeSanitizer: the evaluator must be a method.
   TBareUrlLinker = class
     function Evaluate(const AMatch: TMatch): string;
   end;
@@ -252,6 +291,8 @@ var
   LPos, LTagStart, LTagEnd, LDepth: Integer;
   LTag, LName: string;
 begin
+  // Called for every poll of a streaming reply: most fragments have no URL
+  // at all, and those cost one scan.
   if not AHtml.Contains('http') then
     Exit(AHtml);
   LLinker := TBareUrlLinker.Create;
@@ -308,10 +349,10 @@ begin
   if Trim(AMarkdown) = '' then
     Exit('');
   try
-    // GFM, non CommonMark: i modelli rispondono con tabelle, barrato e
-    // liste di spunta, e CommonMark le stamperebbe come testo coi pipe.
-    // GFM in piu' vieta l'HTML grezzo pericoloso, che e' una garanzia in piu'
-    // sopra al safe mode.
+    // GFM, not CommonMark: models answer with tables, strikethrough and task
+    // lists, and CommonMark would print them as text full of pipes. GFM also
+    // forbids the dangerous raw HTML, one guarantee more on top of safe mode.
+    // A processor per call: it is not shared between threads.
     LProcessor := TMarkdownProcessor.CreateDialect(mdGFM);
     try
       LProcessor.AllowUnsafe := False;

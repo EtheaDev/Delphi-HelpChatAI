@@ -346,8 +346,8 @@ begin
     Result.LoadConfiguration('');
     // The benchmark names its own target: the assistants of the shared file
     // must not pick the provider at Start.
-    Result.Assistants.Clear;
-    Result.Assistant := '';
+    Result.Models.Clear;
+    Result.SelectedModel := '';
     Result.Provider := ATarget.Provider;
     Result.PersistConversation := False;
     Result.Language := hclEnglish;

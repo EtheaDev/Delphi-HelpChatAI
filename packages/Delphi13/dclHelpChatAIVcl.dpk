@@ -56,6 +56,7 @@ requires
 
 contains
   Vcl.HelpChatAI.DesignPreview in '..\..\source\Vcl.HelpChatAI.DesignPreview.pas',
+  Vcl.HelpChatAI.ConfigEditor in '..\..\source\Vcl.HelpChatAI.ConfigEditor.pas' {VclHelpChatConfigEditor},
   Vcl.HelpChatAI.Register in '..\..\source\Vcl.HelpChatAI.Register.pas';
 
 end.

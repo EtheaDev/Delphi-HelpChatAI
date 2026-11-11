@@ -27,8 +27,16 @@
 /// <summary>
 ///  Design-time registration of the VCL component: the palette entry, the
 ///  library in the splash screen and in the About box of the IDE, the
-///  component editor that runs the chat before the application is built, and
-///  the property editors of the bubble icon.
+///  component editor (the configuration editor, the chat run before the
+///  application is built, the check, the index), and the property editors
+///  of the bubble icon, of the provider, of the configuration file and of
+///  the container.
+///
+///  Every verb works on the component it was invoked on: with several
+///  assistants on a form each has its own profile, its own
+///  <c>ConfigFileName</c> and its own preview. What they share is the
+///  project: the files are looked for next to the executable of the active
+///  project of the IDE.
 ///
 ///  <c>ImageIndex</c> and <c>ImageName</c> get an editor of their own because
 ///  the one the IDE provides for the standard controls is not offered to a
@@ -57,13 +65,35 @@ uses
 {$R HelpChatAI.Splash.res}
 
 type
-  /// <summary>Verbs of the component: run it, check it, read about it.</summary>
+  /// <summary>
+  ///  The verbs of the component, in the order of the context menu:
+  ///  configure it (verb 0, so a double click on the component opens the
+  ///  configuration editor), run it, check it, rebuild its documentation
+  ///  index, read about it. All but the last need the component to be a
+  ///  <c>TVclHelpChatAI</c> and do nothing otherwise.
+  /// </summary>
   TVclHelpChatComponentEditor = class(TComponentEditor)
   strict private
+    /// <summary>The component being edited, or nil when it is not a
+    /// <c>TVclHelpChatAI</c>. Typed <c>TComponent</c> so that the interface
+    /// of this unit does not need the component unit.</summary>
     function GetChat: TComponent;
   public
+    /// <summary>Five, always: a verb that cannot work says why when it is
+    /// run (no project open, no index) instead of disappearing.</summary>
     function GetVerbCount: Integer; override;
+    /// <summary>The caption of a verb; the last one carries the version of
+    /// the library.</summary>
     function GetVerb(Index: Integer): string; override;
+    /// <summary>
+    ///  Runs a verb. The configuration editor gets the settings of the
+    ///  component itself, not a copy: a value sent "to the component" and
+    ///  the choice of the profile are written at once, and each marks the
+    ///  form modified through the designer. Its Test button and verb 1 open
+    ///  the same preview, which runs a copy and leaves the component alone.
+    ///  The check shows what it found either way: as an error when one of
+    ///  the findings is, as information otherwise.
+    /// </summary>
     procedure ExecuteVerb(Index: Integer); override;
   end;
 
@@ -71,8 +101,14 @@ type
   /// drop-down list.</summary>
   TVclHelpChatImageIndexProperty = class(TIntegerProperty, ICustomPropertyListDrawing)
   public
+    /// <summary>A drop-down of the indexes; a number can still be typed,
+    /// and several components can be edited together.</summary>
     function GetAttributes: TPropertyAttributes; override;
+    /// <summary>Every index of the image list in use.</summary>
     procedure GetValues(Proc: TGetStrProc); override;
+    /// <summary>The image list of the selected component number
+    /// <c>Index</c>: its <c>Images</c>, else the built-in icons - never nil.
+    /// The list is drawn from the first component of a multiple selection.</summary>
     function GetImageListAt(Index: Integer): TCustomImageList; virtual;
     // ICustomPropertyListDrawing
     procedure ListMeasureHeight(const Value: string; ACanvas: TCanvas;
@@ -85,17 +121,29 @@ type
 
   /// <summary>Which provider answers: the ones registered in this IDE, which
   /// are the ones compiled into the library. Typing a name that is not there
-  /// is the mistake this editor exists to prevent.</summary>
+  /// is the mistake this editor exists to prevent. Registered on
+  /// <c>THelpChatSettings.Provider</c>, so every owner of settings gets it;
+  /// the models of the panel are not chosen here, they are the
+  /// <c>Models</c> of the configuration.</summary>
   TVclHelpChatProviderProperty = class(TStringProperty)
   public
+    /// <summary>A drop-down that still accepts a typed name: a provider the
+    /// application registers at run time is not known to the IDE.</summary>
     function GetAttributes: TPropertyAttributes; override;
+    /// <summary>The names in the provider registry of the IDE process: the
+    /// stub and the providers whose units the design package links.</summary>
     procedure GetValues(Proc: TGetStrProc); override;
   end;
 
-  /// <summary>The configuration file, with a file dialog behind the ellipsis.</summary>
+  /// <summary>The configuration file, with a file dialog behind the ellipsis.
+  /// An empty value means the three default files; a named one is the whole
+  /// configuration, and must exist when the component activates.</summary>
   TVclHelpChatConfigFileNameProperty = class(TStringProperty)
   public
     function GetAttributes: TPropertyAttributes; override;
+    /// <summary>Asks for an existing file and stores the full path the
+    /// dialog returns. A path relative to the executable - what an
+    /// application that is deployed wants - has to be typed.</summary>
     procedure Edit; override;
   end;
 
@@ -104,6 +152,9 @@ type
   /// offering an edit box or a button as a place to put the chat.</summary>
   TVclHelpChatContainerProperty = class(TComponentProperty)
   public
+    /// <summary>The named controls owned by the form being designed that
+    /// have <c>csAcceptsControls</c>, then the form itself. A control of
+    /// another form or of a frame instance is not listed.</summary>
     procedure GetValues(Proc: TGetStrProc); override;
   end;
 
@@ -112,7 +163,11 @@ type
   TVclHelpChatImageNameProperty = class(TStringProperty, ICustomPropertyListDrawing)
   public
     function GetAttributes: TPropertyAttributes; override;
+    /// <summary>The names of the image list in use; nothing when the list
+    /// of the application has no names (a plain <c>TImageList</c>).</summary>
     procedure GetValues(Proc: TGetStrProc); override;
+    /// <summary>As for the index: <c>Images</c> of the component, else the
+    /// built-in icons, which is the only place their names can be read.</summary>
     function GetImageListAt(Index: Integer): TCustomImageList; virtual;
     // ICustomPropertyListDrawing
     procedure ListMeasureHeight(const Value: string; ACanvas: TCanvas;
@@ -123,6 +178,13 @@ type
       const ARect: TRect; ASelected: Boolean);
   end;
 
+/// <summary>
+///  Called by the IDE when the design package is loaded. Besides the
+///  component and its editors it sets <c>HelpChatDesignTime</c>, for the
+///  whole IDE process and for good: from then on every secret is read from
+///  its clear node, because no <c>OnDecryptSecret</c> of an application can
+///  run here.
+/// </summary>
 procedure Register;
 
 implementation
@@ -143,7 +205,8 @@ uses
   HelpChatAI.Diagnostics,
   Vcl.HelpChatAI,
   Vcl.HelpChatAI.Bubble,
-  Vcl.HelpChatAI.DesignPreview;
+  Vcl.HelpChatAI.DesignPreview,
+  Vcl.HelpChatAI.ConfigEditor;
 
 const
   HELPCHAT_PALETTE_PAGE = 'Ethea HelpChat';
@@ -164,6 +227,7 @@ resourcestring
     'the answer comes from its documentation, through Anthropic Claude or a ' +
     'provider of yours.';
   SHelpChatAboutLicense = 'Apache 2.0 (Free/Opensource)';
+  SHelpChatVerbConfig = 'C&onfiguration...';
   SHelpChatVerbTest = '&Test HelpChat...';
   SHelpChatVerbCheck = '&Check configuration...';
   SHelpChatVerbIndex = '&Rebuild documentation index...';
@@ -174,12 +238,17 @@ resourcestring
   SHelpChatConfigFileFilter = 'HelpChat configuration (*.json)|*.json|All files (*.*)|*.*';
 
 var
+  // The About box entry, kept to take it away when the package is unloaded.
   GAboutBoxServices: IOTAAboutBoxServices = nil;
   GAboutBoxIndex: Integer = 0;
+  // The built-in icons as the property editors draw them: see BuiltInImages.
   GBuiltInImages: TVirtualImageList = nil;
 
 { splash screen and About box }
 
+// From Delphi 11 the IDE takes a 32-bit bitmap with its alpha, read here
+// from the PNG of HelpChatAI.Splash.res; 10.4 loads a flattened bitmap
+// resource with LoadBitmap, which has no alpha to give.
 {$IFDEF D11+}
 function CreateBitmapFromPngRes(const AResName: string): Vcl.Graphics.TBitmap;
 var
@@ -335,16 +404,17 @@ end;
 
 function TVclHelpChatComponentEditor.GetVerbCount: Integer;
 begin
-  Result := 4;
+  Result := 5;
 end;
 
 function TVclHelpChatComponentEditor.GetVerb(Index: Integer): string;
 begin
   case Index of
-    0: Result := SHelpChatVerbTest;
-    1: Result := SHelpChatVerbCheck;
-    2: Result := SHelpChatVerbIndex;
-    3: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
+    0: Result := SHelpChatVerbConfig;
+    1: Result := SHelpChatVerbTest;
+    2: Result := SHelpChatVerbCheck;
+    3: Result := SHelpChatVerbIndex;
+    4: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
   else
     Result := '';
   end;
@@ -358,9 +428,38 @@ begin
   LChat := GetChat;
   case Index of
     0:
+      // The three callbacks run while the editor is open, on this component:
+      // the profile and the values sent to the component go into the form
+      // file, so the designer is told each time.
+      if Assigned(LChat) then
+        TVclHelpChatConfigEditor.Execute(TVclHelpChatAI(LChat).Settings,
+          TVclHelpChatAI(LChat).Profile, HelpChatDesignExeFile,
+          TVclHelpChatAI(LChat).ConfigFileName,
+          procedure(AProfile: string)
+          begin
+            TVclHelpChatAI(LChat).Profile := AProfile;
+            Designer.Modified;
+          end,
+          procedure
+          begin
+            // "To component" writes into Settings, and the name of the
+            // assistant is not a published property there: it lives on the
+            // component, which is what the form file stores.
+            if TVclHelpChatAI(LChat).Settings.AssistantName <> '' then
+            begin
+              TVclHelpChatAI(LChat).AssistantName := TVclHelpChatAI(LChat).Settings.AssistantName;
+              TVclHelpChatAI(LChat).Settings.AssistantName := '';
+            end;
+            Designer.Modified;
+          end,
+          procedure
+          begin
+            HelpChatDesignPreview(TVclHelpChatAI(LChat));
+          end);
+    1:
       if Assigned(LChat) then
         HelpChatDesignPreview(TVclHelpChatAI(LChat));
-    1:
+    2:
       if Assigned(LChat) then
       begin
         LIssues := HelpChatDesignCheck(TVclHelpChatAI(LChat));
@@ -371,10 +470,10 @@ begin
           MessageDlg(SHelpChatCheckOk + sLineBreak + sLineBreak +
             HelpChatIssuesToText(LIssues), mtInformation, [mbOK], 0);
       end;
-    2:
+    3:
       if Assigned(LChat) then
         HelpChatDesignRebuildIndex(TVclHelpChatAI(LChat));
-    3:
+    4:
       ShellExecute(0, 'open', PChar(HELPCHAT_DOCS_URL), nil, nil, SW_SHOWNORMAL);
   end;
 end;
@@ -444,6 +543,7 @@ begin
     Exit;
   for I := 0 to LImages.Count - 1 do
   begin
+    // With an index and an empty name, CheckIndexAndName fills in the name.
     LName := '';
     LIndex := I;
     LImages.CheckIndexAndName(LIndex, LName);
@@ -481,7 +581,8 @@ end;
 
 function TVclHelpChatProviderProperty.GetAttributes: TPropertyAttributes;
 begin
-  // Not paValueList alone: a provider the application registers at run time
+  // A drop-down that proposes, not a closed list: the edit box still takes
+  // a typed name, because a provider the application registers at run time
   // is a legitimate value that this IDE cannot know about.
   Result := [paMultiSelect, paValueList, paRevertable];
 end;
@@ -546,11 +647,16 @@ end;
 
 procedure Register;
 begin
+  // Inside the IDE every secret is read in clear: no OnDecryptSecret of the
+  // application runs here.
+  HelpChatDesignTime := True;
   RegisterWithSplashScreen;
 
   RegisterComponents(HELPCHAT_PALETTE_PAGE, [TVclHelpChatAI]);
   RegisterComponentEditor(TVclHelpChatAI, TVclHelpChatComponentEditor);
 
+  // Only on the component: the bubble is created at run time and never
+  // reaches the Object Inspector, though ImagesOf would know how to serve it.
   RegisterPropertyEditor(TypeInfo(System.UITypes.TImageIndex),
     TVclHelpChatAI, 'ImageIndex', TVclHelpChatImageIndexProperty);
   RegisterPropertyEditor(TypeInfo(System.UITypes.TImageName),

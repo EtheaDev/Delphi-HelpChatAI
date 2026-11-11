@@ -39,6 +39,10 @@
 ///  Adding an icon: the PNGs in <c>Images\</c>, an entry in
 ///  <c>resources/HelpChatAI.Assistant.rc</c>, <c>Tools\BuildResources.cmd</c>,
 ///  and the name in <c>HelpChatAssistantIconNames</c>.
+///
+///  "Assistant" here is the face the user sees, the component: the unit has
+///  no tie to profiles, models or the engine, and uses nothing of the
+///  library. Its functions read resources and are safe from any thread.
 /// </summary>
 unit HelpChatAI.Assistant;
 
@@ -51,8 +55,12 @@ uses
   System.Classes;
 
 const
-  /// <summary>Names of the icons compiled into the component. They are also
-  /// the resource names, upper-cased and with the size appended.</summary>
+  /// <summary>Names of the icons compiled into the component: what
+  /// <c>ImageName</c> of the bubble accepts when the application gives no
+  /// image list of its own. They are also the resource names, upper-cased
+  /// and with the size appended (<c>AIASSISTANT_MALE_48</c>). The name is
+  /// about the picture only: it has nothing to do with the profile or the
+  /// model of an assistant.</summary>
   HELPCHAT_ICON_AI_MALE = 'AIAssistant_Male';
   HELPCHAT_ICON_AI_FEMALE = 'AIAssistant_Female';
   HELPCHAT_ICON_MALE = 'Assistant_Male';
@@ -86,7 +94,10 @@ function HelpChatAssistantIconPng(const AName: string;
   const ASize: Integer = HELPCHAT_ICON_PANEL_SIZE): TBytes;
 
 /// <summary>PNG bytes as the <c>data:image/png;base64,</c> URI the chat page
-/// loads; empty for empty bytes. No line breaks: it goes in an attribute.</summary>
+/// loads; empty for empty bytes. No line breaks: it goes in an attribute.
+/// The bytes are not checked to be a PNG: it is also what a framework unit
+/// calls with the image it drew from the application's image list, and what
+/// <c>IHelpChatTransport.SetAssistant</c> is then given.</summary>
 function HelpChatPngDataUri(const ABytes: TBytes): string;
 
 /// <summary>One icon straight as a <c>data:</c> URI for the chat page, with no

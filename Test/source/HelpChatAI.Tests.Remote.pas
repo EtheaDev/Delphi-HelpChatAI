@@ -74,6 +74,8 @@ type
     [Test] procedure HostChannel_DeliversCommands_WithCorsAndToken;
     [Test] procedure Transport_EndToEnd;
     [Test] procedure Transport_UnreachableServer_Raises;
+    [Test] procedure Transport_SessionTheServerExpired_IsOpenedAgain;
+    [Test] procedure Session_EndedWhileARequestHoldsIt_IsNotFreedAtOnce;
   end;
 
 implementation
@@ -532,6 +534,60 @@ begin
   end;
   Assert.IsFalse(LTransport.IsActive);
   Assert.AreEqual(0, FServer.SessionCount, 'the session is closed, not left to expire');
+end;
+
+procedure TRemoteTests.Transport_SessionTheServerExpired_IsOpenedAgain;
+var
+  LTransport: IHelpChatTransport;
+  LRemote: THelpChatRemoteTransport;
+  LContext: THelpChatContext;
+  LFirstUrl: string;
+begin
+  StartServer;
+  LRemote := THelpChatRemoteTransport.Create(Url(''), TEST_APP_KEY);
+  LTransport := LRemote;
+  LRemote.UseHostChannel := False;
+  LTransport.Start;
+  try
+    LFirstUrl := LTransport.GetPanelUrl;
+    Assert.AreEqual(1, FServer.SessionCount);
+    // The server ends the session behind the back of the client.
+    FServer.IdleSeconds := 1;
+    Sleep(1500);
+    FServer.Sweep;
+    Assert.AreEqual(0, FServer.SessionCount);
+    FServer.IdleSeconds := 3600;
+    // The next call of the session is answered 403: the transport opens a
+    // new one instead of keeping a token nobody knows.
+    LContext := Default(THelpChatContext);
+    LContext.ScreenLabel := 'Orders';
+    LTransport.SetContext(LContext);
+    Assert.AreEqual(1, FServer.SessionCount, 'a new session');
+    Assert.AreNotEqual(LFirstUrl, LTransport.GetPanelUrl, 'with a new token, so the page is reloaded');
+    Assert.AreEqual(200, FClient.Get(LTransport.GetPanelUrl).StatusCode);
+  finally
+    LTransport.Stop;
+  end;
+end;
+
+procedure TRemoteTests.Session_EndedWhileARequestHoldsIt_IsNotFreedAtOnce;
+var
+  LToken: string;
+  LResponse: IHTTPResponse;
+begin
+  // Ending a session retires it: the object stays until no request can be
+  // using it. From outside that is one thing only - the server keeps
+  // answering, and the token is refused from then on.
+  StartServer;
+  LToken := OpenSession('anna');
+  FClient.CustomHeaders[HELPCHAT_TOKEN_HEADER] := LToken;
+  LResponse := FClient.Post(Url(HELPCHAT_SESSION_END_PATH), TStringStream.Create('', TEncoding.UTF8, True));
+  Assert.AreEqual(200, LResponse.StatusCode);
+  Assert.AreEqual(0, FServer.SessionCount);
+  LResponse := FClient.Get(Url(HELPCHAT_API_PREFIX + '/history'));
+  Assert.AreEqual(403, LResponse.StatusCode, 'the token is no longer a session');
+  FServer.Sweep; // the retired session is younger than the grace: still there, no harm
+  FServer.Stop;  // and freed here
 end;
 
 procedure TRemoteTests.Transport_UnreachableServer_Raises;

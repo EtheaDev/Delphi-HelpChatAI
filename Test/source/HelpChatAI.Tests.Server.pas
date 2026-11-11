@@ -608,12 +608,12 @@ var
   LResponse: IHTTPResponse;
   LRoot: TJSONValue;
 begin
-  with FSettings.Assistants.Add do
+  with FSettings.Models.Add do
   begin
     Name := 'Echo';
     Provider := TEST_PROVIDER_ECHO;
   end;
-  with FSettings.Assistants.Add do
+  with FSettings.Models.Add do
   begin
     Name := 'Slow';
     Provider := TEST_PROVIDER_SLOW;
@@ -729,7 +729,7 @@ var
 begin
   // The local server starts with the default: everything but prompt and run.
   LText := Get(HELPCHAT_API_COMMANDS).ContentAsString(TEncoding.UTF8);
-  Assert.IsTrue(LText.Contains('"name":"who","title":"Assistant in use"'), LText);
+  Assert.IsTrue(LText.Contains('"name":"who","title":"Model in use"'), LText);
   Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"search"[^}]*"enabled":true'), LText);
   Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"prompt"[^}]*"enabled":false'), LText);
   Assert.IsTrue(TRegEx.IsMatch(LText, '"name":"run"[^}]*"enabled":false'), LText);

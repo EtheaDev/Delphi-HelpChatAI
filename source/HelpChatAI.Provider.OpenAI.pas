@@ -63,38 +63,73 @@ uses
   HelpChatAI.Provider.Sse;
 
 const
+  /// <summary>Name the provider registers under. Every service that speaks
+  /// Chat Completions is this provider with another <c>BaseUrl</c>, so three
+  /// local models on one Ollama are three models of the catalogue with this
+  /// same name.</summary>
   HELPCHAT_PROVIDER_OPENAI = 'openai';
   /// <summary>Path appended to BaseUrl when this is not Azure.</summary>
   HELPCHAT_OPENAI_COMPLETIONS_PATH = '/v1/chat/completions';
 
 type
   /// <summary>Parses the <c>chat.completion.chunk</c> events: the text
-  /// deltas, the tool calls assembled per index, and the finish reason.</summary>
+  /// deltas, the tool calls assembled per index, and the finish reason. Only
+  /// the first choice is read. An <c>error</c> object arriving as a payload
+  /// of its own is kept in <c>Error</c> for the provider to raise. Lives for
+  /// one round of one reply, on the worker thread that runs it.</summary>
   THelpChatOpenAIStream = class(THelpChatSseStreamBase)
   strict private
     FFinishReason: string;
     FToolCalls: TList<THelpChatToolCall>;
     FToolIndexes: TDictionary<Integer, Integer>; // delta index -> tool call
+    /// <summary>One element of <c>delta.tool_calls</c>: opens the call of
+    /// its <c>index</c> the first time that index is seen, then appends the
+    /// fragments of the arguments to it. A delta without an index counts as
+    /// index 0.</summary>
     procedure ApplyToolDelta(const ADelta: TJSONObject);
     function GetToolCalls: TArray<THelpChatToolCall>;
   strict protected
     procedure ProcessLine(const ALine: string); override;
   public
+    /// <summary><c>AOnToken</c> receives every text delta, on the thread the
+    /// HTTP client writes from; nil when nobody is listening.</summary>
     constructor Create(const AOnToken: THelpChatTokenProc);
     destructor Destroy; override;
-    /// <summary>finish_reason of the choice: stop, length, tool_calls...</summary>
+    /// <summary>finish_reason of the choice: stop, length, tool_calls... The
+    /// provider runs the actions only when it is <c>tool_calls</c>.</summary>
     property FinishReason: string read FFinishReason;
-    /// <summary>The actions the model asked for in this reply, in order.</summary>
+    /// <summary>The actions the model asked for in this reply, in order of
+    /// first appearance. A copy: the arguments of a call are complete only
+    /// once the stream is.</summary>
     property ToolCalls: TArray<THelpChatToolCall> read GetToolCalls;
   end;
 
+  /// <summary>
+  ///  The <c>openai</c> provider. One instance per reply, created by the
+  ///  registry on a runner worker and never shared. It reads its
+  ///  <c>Settings.OpenAI</c> section through <c>ResolveModel</c>,
+  ///  <c>NormalizedBaseUrl</c> and <c>ResolveApiKey</c>, which is how the
+  ///  model picked in the panel - another model, another endpoint, another
+  ///  key - reaches it without the section being rewritten. The class
+  ///  functions that build the request are static and touch no network.
+  /// </summary>
   THelpChatOpenAIProvider = class(THelpChatProviderBase)
   strict private
     /// <summary>Runs what the model asked for and builds the <c>tool</c>
-    /// messages that carry the results back.</summary>
+    /// messages that carry the results back: one per call, as the elements
+    /// of a JSON array without its brackets, because the caller splices them
+    /// into one. Blocks while the application runs each action on its main
+    /// thread. Raises <see cref="EHelpChatCancelled" /> when the request is
+    /// cancelled before or during a call.</summary>
     function ExecuteToolCalls(const ACalls: TArray<THelpChatToolCall>;
       const ACancel: IHelpChatCancelToken): string;
-    /// <summary>One request/response round; returns the stream it parsed.</summary>
+    /// <summary>One request/response round; returns the stream it parsed,
+    /// which the caller owns. The key goes in <c>Authorization: Bearer</c>,
+    /// in <c>api-key</c> for Azure, and in no header at all when there is
+    /// none (a local server). Raises <see cref="EHelpChatCancelled" /> when
+    /// the token flipped during the transfer, <see cref="EHelpChatError" />
+    /// for a status of 400 and above or an error payload in the stream, and
+    /// whatever the HTTP client raises otherwise.</summary>
     function PostRound(const ABody: string; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): THelpChatOpenAIStream;
   public
@@ -103,10 +138,29 @@ type
     /// Public for tests.</summary>
     class function CompletionsUrl(const ASettings: THelpChatOpenAISettings): string; static;
     function GetName: string; override;
+    /// <summary>A missing key is an issue only when the endpoint is the one
+    /// of OpenAI itself: any other <c>BaseUrl</c> may be a local server that
+    /// asks for none, and a service that does want one answers 401 with its
+    /// own words at the first question. Asked through <c>ResolveApiKey</c>,
+    /// so at run time the application's <c>OnDecryptSecret</c> handler runs
+    /// for an encrypted key.</summary>
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
     function SupportsStreaming: Boolean; override;
     function SupportsActions: Boolean; override;
+    /// <summary>True for the provider as a whole: whether the model behind
+    /// the configured endpoint really reads a PDF or an image is something
+    /// only that service knows, and it says so with an error of its own.</summary>
     function SupportsDocuments: Boolean; override;
+    /// <summary>The reply, streamed through <c>AOnToken</c> as it arrives and
+    /// returned whole. With actions registered it is a loop of at most
+    /// <c>Settings.OpenAI.ResolveMaxToolRounds</c> requests: the text of
+    /// every round is concatenated, a paragraph break between two, and that
+    /// same break goes through <c>AOnToken</c>. Actions asked for in the last
+    /// round are not run. Runs on a worker thread and blocks it. Raises
+    /// <see cref="EHelpChatConfigError" /> when OpenAI itself is called
+    /// without a key, <see cref="EHelpChatCancelled" /> on cancellation and
+    /// <see cref="EHelpChatError" /> for what the service refuses; an empty
+    /// answer becomes the localized "no content" sentence.</summary>
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; override;
@@ -117,9 +171,14 @@ type
     /// <c>{"type":"function","function":{name,description,parameters}}</c>.
     /// Public for tests.</summary>
     class function BuildToolsJson(const ABrokerToolsJson: string): string; static;
-    /// <summary>Builds the JSON body of the request. <c>AExtraMessagesJson</c>
-    /// is a JSON array of the turns this reply already exchanged with the
-    /// tools. Public for tests; no network involved.</summary>
+    /// <summary>Builds the JSON body of the request: the model of
+    /// <c>ASettings.ResolveModel</c>, the system prompt as the first message,
+    /// the history without its system and empty messages, the attachments on
+    /// the last non-empty user turn. <c>AToolsJson</c> is the array
+    /// <see cref="BuildToolsJson" /> produced, not the broker's;
+    /// <c>AExtraMessagesJson</c> is a JSON array of the turns this reply
+    /// already exchanged with the tools. Public for tests; no network
+    /// involved.</summary>
     class function BuildRequestBody(const AHistory: TArray<THelpChatMessage>;
       const ASystemPrompt: string; const ASettings: THelpChatOpenAISettings;
       const AToolsJson, AExtraMessagesJson: string;
@@ -127,15 +186,22 @@ type
       const ALanguage: THelpChatLanguage = hclAuto): string; static;
     /// <summary>The content of a user message that carries attachments: a
     /// <c>file</c> part per PDF (the only binary Chat Completions reads), an
-    /// <c>image_url</c> part with a data URI per picture, and the text last.</summary>
+    /// <c>image_url</c> part with a data URI per picture, and the text last,
+    /// with the text attachments in front of the question. The caller owns
+    /// the array.</summary>
     class function BuildUserContent(const AText: string;
       const AAttachments: TArray<THelpChatAttachment>;
       const ALanguage: THelpChatLanguage): TJSONArray; static;
     /// <summary>The assistant turn that asked for the actions, as the API
-    /// wants it back.</summary>
+    /// wants it back: <c>content</c> always present, even empty, and one
+    /// <c>tool_calls</c> entry per call whose arguments are a string of JSON
+    /// (<c>{}</c> when the model sent none), not an object.</summary>
     class function BuildAssistantToolMessage(const AText: string;
       const ACalls: TArray<THelpChatToolCall>): string; static;
-    /// <summary>Extracts a readable message from a non-2xx response body.</summary>
+    /// <summary>Extracts a readable message from a non-2xx response body:
+    /// the <c>error.message</c> of the JSON the service answers with, else
+    /// the localized "HTTP status" sentence in the language of
+    /// <c>ASettings</c> (which may be nil). Never raises.</summary>
     class function ExtractApiError(const ARaw: string; const AStatus: Integer;
       const AStatusText: string; const ASettings: THelpChatSettings): string; static;
   end;
@@ -206,6 +272,21 @@ begin
   // ones only add fragments of the arguments to it.
   LIndex := ADelta.GetValue<Integer>('index', 0);
   LId := ADelta.GetValue<string>('id', '');
+  // Some servers that speak this API leave the index out. Then the id is
+  // what starts a call - two parallel calls would otherwise be glued into
+  // one, name of the first and arguments of both - and a fragment without
+  // an id belongs to the call before it.
+  if ADelta.GetValue('index') = nil then
+  begin
+    if (LId <> '') and
+       ((FToolCalls.Count = 0) or (FToolCalls[FToolCalls.Count - 1].Id <> LId)) then
+      LIndex := -(FToolCalls.Count + 1)   // a key no real index can have
+    else if FToolCalls.Count > 0 then
+      LIndex := -FToolCalls.Count;
+    if (LIndex < 0) and (LIndex = -FToolCalls.Count) and
+       not FToolIndexes.ContainsKey(LIndex) then
+      FToolIndexes.AddOrSetValue(LIndex, FToolCalls.Count - 1);
+  end;
   LName := '';
   LArgs := '';
   LFunction := ADelta.GetValue('function') as TJSONObject;
@@ -262,6 +343,8 @@ begin
     if LChoice = nil then
       Exit;
 
+    // Null on every chunk but the last of the choice; the usage record that
+    // may follow has no choice at all and never gets here.
     LFinish := LChoice.GetValue<string>('finish_reason', '');
     if LFinish <> '' then
       FFinishReason := LFinish;
@@ -559,9 +642,13 @@ begin
     begin
       CheckCancelled(ACancel);
       // Invoke never raises: whatever happened is told to the model as text.
+      // InvokeAction, not Actions.Invoke: after a refusal the base class
+      // answers every later call of this reply without asking again.
       LOutcome := InvokeAction(ACalls[I].Name, ACalls[I].InputJson, ACancel, LResult);
       if LOutcome = aoCancelled then
         raise EHelpChatCancelled.Create(Msg(hcmCancelled));
+      // This API has no error flag on a tool message: a failure is told by
+      // the sentence alone.
       LMsg := TJSONObject.Create;
       LMsg.AddPair('role', 'tool');
       LMsg.AddPair('tool_call_id', ACalls[I].Id);
@@ -609,7 +696,7 @@ begin
       LLang := ASettings.Language
     else
       LLang := hclAuto;
-    Result := HelpChatMsgFmt(hcmApiError, [AStatus, AStatusText], LLang);
+    Result := HelpChatMsgFmt(hcmApiError, [HelpChatServiceName(ASettings, 'openai'), AStatus, AStatusText], LLang);
   end;
 end;
 
@@ -686,6 +773,8 @@ var
   LRound, LMaxRounds: Integer;
   LCalls: TArray<THelpChatToolCall>;
 begin
+  // The same rule as ConfigurationIssue: only OpenAI itself is known to
+  // want a key, every other endpoint is left to answer for itself.
   if (Settings.OpenAI.ResolveApiKey = '') and
      SameText(Settings.OpenAI.NormalizedBaseUrl, HELPCHAT_OPENAI_DEF_BASEURL) then
     raise EHelpChatConfigError.Create(MsgFmt(hcmProviderKeyMissing,
@@ -695,17 +784,20 @@ begin
        TPath.GetDirectoryName(THelpChatSettings.UserConfigFile)]));
 
   CheckCancelled(ACancel);
+  // The prompt every provider shares: the instruction of the settings, the
+  // language, the screen and the documentation excerpts.
   LSystem := BuildSystemPrompt(AHistory, AContext, Settings, Retriever);
+  LMaxRounds := Settings.OpenAI.ResolveMaxToolRounds;
   LTools := '';
-  if Assigned(Actions) and Actions.HasActions then
+  if OffersActions(LMaxRounds) then
   begin
+    // The broker speaks the Anthropic shape; this API wants its own.
     LTools := BuildToolsJson(Actions.ToolsJson);
     if LTools <> '' then
       LSystem := LSystem + sLineBreak + sLineBreak + HELPCHAT_MODEL_ACTIONS_RULE;
   end;
   CheckCancelled(ACancel);
 
-  LMaxRounds := Settings.OpenAI.ResolveMaxToolRounds;
   LText := TStringBuilder.Create;
   LExtra := TStringBuilder.Create; // the tool turns, as a JSON array body
   try
@@ -717,10 +809,19 @@ begin
       try
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;
-        // Nothing to do, or nobody to do it: this is the reply.
-        if (LStream.FinishReason <> 'tool_calls') or (Length(LCalls) = 0) or
-           (LTools = '') or (LRound = LMaxRounds) then
+        // Nothing to do, or nobody to do it: this is the reply. The calls
+        // are the signal, not the finish reason: several servers that speak
+        // this API (Ollama, LM Studio, some gateways) end a turn that asks
+        // for a tool with "stop".
+        if (Length(LCalls) = 0) or (LTools = '') then
           Break;
+        // The last round ends here as well, with the actions it asked for
+        // not run, and the reply says so.
+        if LRound = LMaxRounds then
+        begin
+          NoteActionsNotRun(LText, AOnToken);
+          Break;
+        end;
         if LExtra.Length > 0 then
           LExtra.Append(',');
         LExtra.Append(BuildAssistantToolMessage(LStream.Text, LCalls));

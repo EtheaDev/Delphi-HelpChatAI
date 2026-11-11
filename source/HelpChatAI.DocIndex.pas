@@ -27,11 +27,20 @@
 /// <summary>
 ///  Documentation index with deterministic keyword retrieval, the default
 ///  <see cref="IHelpChatRetriever" />. Loads a JSON array of pages
-///  (<c>{id, title, url, summary, text}</c>, as produced by the HelpChat index
-///  builder), scores the query terms against each page (title weighted x6 over
-///  body) and returns the best pages. No API key, no network. Tolerant: a
-///  missing or malformed index leaves it empty and <c>IsAvailable = False</c>.
-///  Thread-safe for concurrent searches after loading.
+///  (<c>{id, title, url, summary, keywords, areas, text}</c>, as produced by
+///  the HelpChat index builder), scores the query terms against each page
+///  (title weighted x6 over body, keywords x3) and returns the best pages.
+///  No API key, no network. Tolerant: a missing or malformed index leaves it
+///  empty and <c>IsAvailable = False</c>.
+///
+///  One index serves one engine, and since an engine is one assistant
+///  (profile) the index carries that assistant's view of the manual:
+///  <c>Areas</c> narrows it to the pages of some areas plus the pages of
+///  none, before anything is scored.
+///
+///  Thread-safe: every reader takes a snapshot of the entries under the lock
+///  and works on it outside, so HTTP threads and workers search while the
+///  engine loads or changes the areas.
 /// </summary>
 unit HelpChatAI.DocIndex;
 
@@ -47,6 +56,8 @@ uses
   HelpChatAI.Types;
 
 const
+  /// <summary>Weight of a hit in the title of a page: a page called like
+  /// the question is the page about it.</summary>
   HELPCHAT_TITLE_WEIGHT = 6;
   /// <summary>Weight of a hit in the page keywords (table-of-contents breadcrumb,
   /// aliases): between title and body.</summary>
@@ -59,7 +70,11 @@ const
   /// (screen keyword/label): they name the page the user is on and must beat
   /// the words of a generic question ("how do I use this screen?").</summary>
   HELPCHAT_HINT_WEIGHT = 2.0;
+  /// <summary>Shorter words are not tokens: articles and prepositions of
+  /// every language, without a list of them.</summary>
   HELPCHAT_MIN_TOKEN_LENGTH = 3;
+  /// <summary>Pages returned by <c>Search</c> when the caller asks for zero
+  /// or fewer.</summary>
   HELPCHAT_DEFAULT_MAX_PAGES = 3;
   /// <summary>Default size of the excerpt returned per page (characters).</summary>
   HELPCHAT_DEF_EXCERPT_MAX_CHARS = 2000;
@@ -67,18 +82,36 @@ const
   HELPCHAT_EXCERPT_WINDOW = 600;
 
 type
-  /// <summary>One indexed page.</summary>
+  /// <summary>One indexed page, as the index file describes it. The index
+  /// itself keeps its own record with the lowercased copies it scores on;
+  /// this one is the public shape of an entry, for code that reads or
+  /// writes an index by itself.</summary>
   THelpChatDocEntry = record
+    /// <summary>Relative path of the page without its extension.</summary>
     Id: string;
     Title: string;
+    /// <summary>Relative to the base URL of the documentation.</summary>
     Url: string;
+    /// <summary>First meaningful paragraph of the page.</summary>
     Summary: string;
+    /// <summary>The page as plain text, cut by the builder.</summary>
     Text: string;
   end;
 
+  /// <summary>
+  ///  The index of one engine. Reference counted: the engine keeps it
+  ///  through <see cref="IHelpChatRetriever" /> and hands that interface to
+  ///  the runner and to every provider, so a search in flight keeps it
+  ///  alive past the engine's <c>Stop</c>. Loading replaces the entries in
+  ///  one assignment under the lock; a search that started before works on
+  ///  the entries it took.
+  /// </summary>
   THelpChatDocIndex = class(TInterfacedObject, IHelpChatRetriever)
   strict private
   type
+    /// <summary>A page with what the scoring needs next to what is
+    /// returned: lowercasing once at load time is what keeps a search a
+    /// matter of substring counting.</summary>
     TScoredEntry = record
       Title: string;
       Url: string;
@@ -87,6 +120,7 @@ type
       LTitle: string;    // lowercased, for scoring
       LKeywords: string; // lowercased, joined
       LText: string;
+      LAreas: string;    // lowercased, '|area|area|'; empty = every assistant's
     end;
   strict private
     FLock: TCriticalSection;
@@ -95,38 +129,90 @@ type
     FLoadedFrom: string;
     FLastError: string;
     FExcerptMaxChars: Integer;
+    FAreas: TArray<string>;
+    FAreaFilter: string;
     procedure SetBaseUrl(const Value: string);
+    procedure SetAreas(const Value: TArray<string>);
+    function GetAreas: TArray<string>;
+    /// <summary>The entries this assistant knows: those of its areas, and
+    /// those of no area; all of them when no area is set. Called under the
+    /// lock, and the array it returns is the caller's to read outside it:
+    /// either the entries themselves (never modified in place, only
+    /// replaced) or a filtered copy. The comparison is on the lowercased
+    /// names, so "Orders" and "orders" are one area.</summary>
+    function VisibleEntries: TArray<TScoredEntry>;
+    /// <summary>The raw score of a page: occurrences of every token, at the
+    /// start of a word, weighted by where they are. It decides whether a
+    /// page is relevant at all (above zero) and is what
+    /// <c>THelpChatDocPage.Score</c> reports; the order of the results comes
+    /// from the ranking in <c>Search</c>, not from this.</summary>
     function ScoreEntry(const AEntry: TScoredEntry; const ATokens: TArray<string>): Integer;
+    /// <summary>The passages of a page around the first occurrence of each
+    /// token, overlapping windows merged, in the order of the page, within
+    /// <c>AMaxChars</c>. The whole text when it fits, its beginning when no
+    /// token is found in the body (a page that matched on its title).</summary>
     function BuildExcerpt(const AEntry: TScoredEntry; const ATokens: TArray<string>;
       const AMaxChars: Integer): string;
   public
     constructor Create;
     destructor Destroy; override;
 
-    /// <summary>Loads a JSON array of pages. Raises on malformed input.</summary>
+    /// <summary>Replaces the index with a JSON array of pages, or with the
+    /// <c>pages</c> array of an object. An entry without a title is skipped;
+    /// <c>keywords</c> may be an array or one string, and so may
+    /// <c>areas</c> (a string is a list with commas); an entry with none
+    /// belongs to every assistant.
+    /// Raises <see cref="EHelpChatError" /> on malformed input, leaving the
+    /// previous entries in place.</summary>
     procedure LoadFromJSON(const AJson: string);
     /// <summary>Loads AFileName (UTF-8). Returns False and stays empty when the
-    /// file is missing or malformed; the reason is in <c>LastError</c>.</summary>
+    /// file is missing or malformed; the reason is in <c>LastError</c>.
+    /// Never raises.</summary>
     function LoadFromFile(const AFileName: string): Boolean;
     /// <summary>Adds one page (mainly for tests and programmatic indexes).
-    /// AKeywords: aliases and breadcrumb, any separator.</summary>
+    /// AKeywords: aliases and breadcrumb, any separator. A page added this
+    /// way has no area, so every assistant sees it whatever <c>Areas</c>
+    /// says. A blank title adds nothing.</summary>
     procedure AddPage(const ATitle, AUrl, ASummary, AText: string; const AKeywords: string = '');
+    /// <summary>Empties the index and forgets where it came from; the base
+    /// URL and the areas stay.</summary>
     procedure Clear;
+    /// <summary>Pages of the whole index, whatever the areas: what tells an
+    /// index that is loaded from one that is not. The pages an assistant
+    /// can actually get are <c>Pages</c>.</summary>
     function Count: Integer;
-    /// <summary>Every page of the index (title, url with the base, summary;
-    /// no excerpt), in the order of the file: what /pages lists.</summary>
+    /// <summary>Every page this assistant sees - the whole index, or the
+    /// pages of its <c>Areas</c> and of no area - (title, url with the base,
+    /// summary; no excerpt), in the order of the file: what /pages lists.</summary>
     function Pages: TArray<THelpChatDocPage>;
 
     // IHelpChatRetriever
+    /// <summary>True when the index holds at least one page - of any area:
+    /// an assistant whose areas match no page has an index that is
+    /// available and searches that find nothing.</summary>
     function IsAvailable: Boolean;
     function GetBaseUrl: string;
+    /// <summary>The best <c>AMaxPages</c> pages (three when zero or less)
+    /// among those this assistant sees, best first, each with an excerpt
+    /// around the matching terms and its raw score. <c>AHint</c> - the
+    /// keyword and the label of the screen the user is on - is searched
+    /// like the question and weighs double. Empty when nothing scores, when
+    /// the question and the hint leave no token, or when there is no page.
+    /// Safe from any thread; the scoring runs outside the lock.</summary>
     function Search(const AQuery, AHint: string; const AMaxPages: Integer): TArray<THelpChatDocPage>;
 
     /// <summary>Splits text into lowercase alphanumeric tokens of at least
     /// <see cref="HELPCHAT_MIN_TOKEN_LENGTH" /> characters, minus Italian and
     /// English stop words.</summary>
     class function Tokenize(const AText: string): TArray<string>; static;
+    /// <summary>True for a word that carries no meaning in a question
+    /// ("how", "with", "come", "della"). <c>AWord</c> must be lowercase
+    /// already. The list is English and Italian only: in the other languages
+    /// of the chat such words are tokens like any other, and it is the idf
+    /// of the ranking that keeps them from deciding.</summary>
     class function IsStopWord(const AWord: string): Boolean; static;
+    /// <summary>Non-overlapping occurrences of ANeedle anywhere in
+    /// AHaystack, case-sensitive; zero for an empty needle.</summary>
     class function CountOccurrences(const AHaystack, ANeedle: string): Integer; static;
     /// <summary>Occurrences of ANeedle at the start of a word only ("repor" hits
     /// "report" and "reports", not "salesreport"): the right match for stems
@@ -149,8 +235,22 @@ type
     /// ellipsis, so the model sees the passage that answers rather than the
     /// beginning of a long page.</summary>
     property ExcerptMaxChars: Integer read FExcerptMaxChars write FExcerptMaxChars;
+    /// <summary>The areas of the manual this index answers from: a page
+    /// belongs to the areas its entry names (<c>"areas"</c>, written by the
+    /// index builder from the sub-folder or the front matter), and a page of
+    /// no area belongs to everybody. Empty = the whole manual. The filter
+    /// comes before the scoring, so the rarity of a word is measured on the
+    /// area and not on the whole manual. Names are trimmed and compared
+    /// without case; blank ones are dropped. A name that matches no page
+    /// is not an error: the assistant is left with the pages of no area.
+    /// May be set at any time, from any thread; a search already running
+    /// keeps the view it started with.</summary>
+    property Areas: TArray<string> read GetAreas write SetAreas;
     /// <summary>File the index was loaded from, if any.</summary>
     property LoadedFrom: string read FLoadedFrom;
+    /// <summary>Why the last <c>LoadFromFile</c> left the index empty: the
+    /// file is not there, or the message of the parser. Empty after a load
+    /// that worked.</summary>
     property LastError: string read FLastError;
   end;
 
@@ -454,11 +554,74 @@ begin
   LEntry.LTitle := ATitle.ToLower;
   LEntry.LKeywords := AKeywords.ToLower;
   LEntry.LText := AText.ToLower;
+  // LAreas stays empty: a page added by code belongs to every assistant.
   FLock.Enter;
   try
+    // A new array, never an append in place: a search holding the old one
+    // keeps reading it.
     FEntries := FEntries + [LEntry];
   finally
     FLock.Leave;
+  end;
+end;
+
+procedure THelpChatDocIndex.SetAreas(const Value: TArray<string>);
+var
+  LArea: string;
+begin
+  FLock.Enter;
+  try
+    FAreas := Copy(Value);
+    // The filter is the names lowercased and joined by the same bar the
+    // entries use, so a name containing a bar would count as two areas.
+    FAreaFilter := '';
+    for LArea in Value do
+      if Trim(LArea) <> '' then
+        FAreaFilter := FAreaFilter + '|' + Trim(LArea).ToLower;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatDocIndex.GetAreas: TArray<string>;
+begin
+  FLock.Enter;
+  try
+    Result := Copy(FAreas);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatDocIndex.VisibleEntries: TArray<TScoredEntry>;
+var
+  LList: TList<TScoredEntry>;
+  LEntry: TScoredEntry;
+  LArea: string;
+  LVisible: Boolean;
+begin
+  if FAreaFilter = '' then
+    Exit(FEntries);
+  LList := TList<TScoredEntry>.Create;
+  try
+    for LEntry in FEntries do
+    begin
+      // No area: everybody's. Else one area in common is enough; the bars
+      // on both sides make "order" not match "orders".
+      LVisible := LEntry.LAreas = '';
+      if not LVisible then
+        for LArea in FAreaFilter.Split(['|'], TStringSplitOptions.ExcludeEmpty) do
+          if LEntry.LAreas.Contains('|' + LArea + '|') then
+          begin
+            LVisible := True;
+            Break;
+          end;
+      if LVisible then
+        LList.Add(LEntry);
+    end;
+    Result := LList.ToArray;
+  finally
+    LList.Free;
   end;
 end;
 
@@ -492,7 +655,7 @@ var
 begin
   FLock.Enter;
   try
-    LEntries := FEntries;
+    LEntries := VisibleEntries;
     LBase := FBaseUrl;
   finally
     FLock.Leave;
@@ -509,7 +672,8 @@ end;
 
 procedure THelpChatDocIndex.LoadFromJSON(const AJson: string);
 var
-  LValue, LKeywordsValue: TJSONValue;
+  LValue, LKeywordsValue, LAreasValue: TJSONValue;
+  LAreaName: string;
   LArray: TJSONArray;
   LObj: TJSONObject;
   LList: TList<TScoredEntry>;
@@ -551,6 +715,25 @@ begin
         LEntry.LKeywords := LKeywordsValue.Value.ToLower;
       LEntry.Text := LObj.GetValue<string>('text', '');
       LEntry.LText := LEntry.Text.ToLower;
+      // "areas": an array of names, kept as '|a|b|' so that membership is
+      // one Contains. Missing or empty: no area. A string is read as a list
+      // with commas - what an index written by hand, or by another tool,
+      // says with "areas": "Orders" - instead of making the page everybody's
+      // without a word.
+      LAreasValue := LObj.GetValue('areas');
+      LEntry.LAreas := '';
+      if LAreasValue is TJSONArray then
+      begin
+        for K := 0 to TJSONArray(LAreasValue).Count - 1 do
+          if Trim(TJSONArray(LAreasValue).Items[K].Value) <> '' then
+            LEntry.LAreas := LEntry.LAreas + '|' + Trim(TJSONArray(LAreasValue).Items[K].Value).ToLower;
+      end
+      else if LAreasValue is TJSONString then
+        for LAreaName in LAreasValue.Value.Split([',', ';']) do
+          if Trim(LAreaName) <> '' then
+            LEntry.LAreas := LEntry.LAreas + '|' + Trim(LAreaName).ToLower;
+      if LEntry.LAreas <> '' then
+        LEntry.LAreas := LEntry.LAreas + '|';
       LList.Add(LEntry);
     end;
     FLock.Enter;
@@ -627,7 +810,7 @@ begin
   // Snapshot under the lock, score outside it (dynamic arrays are copy-on-write).
   FLock.Enter;
   try
-    LEntries := FEntries;
+    LEntries := VisibleEntries;
     LBase := FBaseUrl;
     LExcerptChars := FExcerptMaxChars;
   finally
@@ -669,6 +852,9 @@ begin
         Inc(LDf);
     if LDf = 0 then
       Continue;
+    // Both numbers are the assistant's: LEntries is already filtered by
+    // area, so a word that is common in the manual and rare in this area
+    // weighs as a rare one.
     LIdf := Ln(1 + Length(LEntries) / LDf);
     for I := 0 to High(LEntries) do
     begin

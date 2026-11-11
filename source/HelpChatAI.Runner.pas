@@ -75,7 +75,9 @@ type
     /// <summary>Owned snapshot: the caller may change its settings freely while
     /// the request runs.</summary>
     Settings: THelpChatSettings;
-    /// <summary>What the assistant may do in the application; nil = nothing.</summary>
+    /// <summary>What the assistant may do in the application: the actions of
+    /// the panel this question came from, not of the engine, which several
+    /// assistants may share. nil = it can only answer.</summary>
     Actions: IHelpChatActionInvoker;
     /// <summary>Copy of what the user attached to this conversation, taken
     /// when the question was sent: a worker never reads the live set, which
@@ -85,6 +87,12 @@ type
     destructor Destroy; override;
   end;
 
+  /// <summary>The worker pool of an engine: a fixed number of threads taking
+  /// requests from one queue. Created by <c>THelpChatEngine.Start</c> over the
+  /// store and the retriever of that engine - so the assistants that share an
+  /// engine share its workers too - and shut down by <c>Stop</c>. It knows
+  /// nothing of who asked: a request carries everything (conversation,
+  /// settings snapshot, actions, attachments).</summary>
   THelpChatRunner = class
   strict private
     FShared: IInterface;
@@ -100,7 +108,10 @@ type
     destructor Destroy; override;
 
     /// <summary>Enqueues a request and returns its cancellation token. Never
-    /// blocks. <c>ASettings</c> is copied. Raises when shutting down.</summary>
+    /// blocks. <c>ASettings</c> is copied, and the copy is given its concrete
+    /// language (never <c>hclAuto</c>). An empty <c>AProviderName</c> means
+    /// the provider of that copy, which is what the engine passes. Raises
+    /// when shutting down.</summary>
     function Submit(const AKey, AAssistantId, AProviderName: string;
       const AContext: THelpChatContext; const AMaxHistory: Integer;
       const ASettings: THelpChatSettings;
@@ -118,7 +129,11 @@ type
     /// own without touching the store. Idempotent.</summary>
     function Shutdown(const ATimeoutMs: Integer = HELPCHAT_DEF_SHUTDOWN_TIMEOUT_MS): Boolean;
 
+    /// <summary>How many workers were started (<c>Settings.PoolSize</c>, at
+    /// least one): the replies that can be written at the same time.</summary>
     property PoolSize: Integer read FPoolSize;
+    /// <summary>True once <c>Shutdown</c> ran: <c>Submit</c> raises from then
+    /// on.</summary>
     property IsShutDown: Boolean read FShutDown;
   end;
 
@@ -552,7 +567,21 @@ begin
     LRequest.MaxHistory := AMaxHistory;
     LRequest.Settings := THelpChatSettings.Create;
     if Assigned(ASettings) then
+    begin
       LRequest.Settings.Assign(ASettings);
+      // No name given: the provider of the snapshot. Reading it from the
+      // live settings before the copy could pair the name of one model with
+      // the endpoint and key of another, when the user switched in between
+      // (the copy is taken under the lock a switch holds, the read was not).
+      if AProviderName = '' then
+        LRequest.ProviderName := LRequest.Settings.Provider;
+      // The language of this reply is decided here, once, by the settings
+      // of the engine that was asked. Left as hclAuto, every message of the
+      // provider would resolve against the default of the process, which is
+      // the language of whichever engine started - or was switched - last:
+      // two assistants in two languages mixed them.
+      LRequest.Settings.Language := LRequest.Settings.ResolveLanguage;
+    end;
     LRequest.Actions := AActions;
     LRequest.Attachments := AAttachments;
     LRequest.Cancel := THelpChatCancelToken.Create;

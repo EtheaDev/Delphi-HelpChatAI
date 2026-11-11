@@ -149,7 +149,7 @@ begin
   LJson := HelpChatCommandsToJson([hccRun, hccWho, hccClear], hclEnglish);
   Assert.IsTrue(LJson.StartsWith('[{"name":"help","title":"Available commands","description":"' +
     HelpChatMsg(hcmCmdHelp, hclEnglish) + '","local":true,"enabled":false},' +
-    '{"name":"who","title":"Assistant in use","description":"' + HelpChatMsg(hcmCmdWho, hclEnglish) +
+    '{"name":"who","title":"Model in use","description":"' + HelpChatMsg(hcmCmdWho, hclEnglish) +
     '","local":false,"enabled":true}'), LJson);
   Assert.IsTrue(LJson.Contains('{"name":"clear","title":"' + HelpChatMsg(hcmCmdClear, hclEnglish) +
     '","description":"' + HelpChatMsg(hcmCmdClear, hclEnglish) + '","local":true,"enabled":true}'), LJson);
@@ -162,7 +162,7 @@ begin
   Assert.IsTrue(Run(hccActions).StartsWith(
     '<p class="hc-chat-cmd-title"><b>Available actions (/actions):</b></p>'), Run(hccActions));
   Assert.IsTrue(Run(hccWho).StartsWith(
-    '<p class="hc-chat-cmd-title"><b>Assistant in use (/who):</b></p>'));
+    '<p class="hc-chat-cmd-title"><b>Model in use (/who):</b></p>'));
   Assert.IsTrue(Run(hccSearch, 'export').StartsWith(
     '<p class="hc-chat-cmd-title"><b>Documentation pages for &quot;export&quot; (/search):</b></p>'),
     Run(hccSearch, 'export'));
@@ -243,14 +243,14 @@ begin
   LHtml := Run(hccWho);
   Assert.IsTrue(LHtml.Contains('<b>' + TEST_PROVIDER_ECHO + '</b>'), LHtml);
   Assert.IsTrue(LHtml.Contains('Provider: ' + TEST_PROVIDER_ECHO), LHtml);
-  with FSettings.Assistants.Add do
+  with FSettings.Models.Add do
   begin
     Name := 'Local <one>';
     Provider := 'openai';
     Model := 'gemma4:12b';
     BaseUrl := 'http://localhost:11434/v1';
   end;
-  FEngine.SelectAssistant('Local <one>');
+  FEngine.SelectModel('Local <one>');
   LHtml := Run(hccWho);
   Assert.IsTrue(LHtml.Contains('<b>Local &lt;one&gt;</b> &middot; gemma4:12b'), 'escaped: ' + LHtml);
   Assert.IsTrue(LHtml.Contains('Endpoint: http://localhost:11434/v1'), LHtml);

@@ -48,9 +48,19 @@
 ///  when it moves - a form built by hand got the font of one screen and the
 ///  layout of another.
 ///
-///  One dialog at a time: a second request arriving while one is open (the
-///  model asked again, from inside the modal loop of the first) dismisses the
-///  first as No and takes its place.
+///  One dialog at a time per assistant: a second request of the same
+///  assistant arriving while one is open (the model asked again, from inside
+///  the modal loop of the first) dismisses the first as No and takes its
+///  place. A request of another assistant - each has its own broker, and
+///  they all end up here - is another reply of another model: its dialog
+///  opens over the first, which stays and is answered afterwards
+///  (<c>TVclHelpChatConfirmRequest.Asker</c> tells them apart). Either way
+///  the first question is answered when the second dialog closes, because
+///  its modal loop is the outer one.
+///
+///  Nothing here knows the engine or the model: the unit depends on
+///  <c>HelpChatAI.Actions</c> for the types of an action and its arguments,
+///  and on the messages for the language.
 /// </summary>
 unit Vcl.HelpChatAI.ConfirmDialog;
 
@@ -84,9 +94,17 @@ type
   /// the arguments are there for a dialog that wants to read the raw values
   /// or the declared parameters itself.</summary>
   TVclHelpChatConfirmRequest = record
-    /// <summary>The form the chat belongs to: the dialog is modal over it
-    /// and centred on it. May be nil.</summary>
+    /// <summary>The form the chat belongs to - the host form of the
+    /// assistant that asks, which with several assistants is the form that
+    /// owns that component: the dialog is owned by it, modal over it and
+    /// centred on it. May be nil.</summary>
     Host: TCustomForm;
+    /// <summary>Who asks: the assistant (the component). A question of the
+    /// same assistant replaces the one still open, which is answered No -
+    /// the model that asked it has moved on; a question of another
+    /// assistant opens over it and leaves it waiting. Nil = unknown, and
+    /// then the open one is always replaced.</summary>
+    Asker: TObject;
     /// <summary>Title of the window: the name of the assistant.</summary>
     Caption: string;
     /// <summary>The instruction: "The assistant wants to run ...".</summary>
@@ -128,7 +146,12 @@ type
     procedure Dismiss;
   end;
 
-  /// <summary>The confirmation dialog of the library.</summary>
+  /// <summary>The confirmation dialog of the library. Created for one
+  /// question and freed after it (<see cref="HelpChatVclConfirmAction" />):
+  /// <c>Execute</c> adds the labels of the values to the form and is not
+  /// meant to be called twice on the same instance. Being a
+  /// <c>TComponent</c>, it is not reference counted through its interface:
+  /// whoever created it frees it.</summary>
   TVclHelpChatConfirmDialog = class(TForm, IVclHelpChatConfirmDialog)
     HeaderPanel: TPanel;
     IconImage: TImage;
@@ -145,13 +168,30 @@ type
     CountdownTimer: TTimer;
     procedure CountdownTimerTimer(Sender: TObject);
   private
+    /// <summary>Seconds before the automatic No, shown on the No button.</summary>
     FSecondsLeft: Integer;
+    /// <summary>Puts a stock icon of Windows (IDI_WARNING...) into
+    /// <c>AImage</c> at the size the image has now, that is after the form
+    /// was scaled for its monitor. Leaves the image empty when the system
+    /// gives no icon.</summary>
     procedure LoadStockIcon(const AImage: TImage; const AId: PChar);
+    /// <summary>Writes the countdown into the caption of the No button.</summary>
     procedure ShowSecondsLeft;
+    /// <summary>A wrapping label on the values panel, <c>AWidth</c> wide and
+    /// as tall as its text needs; owned by the form. The accelerator
+    /// character is off: the text was written by a model or by a user.</summary>
     function NewLabel(const AText: string; const ALeft, ATop, AWidth: Integer;
       const ABold: Boolean): TLabel;
   public
+    /// <summary>Lays the request out - header, values in two columns, the
+    /// footer only when there are values - sizes the form to it, starts the
+    /// countdown and shows it modally over <c>ARequest.Host</c>. True only
+    /// for Yes: closing the window, the timeout and <see cref="Dismiss" />
+    /// are all No. Main thread; returns when the dialog closed.</summary>
     function Execute(const ARequest: TVclHelpChatConfirmRequest): Boolean;
+    /// <summary>Hides the dialog and makes its <c>ShowModal</c> return No.
+    /// Called from inside its own modal loop by a newer question, so the
+    /// loop does not end here: it ends when the newer dialog returns.</summary>
     procedure Dismiss;
   end;
 
@@ -161,14 +201,20 @@ var
   /// named another.</summary>
   VclHelpChatConfirmDialogClass: TComponentClass = TVclHelpChatConfirmDialog;
 
-/// <summary>Names the form class to ask with. It must implement
-/// <see cref="IVclHelpChatConfirmDialog" />; nil goes back to the dialog of
-/// the library.</summary>
+/// <summary>Names the form class to ask with, for every assistant of the
+/// process. It must implement <see cref="IVclHelpChatConfirmDialog" />
+/// (<c>EHelpChatError</c> otherwise, here and not at the first question);
+/// nil goes back to the dialog of the library. Call it on the main thread,
+/// typically once at start-up.</summary>
 procedure RegisterVclHelpChatConfirmDialog(const AClass: TComponentClass);
 
 /// <summary>Asks with the registered dialog, created for the question and
 /// owned by the host, and returns True when the user allowed the action.
-/// A dialog still open from a previous question is dismissed first.</summary>
+/// A dialog still open from a previous question is dismissed first - also
+/// when that question was another assistant's: there is one dialog per
+/// process. Main thread only; it blocks in a modal loop until the user
+/// answers or <c>ARequest.TimeoutMs</c> passes. The dialog is freed before
+/// returning.</summary>
 function HelpChatVclConfirmAction(const ARequest: TVclHelpChatConfirmRequest): Boolean;
 
 implementation
@@ -183,8 +229,10 @@ uses
   HelpChatAI.Types;
 
 var
-  /// <summary>The dialog that is open, if one is: there is one at a time.</summary>
+  /// <summary>The dialog on top, if one is open, and the assistant that
+  /// asked it. Main thread only, so no lock.</summary>
   OpenDialog: IVclHelpChatConfirmDialog = nil;
+  OpenAsker: TObject = nil;
 
 procedure RegisterVclHelpChatConfirmDialog(const AClass: TComponentClass);
 begin
@@ -200,13 +248,23 @@ end;
 function HelpChatVclConfirmAction(const ARequest: TVclHelpChatConfirmRequest): Boolean;
 var
   LComponent: TComponent;
-  LDialog: IVclHelpChatConfirmDialog;
+  LDialog, LPrevious: IVclHelpChatConfirmDialog;
+  LPreviousAsker: TObject;
 begin
   // A dialog is open: this call runs inside its modal loop (a queued
-  // request of the broker got through). The old question is dismissed as
-  // No - the model that asked it has moved on - and the new one takes over.
-  if Assigned(OpenDialog) then
-    OpenDialog.Dismiss;
+  // request of the broker got through). When the same assistant asks again,
+  // the old question is dismissed as No - the model that asked it has moved
+  // on - and the new one takes over. Another assistant is another reply of
+  // another model: dismissing its question would refuse an action nobody
+  // refused and end that plan, so the new dialog opens over the old one,
+  // which is answered when this one is.
+  LPrevious := OpenDialog;
+  LPreviousAsker := OpenAsker;
+  if Assigned(LPrevious) and ((ARequest.Asker = nil) or (LPreviousAsker = ARequest.Asker)) then
+  begin
+    LPrevious.Dismiss;
+    LPrevious := nil;
+  end;
   // Owned by the host so that poOwnerFormCenter centres it there.
   LComponent := VclHelpChatConfirmDialogClass.Create(ARequest.Host);
   try
@@ -214,11 +272,18 @@ begin
       raise EHelpChatError.CreateFmt('%s does not implement IVclHelpChatConfirmDialog',
         [LComponent.ClassName]);
     OpenDialog := LDialog;
+    OpenAsker := ARequest.Asker;
     try
       Result := LDialog.Execute(ARequest);
     finally
+      // Not ours any more when a newer question of this assistant took the
+      // place while this one was still inside its loop: that one clears it.
+      // The dialog this one opened over is the open one again.
       if OpenDialog = LDialog then
-        OpenDialog := nil;
+      begin
+        OpenDialog := LPrevious;
+        OpenAsker := LPreviousAsker;
+      end;
     end;
   finally
     // A TComponent is not reference counted: the interface goes before the object.
@@ -340,6 +405,7 @@ begin
     ShowSecondsLeft;
     CountdownTimer.Enabled := True;
   end;
+  // No has the focus: Enter, and a key meant for the chat, refuse.
   ActiveControl := NoButton;
   Result := ShowModal = mrYes;
 end;

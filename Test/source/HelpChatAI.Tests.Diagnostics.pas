@@ -33,6 +33,10 @@ type
     [Test] procedure SettingsForFolder_IsACopy_WithThePathsExpanded;
     [Test] procedure SettingsForFolder_NamedFile_IsTheOnlyOneRead;
     [Test] procedure IssuesToText_PutsErrorsFirst;
+    [Test] procedure Provider_IsTheOneOfTheModelInUse;
+    [Test] procedure Profile_InNoFile_IsAWarning;
+    [Test] procedure DocAreas_UnknownToTheIndex_IsAWarning;
+    [Test] procedure AllowedActions_NobodyRegistered_IsAWarning;
   end;
 
 implementation
@@ -46,6 +50,79 @@ uses
   HelpChatAI.Tests.Helpers;
 
 { TDiagnosticsTests }
+
+procedure TDiagnosticsTests.Provider_IsTheOneOfTheModelInUse;
+var
+  LIssues: THelpChatIssues;
+begin
+  // Provider is empty and the list has one model on docsearch: the engine
+  // applies it at its start, so nothing here is the stub.
+  FSettings.Provider := '';
+  with FSettings.Models.Add do
+  begin
+    Name := 'Manual';
+    Provider := HELPCHAT_PROVIDER_DOCSEARCH;
+  end;
+  LIssues := HelpChatCheckSettings(FSettings);
+  Assert.IsFalse(HelpChatHasErrors(LIssues), HelpChatIssuesToText(LIssues));
+  Assert.AreEqual(Ord(hikInfo), Ord(Find(LIssues, 'Provider').Kind), 'no warning about the stub');
+  Assert.AreEqual('', FSettings.SelectedModel, 'the settings checked are not changed');
+end;
+
+procedure TDiagnosticsTests.Profile_InNoFile_IsAWarning;
+var
+  LFile: string;
+  LIssues: THelpChatIssues;
+begin
+  LFile := TPath.Combine(TPath.GetTempPath, 'helpchatai-diag-profile.json');
+  TFile.WriteAllText(LFile, '{"Profiles": {"Orders": {"DocAreas": ["Orders"]}}}', TEncoding.UTF8);
+  try
+    Assert.AreEqual(0, Length(HelpChatCheckProfile('', [LFile])), 'the default assistant has none');
+    LIssues := HelpChatCheckProfile('orders', [LFile]);
+    Assert.AreEqual(Ord(hikInfo), Ord(LIssues[0].Kind), 'found, case apart');
+    LIssues := HelpChatCheckProfile('Ordres', [LFile]);
+    Assert.AreEqual(Ord(hikWarning), Ord(LIssues[0].Kind), 'a misspelt profile is said');
+    Assert.Contains(LIssues[0].Text, 'Ordres');
+  finally
+    TFile.Delete(LFile);
+  end;
+end;
+
+procedure TDiagnosticsTests.DocAreas_UnknownToTheIndex_IsAWarning;
+var
+  LFile: string;
+  LIssues: THelpChatIssues;
+begin
+  LFile := TPath.Combine(TPath.GetTempPath, 'helpchatai-diag-areas.json');
+  TFile.WriteAllText(LFile,
+    '[{"title": "A", "url": "Orders/A.md", "summary": "", "keywords": [], "text": "a", "areas": ["Orders"]},' +
+    ' {"title": "B", "url": "B.md", "summary": "", "keywords": [], "text": "b"}]', TEncoding.UTF8);
+  try
+    FSettings.Provider := HELPCHAT_PROVIDER_DOCSEARCH;
+    FSettings.DocIndexFile := LFile;
+    FSettings.DocAreas := 'orders';
+    LIssues := HelpChatCheckSettings(FSettings);
+    Assert.AreEqual(Ord(hikInfo), Ord(Find(LIssues, 'Documentation areas').Kind), 'an area of the index');
+    FSettings.DocAreas := 'Orders, Planing';
+    LIssues := HelpChatCheckSettings(FSettings);
+    Assert.AreEqual(Ord(hikWarning), Ord(Find(LIssues, 'Documentation areas').Kind));
+    Assert.Contains(Find(LIssues, 'Documentation areas').Text, 'Planing');
+  finally
+    TFile.Delete(LFile);
+  end;
+end;
+
+procedure TDiagnosticsTests.AllowedActions_NobodyRegistered_IsAWarning;
+var
+  LIssues: THelpChatIssues;
+begin
+  FSettings.AllowedActions := 'open_screen, create_ordr';
+  LIssues := HelpChatCheckActions(FSettings, '[{"name": "open_screen", "description": "x"}]');
+  Assert.AreEqual(1, Length(LIssues));
+  Assert.Contains(LIssues[0].Text, 'create_ordr');
+  FSettings.AllowedActions := '';
+  Assert.AreEqual(0, Length(HelpChatCheckActions(FSettings, '[]')), 'no list, nothing to say');
+end;
 
 procedure TDiagnosticsTests.Setup;
 begin

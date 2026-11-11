@@ -41,6 +41,24 @@
 ///  question and returns the pending bubble, <c>poll</c> returns the growing
 ///  partial. The screen context comes from the native side, so it is never lost
 ///  the way it was in the original client-side design.
+///
+///  Since 1.7 an engine may be shared by the assistants of one profile, and
+///  each of them has its own local server over it: its own port, its own
+///  secret, its own session - and in that session what is of that panel
+///  alone: the screen context, the colours, the name and the icon, the
+///  enabled commands and the actions of its form, which the session hands to
+///  the engine with every question and command. The sessions of one profile
+///  share the conversation key, so two windows of one expert show the same
+///  conversation; a page is told about a reply only while it polls for it,
+///  so what was asked in one window appears in the other when its page next
+///  loads the history. The model and the language are the engine's: changed
+///  in one panel, they are changed for the profile.
+///
+///  The layer is written against <see cref="THelpChatEngine" /> and nothing
+///  below it: it never sees a provider, the runner or the store. Every
+///  endpoint is one call on the engine (or on <c>HelpChatAI.Commands</c>,
+///  <c>HelpChatAI.Panel</c> for the page), which is the list of what a
+///  different backend would have to answer to serve the same page.
 /// </summary>
 unit HelpChatAI.Server;
 
@@ -65,6 +83,7 @@ uses
   HelpChatAI.Panel,
   HelpChatAI.Attachments,
   HelpChatAI.Commands,
+  HelpChatAI.Actions,
   HelpChatAI.Provider;
 
 const
@@ -95,6 +114,7 @@ type
     FAssistantName: string;
     FAssistantIcon: string;
     FEnabledCommands: THelpChatCommands;
+    FActions: IHelpChatActionInvoker;
     FCreatedAt: TDateTime;
     FLastAccess: TDateTime;
     function GetLastAccess: TDateTime;
@@ -103,28 +123,61 @@ type
     destructor Destroy; override;
     /// <summary>Marks the session as used now (idle expiry).</summary>
     procedure Touch;
+    /// <summary>The screen the user of this panel is on: sent with every
+    /// question until it changes. Thread-safe, like every setter and getter of
+    /// the session - the component writes on the main thread, the requests
+    /// read on theirs.</summary>
     procedure SetContext(const AContext: THelpChatContext);
     function GetContext: THelpChatContext;
     /// <summary>The colours of this client, as the CSS rule the page loads with.</summary>
     procedure SetThemeCss(const ACss: string);
+    /// <summary>The CSS last given; empty = the page keeps its own
+    /// colours.</summary>
     function GetThemeCss: string;
     /// <summary>What this client calls its assistant, and the icon it draws
     /// next to the name (a data: URI). Empty name = the localized default.</summary>
     procedure SetAssistant(const AName, AIcon: string);
     function GetAssistantName: string;
     function GetAssistantIcon: string;
+    /// <summary>The slash commands this session accepts: <c>/api/commands</c>
+    /// lists them and <c>/api/command</c> answers 403 to the others. A new
+    /// session has the defaults without <c>run</c>.</summary>
     procedure SetEnabledCommands(const ACommands: THelpChatCommands);
     function GetEnabledCommands: THelpChatCommands;
+    /// <summary>The actions of the assistant this session is the panel of:
+    /// they go with every question and command, so that an engine shared by
+    /// several assistants runs the actions of the one that was asked. nil =
+    /// those of the engine (<c>THelpChatEngine.Actions</c>: what a console
+    /// server sets, and what a remote session gets - actions are local for
+    /// now).</summary>
+    procedure SetActions(const AActions: IHelpChatActionInvoker);
+    function GetActions: IHelpChatActionInvoker;
     /// <summary>Where this client listens for the commands of its page, and with
     /// which secret; empty = the page talks to the server it came from.</summary>
     procedure SetUiEndpoint(const ABase, AToken: string);
+    /// <summary>Name of the session for a log: 'local' on the desktop, a
+    /// generated one on a server.</summary>
     property Id: string read FId;
+    /// <summary>The secret the page of this session sends with every call (and
+    /// carries in its URL): whoever has it is this session.</summary>
     property Token: string read FToken;
+    /// <summary>Who the conversation belongs to, when the client said so;
+    /// empty on the desktop.</summary>
     property UserId: string read FUserId;
+    /// <summary>The conversation of the engine this session reads and writes.
+    /// The local sessions of the assistants that share an engine have the same
+    /// key: one profile, one conversation.</summary>
     property ConversationKey: string read FConversationKey;
+    /// <summary>Where the page posts its host commands when the host is not
+    /// this server (the loopback channel of a remote client); empty =
+    /// here.</summary>
     property UiBase: string read FUiBase;
+    /// <summary>The secret of that channel.</summary>
     property UiToken: string read FUiToken;
+    /// <summary>When the session was opened.</summary>
     property CreatedAt: TDateTime read FCreatedAt;
+    /// <summary>When it was last used: what the idle expiry of a server looks
+    /// at.</summary>
     property LastAccess: TDateTime read GetLastAccess;
   end;
 
@@ -157,8 +210,16 @@ type
     /// calls it, and a destructor must never dispatch to a descendant whose
     /// fields are already gone.</summary>
     procedure StopListening;
+    /// <summary>Answers an HTML fragment, UTF-8, never cached. An empty one is
+    /// a valid answer (an unknown poll id), which is why it is written as a
+    /// stream.</summary>
     procedure WriteHtml(AResponseInfo: TIdHTTPResponseInfo; const AHtml: string);
+    /// <summary>Answers JSON, UTF-8, never cached: the few endpoints the page
+    /// reads as data (models, languages, commands, attachments).</summary>
     procedure WriteJson(AResponseInfo: TIdHTTPResponseInfo; const AJson: string);
+    /// <summary>Answers a status with an empty body: 403 for a wrong secret or
+    /// a thing this server does not allow, 404 for something that is not
+    /// there, 501 for what only a host in the process can do.</summary>
     procedure WriteStatus(AResponseInfo: TIdHTTPResponseInfo; const ACode: Integer);
     /// <summary>The session a secret belongs to, or nil. Called for the page
     /// (secret in the query) and for every API call (secret in the header).</summary>
@@ -186,9 +247,9 @@ type
     /// <summary>True when there is a host in this process that can print a
     /// document and ask the user where to put it.</summary>
     function HasPdfHost: Boolean; virtual;
-    /// <summary>Whether a client may switch the assistant in use: when the
+    /// <summary>Whether a client may switch the model in use: when the
     /// engine offers more than one, and the server is this user's own.</summary>
-    function CanSelectAssistant: Boolean; virtual;
+    function CanSelectModel: Boolean; virtual;
     /// <summary>Whether a client may switch the language of the chat: when
     /// the engine offers more than one, and the server is this user's own.</summary>
     function CanSelectLanguage: Boolean; virtual;
@@ -197,18 +258,28 @@ type
     /// a server inside the application's own process, whose page talks to
     /// nobody else.</summary>
     function HostMayRunAnyCommand: Boolean; virtual;
-    /// <summary>The list the page builds its badge and its menu from.</summary>
+    /// <summary>The models of the engine, as the page builds its badge and its
+    /// menu from them. The name of the method and of its endpoint
+    /// (<c>/api/assistants</c>) are those of 1.6, kept because they are the
+    /// contract with the page.</summary>
     function AssistantListJson: string;
     /// <summary>The list the page builds its flag and its menu from.</summary>
     function LanguageListJson: string;
+    /// <summary>The Indy listener; nil while stopped.</summary>
     property Server: TIdHTTPServer read FServer;
   public
     /// <summary>The engine is started on Start if needed; owned when AOwnsEngine.</summary>
     constructor Create(const AEngine: THelpChatEngine; const AOwnsEngine: Boolean = False); virtual;
     destructor Destroy; override;
 
+    /// <summary>Starts the engine if needed and listens on
+    /// <c>BindIP</c>:<c>Port</c> (a free port when 0). Raises
+    /// <c>EHelpChatError</c> when nothing can be bound. Idempotent.</summary>
     procedure Start; virtual;
+    /// <summary>Stops listening. The engine is left as it is: it may be
+    /// shared, and it is not this server's to stop.</summary>
     procedure Stop; virtual;
+    /// <summary>True while listening.</summary>
     function IsActive: Boolean;
     /// <summary>scheme://host:port the pages and the API live at.</summary>
     function GetPanelOrigin: string; virtual;
@@ -218,6 +289,7 @@ type
     /// <summary>A URL-safe random secret (a GUID without punctuation).</summary>
     class function NewSecret: string; static;
 
+    /// <summary>The engine every endpoint is answered by.</summary>
     property Engine: THelpChatEngine read FEngine;
     /// <summary>Address to bind; 127.0.0.1 by default (a server opens it up).</summary>
     property BindIP: string read FBindIP write FBindIP;
@@ -225,7 +297,10 @@ type
     property Port: Integer read FPort write FPort;
     /// <summary>Port actually bound after Start.</summary>
     property BoundPort: Integer read FBoundPort;
+    /// <summary>How often the page asks for a reply being written; written
+    /// into the page when it is served.</summary>
     property PollIntervalMs: Integer read FPollIntervalMs write FPollIntervalMs;
+    /// <summary>After how many polls the page gives up on a reply.</summary>
     property MaxPolls: Integer read FMaxPolls write FMaxPolls;
   end;
 
@@ -243,6 +318,7 @@ type
     FAssistantName: string;
     FAssistantIcon: string;
     FEnabledCommands: THelpChatCommands;
+    FActions: IHelpChatActionInvoker;
     FOnUiCommand: THelpChatUiCommandEvent;
     FOnPdfRequest: THelpChatPdfRequestEvent;
   strict protected
@@ -257,7 +333,9 @@ type
     constructor Create(const AEngine: THelpChatEngine; const AOwnsEngine: Boolean = False); override;
     destructor Destroy; override;
 
-    // IHelpChatTransport
+    // IHelpChatTransport: see the interface for the contract of each method.
+    // Whatever is set before Start is kept here and given to the session
+    // Start creates; afterwards it goes to the session as well.
     procedure Start; override;
     procedure Stop; override;
     function GetPanelUrl: string;
@@ -270,6 +348,8 @@ type
     function GetAssistantIcon: string;
     procedure SetEnabledCommands(const ACommands: THelpChatCommands);
     function GetEnabledCommands: THelpChatCommands;
+    procedure SetActions(const AActions: IHelpChatActionInvoker);
+    function GetActions: IHelpChatActionInvoker;
     function GetEngine: THelpChatEngine;
     procedure SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
     procedure SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
@@ -460,6 +540,26 @@ begin
   FLock.Enter;
   try
     Result := FEnabledCommands;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatServerSession.SetActions(const AActions: IHelpChatActionInvoker);
+begin
+  FLock.Enter;
+  try
+    FActions := AActions;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatServerSession.GetActions: IHelpChatActionInvoker;
+begin
+  FLock.Enter;
+  try
+    Result := FActions;
   finally
     FLock.Leave;
   end;
@@ -665,7 +765,7 @@ begin
   LRoot := TJSONObject.Create;
   try
     if LError = '' then       // attachments are off: the page should not have asked
-      LError := HelpChatMsg(hcmAttachFailed, FEngine.Settings.Language);
+      LError := HelpChatMsg(hcmAttachFailed, FEngine.ActiveLanguage);
     LRoot.AddPair('error', LError);
     Result := LRoot.ToJSON;
   finally
@@ -678,7 +778,7 @@ function THelpChatHttpServerBase.PanelOptionsFor(
 begin
   Result := THelpChatPanelOptions.Default;
   Result.Token := ASession.Token;
-  Result.Language := FEngine.Settings.Language;
+  Result.Language := FEngine.ActiveLanguage;
   Result.PollIntervalMs := FPollIntervalMs;
   Result.MaxPolls := FMaxPolls;
   Result.ThemeCss := ASession.GetThemeCss;
@@ -690,7 +790,7 @@ begin
   Result.AssistantName := ASession.GetAssistantName;
   Result.AssistantIcon := ASession.GetAssistantIcon;
   // The clip is offered only when both halves agree: the application allows
-  // attachments and the configured provider can actually read one.
+  // attachments and the provider of the model in use can actually read one.
   Result.AttachmentsEnabled := FEngine.Settings.Attachments.Enabled and
     THelpChatProviderRegistry.SupportsDocuments(FEngine.Settings.Provider);
   Result.AttachMaxKB := FEngine.Settings.Attachments.MaxSizeKB;
@@ -766,7 +866,7 @@ var
   LPage: THelpChatRenderedDoc;
 begin
   ADoc := Default(THelpChatPrintableDoc);
-  LLanguage := FEngine.Settings.Language;
+  LLanguage := FEngine.ActiveLanguage;
   ADoc.LangCode := HelpChatLanguageCode(LLanguage);
   if SameText(AKind, HELPCHAT_PDF_KIND_ANSWER) then
   begin
@@ -854,7 +954,7 @@ begin
     LValue := FormField(LBody, 'helpKeyword');
     if LValue <> '' then
       LContext.HelpKeyword := LValue;
-    LResult := FEngine.Send(LKey, LMessage, LContext);
+    LResult := FEngine.Send(LKey, LMessage, LContext, ASession.GetActions);
     if LResult.Sent then
       WriteHtml(AResponseInfo, HelpChatRenderBubble(LResult.UserMessage) +
         HelpChatRenderBubble(LResult.AssistantMessage))
@@ -926,7 +1026,7 @@ begin
 
   else if (ADocument = HELPCHAT_API_COMMANDS) and not LIsPost then
     WriteJson(AResponseInfo, HelpChatCommandsToJson(ASession.GetEnabledCommands,
-      FEngine.Settings.Language))
+      FEngine.ActiveLanguage))
 
   else if (ADocument = HELPCHAT_API_COMMAND) and LIsPost then
   begin
@@ -942,8 +1042,9 @@ begin
       LCmdRequest.Args := FormField(LBody, 'args');
       LCmdRequest.ConversationKey := LKey;
       LCmdRequest.Context := ASession.GetContext;
-      LCmdRequest.Language := FEngine.Settings.Language;
+      LCmdRequest.Language := FEngine.ActiveLanguage;
       LCmdRequest.Enabled := ASession.GetEnabledCommands;
+      LCmdRequest.Actions := ASession.GetActions;
       LJson := TJSONObject.Create;
       try
         LJson.AddPair('html', HelpChatRunCommand(FEngine, LCmdRequest));
@@ -961,9 +1062,9 @@ begin
   begin
     // The switch applies to the next question: a reply being produced keeps
     // the snapshot of the settings it started with.
-    if not CanSelectAssistant then
+    if not CanSelectModel then
       WriteStatus(AResponseInfo, 403)
-    else if FEngine.SelectAssistant(FormField(LBody, 'name')) then
+    else if FEngine.SelectModel(FormField(LBody, 'name')) then
       WriteJson(AResponseInfo, AssistantListJson)
     else
       WriteStatus(AResponseInfo, 404);
@@ -1036,9 +1137,9 @@ begin
     WriteStatus(AResponseInfo, 404);
 end;
 
-function THelpChatHttpServerBase.CanSelectAssistant: Boolean;
+function THelpChatHttpServerBase.CanSelectModel: Boolean;
 begin
-  Result := FEngine.CanSelectAssistant;
+  Result := FEngine.CanSelectModel;
 end;
 
 function THelpChatHttpServerBase.CanSelectLanguage: Boolean;
@@ -1085,14 +1186,14 @@ function THelpChatHttpServerBase.AssistantListJson: string;
 var
   LRoot, LItem: TJSONObject;
   LItems: TJSONArray;
-  LInfo: THelpChatAssistantInfo;
+  LInfo: THelpChatModelInfo;
 begin
   LRoot := TJSONObject.Create;
   try
-    LRoot.AddPair('canSelect', TJSONBool.Create(CanSelectAssistant));
+    LRoot.AddPair('canSelect', TJSONBool.Create(CanSelectModel));
     LItems := TJSONArray.Create;
     LRoot.AddPair('items', LItems);
-    for LInfo in FEngine.Assistants do
+    for LInfo in FEngine.Models do
     begin
       LItem := TJSONObject.Create;
       LItem.AddPair('name', LInfo.Name);
@@ -1124,7 +1225,8 @@ end;
 
 destructor THelpChatLocalServer.Destroy;
 begin
-  Stop;
+  // Not Stop, which is virtual: see THelpChatHttpServerBase.Destroy.
+  StopListening;
   FreeAndNil(FSession);
   FreeAndNil(FLock);
   inherited;
@@ -1142,6 +1244,7 @@ begin
   FSession.SetThemeCss(GetTheme.ToCss);
   FSession.SetAssistant(GetAssistantName, GetAssistantIcon);
   FSession.SetEnabledCommands(GetEnabledCommands);
+  FSession.SetActions(GetActions);
   // The page talks to the host through this same server.
   FSession.SetUiEndpoint('', '');
 end;
@@ -1258,6 +1361,28 @@ begin
   FLock.Enter;
   try
     Result := FEnabledCommands;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatLocalServer.SetActions(const AActions: IHelpChatActionInvoker);
+begin
+  FLock.Enter;
+  try
+    FActions := AActions;
+  finally
+    FLock.Leave;
+  end;
+  if Assigned(FSession) then
+    FSession.SetActions(AActions);
+end;
+
+function THelpChatLocalServer.GetActions: IHelpChatActionInvoker;
+begin
+  FLock.Enter;
+  try
+    Result := FActions;
   finally
     FLock.Leave;
   end;

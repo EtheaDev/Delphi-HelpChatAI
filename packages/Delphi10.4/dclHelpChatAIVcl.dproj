@@ -100,6 +100,9 @@
         <DCCReference Include="HelpChatAIServer.dcp"/>
         <DCCReference Include="HelpChatAIVcl.dcp"/>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.DesignPreview.pas"/>
+        <DCCReference Include="..\..\source\Vcl.HelpChatAI.ConfigEditor.pas">
+            <Form>VclHelpChatConfigEditor</Form>
+        </DCCReference>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.Register.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

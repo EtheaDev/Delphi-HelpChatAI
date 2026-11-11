@@ -90,6 +90,8 @@ const
   HELPCHAT_PDF_A4_HEIGHTMM = 297.0;
   HELPCHAT_PDF_LETTER_WIDTHMM = 215.9;
   HELPCHAT_PDF_LETTER_HEIGHTMM = 279.4;
+  /// <summary>Margin of the text on all four sides, in millimetres. A band
+  /// is added to it, never taken from it.</summary>
   HELPCHAT_PDF_DEF_MARGINMM = 10;
 
 /// <summary>A file name out of the title of a document: what a save dialog
@@ -193,9 +195,19 @@ type
     var AInfo: THelpChatPdfInfo) of object;
 
   /// <summary>Turns a self-contained HTML document into a PDF file, with the
-  /// WebView2 runtime, on a window that is never shown.</summary>
+  /// WebView2 runtime, on a window that is never shown. One export at a
+  /// time per exporter, on the thread that created it - the main thread of
+  /// the application, in practice. An exporter keeps its window and its
+  /// environment between exports and builds a new browser for each. Several
+  /// exporters may live in one process (one per component): they share the
+  /// loader and the window class, nothing else. It knows nothing about the
+  /// engine or the conversation: it is given HTML and a paper.</summary>
   THelpChatPdfExporter = class
   private
+    // An export is a chain of asynchronous steps of the runtime - the
+    // environment, the controller, the navigation, the print - each started
+    // by a method below and finished by a callback that moves FStage, while
+    // Wait pumps the message queue the callbacks arrive through.
     FEnvironment: IInterface;
     FWindow: NativeUInt;
     FController: IInterface;
@@ -206,19 +218,49 @@ type
     FPage: THelpChatPdfPage;
     FBandsDropped: Boolean;
     FHandlers: TInterfaceList;
+    /// <summary>The hidden host window, created at the first export and
+    /// kept until the exporter is freed.</summary>
     function EnsureWindow: Boolean;
+    /// <summary>The environment given to the constructor, else one of our
+    /// own over the user data folder the VCL browser uses by default, else
+    /// - when the runtime refuses that - one over a folder of ours, which
+    /// costs a second browser process.</summary>
     function EnsureEnvironment(ATimeoutMs: Cardinal): Boolean;
+    /// <summary>A new browser on the hidden window, waited for.</summary>
     function CreateController(ATimeoutMs: Cardinal): Boolean;
+    /// <summary>The paper of <c>FPage</c> as print settings of the runtime,
+    /// in inches; nil when the runtime is too old to make them, and the PDF
+    /// then comes out on Letter with the default margins.</summary>
     function PrintSettings: IInterface;
+    /// <summary>The same paper as the JSON parameters of
+    /// <c>Page.printToPDF</c>, with the bands and the margins grown to make
+    /// room for them. Numbers are written with a point whatever the locale
+    /// of the machine.</summary>
     function CdpParameters: string;
+    /// <summary>The ordinary road: <c>PrintToPdf</c>, which writes the file
+    /// by itself and takes no band.</summary>
     procedure StartPrint;
+    /// <summary>The road of the bands: <c>Page.printToPDF</c> through the
+    /// DevTools protocol. False when the call could not even be made, and
+    /// the caller falls back on <see cref="StartPrint" />.</summary>
     function StartCdpPrint: Boolean;
+    /// <summary>The answer of the protocol: the PDF as base64, written to
+    /// the file here; with anything else the document goes out the ordinary
+    /// way, without bands.</summary>
     procedure CdpDone(const AErrorCode: Integer; const AJson: string);
+    /// <summary>Closes the browser of the export that just ended and lets
+    /// go of its callbacks. The environment and the window stay.</summary>
     procedure CloseController;
     procedure EnvironmentReady(const AErrorCode: Integer; const AEnvironment: IInterface);
     procedure ControllerReady(const AErrorCode: Integer; const AController: IInterface);
+    /// <summary>The document is laid out: this is where the print starts,
+    /// by one road or the other.</summary>
     procedure NavigationDone(const ASuccess: Boolean);
     procedure PrintDone(const AErrorCode: Integer; const ASuccess: Boolean);
+    /// <summary>Pumps the message queue of the calling thread until the
+    /// current step succeeds or fails, or the time is up. Every message of
+    /// the thread is dispatched meanwhile, the application's own
+    /// included.</summary>
     function Wait(ATimeoutMs: Cardinal): Boolean;
   public
     /// <summary>True when there is something to ask: the loader is next to
@@ -231,13 +273,22 @@ type
     class function RuntimeVersion: string;
     /// <summary>Takes the environment of a WebView2 that already exists in the
     /// process - <c>TEdgeBrowser.EnvironmentInterface</c> - so that no second
-    /// browser process is started. With nil it builds its own.</summary>
+    /// browser process is started. With nil it builds its own, at the first
+    /// export. Nothing is created here: no window, no browser.</summary>
     constructor Create(const AEnvironment: IInterface = nil);
+    /// <summary>Closes the browser and destroys the hidden window. Must run
+    /// on the thread that exported, and not from inside an export.</summary>
     destructor Destroy; override;
     /// <summary>Writes <paramref name="AHtml" /> to <paramref name="AFileName" />
     /// as PDF. Synchronous: it pumps the message queue of the calling thread
     /// while it waits, because that is how the runtime answers - so it must be
-    /// called from the thread that owns the window, never from a worker.
+    /// called from the thread that owns the window, never from a worker, and
+    /// the application keeps receiving its own messages meanwhile: the
+    /// caller must not let the exporter be freed, or a second export start
+    /// on it, before this returns. The folder of the file is created.
+    /// <paramref name="ATimeoutMs" /> is given to each step, not to the
+    /// whole export. The error sentences are English and start in lower
+    /// case: they are reasons, made to follow a localized sentence.
     /// Returns False and fills <paramref name="AError" /> with a sentence when
     /// anything goes wrong, and raises nothing.</summary>
     function ExportHtml(const AHtml, AFileName: string; const APage: THelpChatPdfPage;
@@ -280,8 +331,11 @@ const
   /// <summary>How tall a band is, in millimetres: enough for one line of
   /// eight points with air around it.</summary>
   HELPCHAT_PDF_DEF_BANDMM = 12;
+  /// <summary>A4 until the application says Letter.</summary>
   HELPCHAT_PDF_DEF_PAPER = hcppA4;
   HELPCHAT_PDF_DEF_ORIENTATION = hcpoPortrait;
+  /// <summary>Background colours are printed: a table with a shaded header
+  /// keeps it.</summary>
   HELPCHAT_PDF_DEF_BACKGROUNDS = True;
 
 implementation
@@ -289,6 +343,7 @@ implementation
 {$IFDEF MSWINDOWS}
 uses
   Winapi.Windows,
+  Winapi.Messages,
   Winapi.ActiveX,
   Winapi.ShellAPI,
   System.Types,
@@ -1011,9 +1066,21 @@ begin
         (GetTickCount64 - LStarted < ATimeoutMs) do
   begin
     // The runtime answers through the message queue of this thread, so there
-    // is nothing to wait on but the queue itself.
+    // is nothing to wait on but the queue itself. No filter: the callbacks
+    // come as messages of windows of the runtime, which cannot be told from
+    // here, so everything the thread receives is dispatched - input
+    // included. Not WM_QUIT: dispatching it does nothing, and the message
+    // loop of the application would never see that it was asked to end. It
+    // is posted again for that loop, and the export gives up.
     if PeekMessage(LMsg, 0, 0, 0, PM_REMOVE) then
     begin
+      if LMsg.message = WM_QUIT then
+      begin
+        PostQuitMessage(Integer(LMsg.wParam));
+        if FError = '' then
+          FError := 'the application is closing';
+        Break;
+      end;
       TranslateMessage(LMsg);
       DispatchMessage(LMsg);
     end
@@ -1064,8 +1131,9 @@ begin
     FError := 'WebView2Loader.dll was not found next to the application';
     Exit(False);
   end;
-  // The same folder the browser of the panel uses, so that one browser
-  // process serves both.
+  // The user data folder of an export that has no environment to borrow
+  // (the FireMonkey panel uses this one too; the VCL panel has its own,
+  // and lends its environment instead).
   LFolder := ExpandEnvVars(TPath.Combine('%LOCALAPPDATA%',
     TPath.GetFileName(ParamStr(0)) + '.WebView2'));
   LHr := TryCreate(LFolder);
@@ -1326,6 +1394,8 @@ end;
 
 procedure THelpChatPdfExporter.PrintDone(const AErrorCode: Integer; const ASuccess: Boolean);
 begin
+  // The last step: whichever way it ends, the waiting loop of ExportHtml
+  // stops here.
   if (AErrorCode <> S_OK) or not ASuccess then
   begin
     if FError = '' then
@@ -1382,6 +1452,8 @@ begin
       AError := 'the WebView2 did not hand out its page';
       Exit(False);
     end;
+    // From here on the stage stays "printing" until the file is written:
+    // the print is started by the navigation callback, not by this method.
     FStage := STAGE_PRINTING;
     LHandler := THcNavigationHandler.Create(Self);
     FHandlers.Add(LHandler);
@@ -1407,6 +1479,8 @@ begin
       AError := E.Message;
     end;
   end;
+  // A browser per export: closed here whatever happened, so that the next
+  // one starts clean. The environment is kept.
   CloseController;
   if (LTempFile <> '') and TFile.Exists(LTempFile) then
     TFile.Delete(LTempFile);

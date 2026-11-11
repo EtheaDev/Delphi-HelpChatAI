@@ -62,6 +62,9 @@ uses
   HelpChatAI.Provider.Sse;
 
 const
+  /// <summary>Name the provider registers under: what
+  /// <c>Settings.Provider</c> and the <c>Provider</c> of a model of the
+  /// catalogue say to get it.</summary>
   HELPCHAT_PROVIDER_GEMINI = 'gemini';
   /// <summary>Path of the streaming endpoint; %s is the model.</summary>
   HELPCHAT_GEMINI_STREAM_PATH = '/v1beta/models/%s:streamGenerateContent?alt=sse';
@@ -70,47 +73,96 @@ const
 
 type
   /// <summary>Parses the stream of <c>GenerateContentResponse</c> chunks: the
-  /// text parts and the function calls, which arrive whole.</summary>
+  /// text parts and the function calls, which arrive whole. Only the first
+  /// candidate is read, and a <c>thought</c> part is never shown. An
+  /// <c>error</c> object is kept in <c>Error</c> for the provider to raise.
+  /// Lives for one round of one reply, on the worker thread that runs
+  /// it.</summary>
   THelpChatGeminiStream = class(THelpChatSseStreamBase)
   strict private
     FFinishReason: string;
     FTextSignature: string;
     FToolCalls: TList<THelpChatToolCall>;
+    /// <summary>One part of the candidate: a function call (kept with the
+    /// <c>thoughtSignature</c> of its part), a thought (dropped, signature
+    /// kept) or text (emitted).</summary>
     procedure ReadPart(const APart: TJSONObject);
     function GetToolCalls: TArray<THelpChatToolCall>;
   strict protected
     procedure ProcessLine(const ALine: string); override;
   public
+    /// <summary><c>AOnToken</c> receives every text part, on the thread the
+    /// HTTP client writes from; nil when nobody is listening.</summary>
     constructor Create(const AOnToken: THelpChatTokenProc);
     destructor Destroy; override;
-    /// <summary>finishReason of the candidate: STOP, MAX_TOKENS, SAFETY...</summary>
+    /// <summary>finishReason of the candidate: STOP, MAX_TOKENS, SAFETY...
+    /// Informative only: the provider decides on the function calls, because
+    /// a turn that asks for one ends with STOP like any other.</summary>
     property FinishReason: string read FFinishReason;
-    /// <summary>The actions the model asked for in this reply, in order.</summary>
+    /// <summary>The actions the model asked for in this reply, in order,
+    /// each with the signature its part carried (the first of a round, for a
+    /// thinking model; empty on the others). A copy.</summary>
     property ToolCalls: TArray<THelpChatToolCall> read GetToolCalls;
     /// <summary>The signature that came with the text, when the reply carried
-    /// one outside a function call. Returning it is not validated, only
-    /// recommended: the model reasons better with its own notes back.</summary>
+    /// one outside a function call: the first one met on a text or thought
+    /// part of the round. Returning it is not validated, only recommended:
+    /// the model reasons better with its own notes back.</summary>
     property TextSignature: string read FTextSignature;
   end;
 
+  /// <summary>
+  ///  The <c>gemini</c> provider. One instance per reply, created by the
+  ///  registry on a runner worker and never shared. It reads its
+  ///  <c>Settings.Gemini</c> section through <c>ResolveModel</c>,
+  ///  <c>NormalizedBaseUrl</c> and <c>ResolveApiKey</c>, which is how the
+  ///  model picked in the panel reaches it without the section being
+  ///  rewritten. The class functions that build the request are static and
+  ///  touch no network.
+  /// </summary>
   THelpChatGeminiProvider = class(THelpChatProviderBase)
   strict private
     /// <summary>Runs what the model asked for and builds the user turn whose
-    /// parts are the <c>functionResponse</c> of each call.</summary>
+    /// parts are the <c>functionResponse</c> of each call, in the order of
+    /// the calls. Blocks while the application runs each action on its main
+    /// thread. Raises <see cref="EHelpChatCancelled" /> when the request is
+    /// cancelled before or during a call.</summary>
     function ExecuteToolCalls(const ACalls: TArray<THelpChatToolCall>;
       const ACancel: IHelpChatCancelToken): string;
-    /// <summary>One request/response round; returns the stream it parsed.</summary>
+    /// <summary>One request/response round; returns the stream it parsed,
+    /// which the caller owns. Raises <see cref="EHelpChatCancelled" /> when
+    /// the token flipped during the transfer, <see cref="EHelpChatError" />
+    /// for a status of 400 and above or an error object in the stream, and
+    /// whatever the HTTP client raises otherwise.</summary>
     function PostRound(const ABody: string; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): THelpChatGeminiStream;
   public
-    /// <summary>Full URL of the streaming endpoint for the configured model.
-    /// Public for tests.</summary>
+    /// <summary>Full URL of the streaming endpoint for the model in use
+    /// (<c>ResolveModel</c>: here the model is part of the path, not of the
+    /// body). Public for tests.</summary>
     class function StreamUrl(const ASettings: THelpChatGeminiSettings): string; static;
     function GetName: string; override;
+    /// <summary>The one thing this provider needs is a key: either node of
+    /// the section, the key of the model picked in the panel, or one of the
+    /// two environment variables. Asked through <c>ResolveApiKey</c>, so at
+    /// run time the application's <c>OnDecryptSecret</c> handler runs for an
+    /// encrypted key.</summary>
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
     function SupportsStreaming: Boolean; override;
     function SupportsActions: Boolean; override;
     function SupportsDocuments: Boolean; override;
+    /// <summary>The reply, streamed through <c>AOnToken</c> as it arrives and
+    /// returned whole. With actions registered it is a loop of at most
+    /// <c>Settings.Gemini.ResolveMaxToolRounds</c> requests, each one
+    /// carrying back the model turn of the previous round with its thought
+    /// signatures in place; the text of every round is concatenated, a
+    /// paragraph break between two, and that same break goes through
+    /// <c>AOnToken</c>. Actions asked for in the last round are not run.
+    /// Runs on a worker thread and blocks it. Raises
+    /// <see cref="EHelpChatConfigError" /> without a key,
+    /// <see cref="EHelpChatCancelled" /> on cancellation and
+    /// <see cref="EHelpChatError" /> for what the service refuses; an empty
+    /// answer (a reply stopped for safety included) becomes the localized
+    /// "no content" sentence.</summary>
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; override;
@@ -120,9 +172,17 @@ type
     /// the JSON Schema the broker produced under <c>input_schema</c> renamed
     /// to <c>parameters</c>. Public for tests.</summary>
     class function BuildToolsJson(const ABrokerToolsJson: string): string; static;
-    /// <summary>Builds the JSON body of the request. <c>AExtraContentsJson</c>
-    /// is a JSON array of the turns this reply already exchanged with the
-    /// tools. Public for tests; no network involved.</summary>
+    /// <summary>Builds the JSON body of the request: the system prompt as
+    /// <c>systemInstruction</c>, the history as <c>contents</c> (system and
+    /// empty messages left out, the assistant called <c>model</c>), the
+    /// attachments as <c>inlineData</c> parts of the last non-empty user
+    /// turn, <c>MaxTokens</c> under <c>generationConfig</c>. The model is not
+    /// in the body: it is in the URL. <c>AToolsJson</c> is the array
+    /// <see cref="BuildToolsJson" /> produced, not the broker's;
+    /// <c>AExtraContentsJson</c> is a JSON array of the turns this reply
+    /// already exchanged with the tools, and the fallback user turn for a
+    /// history with nothing to send is added only when it is exactly
+    /// <c>[]</c>. Public for tests; no network involved.</summary>
     class function BuildRequestBody(const AHistory: TArray<THelpChatMessage>;
       const ASystemPrompt: string; const ASettings: THelpChatGeminiSettings;
       const AToolsJson, AExtraContentsJson: string;
@@ -131,11 +191,16 @@ type
     /// <summary>The model turn that asked for the actions, as the API wants it
     /// back: its text and one functionCall part per call, each carrying again
     /// the <c>thoughtSignature</c> it arrived with. Dropping those is a 400
-    /// from any thinking model.</summary>
+    /// from any thinking model. <c>ATextSignature</c> goes back on the text
+    /// part, and is dropped with it when the round produced no text.</summary>
     class function BuildModelToolMessage(const AText: string;
       const ACalls: TArray<THelpChatToolCall>;
       const ATextSignature: string = ''): string; static;
-    /// <summary>Extracts a readable message from a non-2xx response body.</summary>
+    /// <summary>Extracts a readable message from a non-2xx response body:
+    /// the <c>error.message</c> of the object the service answers with, or
+    /// of the first element when it answers with an array, else the
+    /// localized "HTTP status" sentence in the language of <c>ASettings</c>
+    /// (which may be nil). Never raises.</summary>
     class function ExtractApiError(const ARaw: string; const AStatus: Integer;
       const AStatusText: string; const ASettings: THelpChatSettings): string; static;
   end;
@@ -460,6 +525,8 @@ begin
         LContent := NewTextContent('model', AHistory[I].Content);
       LContents.AddElement(LContent);
     end;
+    // The API refuses an empty conversation: with nothing to send and no
+    // tool turns yet, the question alone (which may itself be empty).
     if (LContents.Count = 0) and (Trim(AExtraContentsJson) = '[]') then
       LContents.AddElement(NewTextContent('user', LastUserMessage(AHistory)));
 
@@ -570,6 +637,8 @@ begin
     begin
       CheckCancelled(ACancel);
       // Invoke never raises: whatever happened is told to the model as text.
+      // InvokeAction, not Actions.Invoke: after a refusal the base class
+      // answers every later call of this reply without asking again.
       LOutcome := InvokeAction(ACalls[I].Name, ACalls[I].InputJson, ACancel, LResult);
       if LOutcome = aoCancelled then
         raise EHelpChatCancelled.Create(Msg(hcmCancelled));
@@ -630,7 +699,7 @@ begin
       LLang := ASettings.Language
     else
       LLang := hclAuto;
-    Result := HelpChatMsgFmt(hcmApiError, [AStatus, AStatusText], LLang);
+    Result := HelpChatMsgFmt(hcmApiError, [HelpChatServiceName(ASettings, 'gemini'), AStatus, AStatusText], LLang);
   end;
 end;
 
@@ -706,17 +775,20 @@ begin
        TPath.GetDirectoryName(THelpChatSettings.UserConfigFile)]));
 
   CheckCancelled(ACancel);
+  // The prompt every provider shares: the instruction of the settings, the
+  // language, the screen and the documentation excerpts.
   LSystem := BuildSystemPrompt(AHistory, AContext, Settings, Retriever);
+  LMaxRounds := Settings.Gemini.ResolveMaxToolRounds;
   LTools := '';
-  if Assigned(Actions) and Actions.HasActions then
+  if OffersActions(LMaxRounds) then
   begin
+    // The broker speaks the Anthropic shape; this API wants its own.
     LTools := BuildToolsJson(Actions.ToolsJson);
     if LTools <> '' then
       LSystem := LSystem + sLineBreak + sLineBreak + HELPCHAT_MODEL_ACTIONS_RULE;
   end;
   CheckCancelled(ACancel);
 
-  LMaxRounds := Settings.Gemini.ResolveMaxToolRounds;
   LText := TStringBuilder.Create;
   LExtra := TStringBuilder.Create; // the tool turns, as a JSON array body
   try
@@ -730,8 +802,15 @@ begin
         LCalls := LStream.ToolCalls;
         // A function call part is the whole signal here: this API does not
         // flag the turn the way the other two do.
-        if (Length(LCalls) = 0) or (LTools = '') or (LRound = LMaxRounds) then
+        if (Length(LCalls) = 0) or (LTools = '') then
           Break;
+        // The last round ends here as well, with the actions it asked for
+        // not run, and the reply says so.
+        if LRound = LMaxRounds then
+        begin
+          NoteActionsNotRun(LText, AOnToken);
+          Break;
+        end;
         if LExtra.Length > 0 then
           LExtra.Append(',');
         LExtra.Append(BuildModelToolMessage(LStream.Text, LCalls,

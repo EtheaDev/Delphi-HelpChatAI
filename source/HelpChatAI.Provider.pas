@@ -31,6 +31,20 @@
 ///  in <see cref="THelpChatProviderRegistry" /> from their unit initialization,
 ///  so the active one is selected by <c>Settings.Provider</c> with no code
 ///  change on the call site. Ships the always-available <c>stub</c> provider.
+///
+///  This is the place where another AI system joins the library with the
+///  least work: a class descending from <see cref="THelpChatProviderBase" />,
+///  registered under a name, receives for each reply a private snapshot of
+///  the settings, the retriever, the actions of the assistant that asked
+///  (<see cref="IHelpChatActionInvoker" />: a neutral list of tools and a
+///  blocking <c>Invoke</c>) and the attachments; it is handed the history
+///  and the screen context, streams through a callback, honours a
+///  cancellation token and returns the text. Store, workers, panel, HTTP
+///  contract, confirmations and persistence are untouched. What a provider
+///  outside the three built-in ones does not get for free is a section of
+///  <c>THelpChatSettings</c> (<c>ModelFor</c> knows claude, openai and
+///  gemini): it reads its configuration by itself, or from the section it
+///  chooses to borrow.
 /// </summary>
 unit HelpChatAI.Provider;
 
@@ -129,6 +143,17 @@ type
     /// refusal ends the plan, whatever the model makes of it: it is not
     /// told "create the company" and then asked "create the lead" anyway.
     /// A provider lives for one reply, so the rule does too.</summary>
+    /// <summary>Whether the actions are declared to the model at all: when
+    /// the host has some and the reply may take more than one request. With
+    /// one request an action could be asked for and never run - there is no
+    /// second request to tell the model how it went - so none is offered.</summary>
+    function OffersActions(const AMaxRounds: Integer): Boolean;
+    /// <summary>The last request a reply may make still asked for actions:
+    /// they are not run, and the reply says so (through the token callback
+    /// too, so the stream and the stored text agree) instead of ending as
+    /// if they had been.</summary>
+    procedure NoteActionsNotRun(const AText: TStringBuilder;
+      const AOnToken: THelpChatTokenProc);
     function InvokeAction(const AName, AArgsJson: string;
       const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
   public
@@ -148,6 +173,7 @@ type
     function UnreadDocumentsNotice: string;
     /// <summary>Localized string in the language of the settings.</summary>
     function Msg(const AId: THelpChatMsgId): string;
+    /// <summary>The same, formatted with AArgs.</summary>
     function MsgFmt(const AId: THelpChatMsgId; const AArgs: array of const): string;
     /// <summary>Raises <see cref="EHelpChatCancelled" /> when the token is set.</summary>
     procedure CheckCancelled(const ACancel: IHelpChatCancelToken);
@@ -165,20 +191,39 @@ type
     /// check: a provider that needs a key or a file says so here, so adding a
     /// provider still means a new unit and nothing else.</summary>
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; virtual;
-    /// <summary>The system prompt every model gets: the instruction (the one
-    /// of the active section when it overrides it), the language rule, the
+    /// <summary>The system prompt every model gets: the instruction of the
+    /// assistant (<c>THelpChatSettings.ResolveSystemPrompt</c>: the built-in
+    /// rules or <c>SystemPrompt</c>, then <c>Instructions</c>), the language
+    /// rule, the rule about a manual in another language, today's date, the
     /// screen the user is on and the documentation excerpts the retriever
-    /// found. Nothing in it is provider specific, which is why it lives here:
+    /// found - already limited to the areas of the manual this assistant
+    /// knows. Nothing in it is provider specific, which is why it lives here:
     /// two providers that ground their answers differently would answer
-    /// differently to the same question.</summary>
+    /// differently to the same question. The actions rule is not part of it:
+    /// a provider that supports actions appends it.</summary>
     class function BuildSystemPrompt(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const ASettings: THelpChatSettings;
       const ARetriever: IHelpChatRetriever): string; static;
+    /// <summary>The name the provider is registered under.</summary>
     function GetName: string; virtual; abstract;
+    /// <summary>False here: a provider that calls <c>AOnToken</c> while it
+    /// generates overrides it.</summary>
     function SupportsStreaming: Boolean; virtual;
+    /// <summary>False here: a provider that declares <c>Actions.ToolsJson</c>
+    /// to its model and runs what the model asks through <see
+    /// cref="InvokeAction" /> overrides it.</summary>
     function SupportsActions: Boolean; virtual;
+    /// <summary>False here: a provider that sends the bytes of a PDF or of an
+    /// image overrides it. Asked on a bare instance (no settings) by the
+    /// registry, so it must not read them.</summary>
     function SupportsDocuments: Boolean; virtual;
+    /// <summary>The runner's copy of what the user attached, handed over
+    /// before <c>Generate</c>.</summary>
     procedure SetAttachments(const AValue: TArray<THelpChatAttachment>);
+    /// <summary>The reply to the last user message of AHistory. Runs on a
+    /// worker thread, on a provider created for this reply alone. Whatever it
+    /// raises becomes the error bubble of the reply, except <see
+    /// cref="EHelpChatCancelled" />, which keeps what was streamed.</summary>
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; virtual; abstract;
@@ -224,8 +269,17 @@ type
   public
     class constructor Create;
     class destructor Destroy;
+    /// <summary>Makes AClass the provider called AName (case apart), replacing
+    /// one already registered under that name. Called from the
+    /// <c>initialization</c> of the unit of the provider - which therefore has
+    /// to be linked by the application, and named by its uses clause when the
+    /// library is used as packages.</summary>
     class procedure RegisterProvider(const AName: string; const AClass: THelpChatProviderClass);
+    /// <summary>Removes the name; the <c>finalization</c> twin of
+    /// <c>RegisterProvider</c>.</summary>
     class procedure UnregisterProvider(const AName: string);
+    /// <summary>True when a provider is registered under AName. False for an
+    /// empty name, which nevertheless runs as <c>stub</c>.</summary>
     class function IsRegistered(const AName: string): Boolean;
     /// <summary>The class registered under <c>AName</c>, or nil.</summary>
     class function FindProviderClass(const AName: string): THelpChatProviderClass;
@@ -271,6 +325,12 @@ type
     /// <summary>The name the settings asked for.</summary>
     property RequestedName: string read FRequestedName write FRequestedName;
   end;
+
+/// <summary>How the service behind a provider is called in a message to the
+/// user: the name of the model in use when the settings have a list (a
+/// "Groq" served by <c>openai</c> is Groq), else the display name of the
+/// provider.</summary>
+function HelpChatServiceName(const ASettings: THelpChatSettings; const AProvider: string): string;
 
 implementation
 
@@ -367,6 +427,15 @@ begin
   end;
 end;
 
+function HelpChatServiceName(const ASettings: THelpChatSettings; const AProvider: string): string;
+begin
+  Result := '';
+  if Assigned(ASettings) then
+    Result := Trim(ASettings.SelectedModel);
+  if Result = '' then
+    Result := HelpChatProviderDisplayName(AProvider);
+end;
+
 { THelpChatProviderBase }
 
 constructor THelpChatProviderBase.Create(const ASettings: THelpChatSettings;
@@ -397,6 +466,24 @@ begin
   else
     LLanguage := hclAuto;
   Result := HelpChatQuestionWithText(AQuestion, FAttachments, LLanguage);
+end;
+
+function THelpChatProviderBase.OffersActions(const AMaxRounds: Integer): Boolean;
+begin
+  Result := Assigned(FActions) and FActions.HasActions and (AMaxRounds > 1);
+end;
+
+procedure THelpChatProviderBase.NoteActionsNotRun(const AText: TStringBuilder;
+  const AOnToken: THelpChatTokenProc);
+var
+  LNote: string;
+begin
+  LNote := Msg(hcmActionsNotRun);
+  if AText.Length > 0 then
+    LNote := sLineBreak + sLineBreak + LNote;
+  if Assigned(AOnToken) then
+    AOnToken(LNote);
+  AText.Append(LNote);
 end;
 
 function THelpChatProviderBase.InvokeAction(const AName, AArgsJson: string;
@@ -456,7 +543,7 @@ begin
     // The instruction to the model is English only (see the constants); the
     // configured UI language becomes the default reply language.
     if Assigned(ASettings) then
-      LSb.Append(ASettings.ActiveModel.ResolveSystemPrompt)
+      LSb.Append(ASettings.ResolveSystemPrompt)
     else
       LSb.Append(HELPCHAT_MODEL_DEF_SYSTEMPROMPT);
     LSb.Append(' ');

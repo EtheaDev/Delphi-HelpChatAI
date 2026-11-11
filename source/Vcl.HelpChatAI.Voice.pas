@@ -27,19 +27,29 @@
 /// <summary>
 ///  Dictation for the question box, on Windows.
 ///
-///  Two ways of listening, behind one class. The real one is the Windows
-///  speech recognizer (Windows.Media.SpeechRecognition, in the RTL from Delphi
-///  11 on): a continuous session whose text comes back here, so the component
-///  can write it into the box while the user talks and stop on command.
+///  Two ways of listening, behind one class, and the application picks one
+///  (<see cref="THelpChatVoiceEngine" />): nothing is swapped underneath, an
+///  engine that fails says so.
 ///
-///  The fallback is the dictation of the system, the one Win+H starts: the
+///  The dictation of the system, the one Win+H starts, is the default: the
 ///  keystroke is simulated and Windows types into whatever control has the
 ///  focus, which is the question box of the panel. Nothing comes back here —
-///  no text, no state — so it is only used where the recognizer is missing
-///  (Delphi 10.4, no language pack, consent refused).
+///  no text, no state — but it works wherever Win+H works.
 ///
-///  Events are raised on the thread of the caller's choice: the recognizer
-///  answers on its own threads, so every event is marshalled with TThread.Queue.
+///  The Windows speech recognizer (Windows.Media.SpeechRecognition, in the
+///  RTL from Delphi 11 on) is a continuous session whose text comes back
+///  here, so the component can write it into the box while the user talks
+///  and stop on command. It needs the consent to online speech recognition,
+///  and on some Windows builds it hears a voice and transcribes nothing,
+///  which is why it is not the default.
+///
+///  Events are raised on the main thread: the recognizer answers on its own
+///  threads, so every event is marshalled with TThread.Queue.
+///
+///  The unit knows nothing of the chat - no engine, no server, no page: it
+///  gives text and state to whoever listens to its events. Each assistant
+///  creates its own instance; the dictation bar of Windows and the
+///  microphone are still one per desktop.
 /// </summary>
 unit Vcl.HelpChatAI.Voice;
 
@@ -79,7 +89,13 @@ type
 
   /// <summary>
   ///  What the component uses to listen. Create one with
-  ///  <see cref="CreateHelpChatVoiceInput" />, which picks the best available.
+  ///  <see cref="CreateHelpChatVoiceInput" />, which builds the engine asked
+  ///  for and no other. The caller owns it and frees it on the main thread;
+  ///  freeing it stops a session that is running. A new engine (a cloud
+  ///  service, a local model) is another descendant: override
+  ///  <c>DoStart</c>, <c>DoStop</c>, <c>IsAvailable</c> and
+  ///  <c>EngineName</c>, and report through <c>DoText</c>, <c>DoState</c>
+  ///  and <c>DoError</c> from whatever thread the engine answers on.
   /// </summary>
   THelpChatVoiceInput = class abstract
   strict private
@@ -89,19 +105,34 @@ type
     FOnState: THelpChatVoiceStateEvent;
     FOnError: THelpChatVoiceErrorEvent;
   strict protected
-    /// <summary>Raises OnText on the main thread.</summary>
+    /// <summary>Raises OnText on the main thread. Callable from any thread;
+    /// an empty text is dropped. The handler is the one assigned at the
+    /// time of the call, not at the time it runs.</summary>
     procedure DoText(const AText: string; const AFinal: Boolean);
-    /// <summary>Records the state and raises OnState on the main thread.</summary>
+    /// <summary>Records the state and raises OnState on the main thread.
+    /// The state is recorded at once, on the calling thread; a state equal
+    /// to the current one raises nothing.</summary>
     procedure DoState(const AListening: Boolean);
-    /// <summary>Raises OnError on the main thread.</summary>
+    /// <summary>Raises OnError on the main thread. An empty message means
+    /// "could not start, no reason known": the component then says it in
+    /// the language of the user.</summary>
     procedure DoError(const AMessage: string);
     /// <summary>The engine reports that someone is speaking.</summary>
     procedure DoHeardSpeech;
+    /// <summary>Starts listening. Must not block the main thread; reports
+    /// success with <c>DoState(True)</c> and failure with <c>DoError</c>.</summary>
     procedure DoStart; virtual; abstract;
+    /// <summary>Stops listening and reports <c>DoState(False)</c>. Also
+    /// called by the destructor, when the events are already detached.</summary>
     procedure DoStop; virtual; abstract;
   public
+    /// <summary>Detaches the events, then stops a session still running.
+    /// Calls already queued for the main thread captured their handler
+    /// before this and still run after it.</summary>
     destructor Destroy; override;
-    /// <summary>True when this way of listening can be used here and now.</summary>
+    /// <summary>True when this way of listening can be used here and now.
+    /// May take a moment the first time (the recognizer asks its own thread
+    /// and waits for it); the answer is then remembered.</summary>
     function IsAvailable: Boolean; virtual; abstract;
     /// <summary>True when the text reaches the application through OnText.
     /// False for the system dictation, which types into the focused control
@@ -109,20 +140,36 @@ type
     function ReportsText: Boolean; virtual;
     /// <summary>Short name of the engine, for logs and for the About box.</summary>
     function EngineName: string; virtual; abstract;
+    /// <summary>Asks the engine to listen; nothing when it already does.
+    /// Returns at once: listening has begun when <c>OnState</c> says so,
+    /// and a failure arrives through <c>OnError</c>.</summary>
     procedure Start;
+    /// <summary>Asks the engine to stop; nothing when it is not listening.</summary>
     procedure Stop;
+    /// <summary>What the engine last reported. For the system dictation it
+    /// only means "we sent the shortcut": the user may have closed the
+    /// dictation bar, and nobody tells us.</summary>
     property Listening: Boolean read FListening;
     /// <summary>True once the engine reported speech in this session. Heard
     /// but never transcribed is a failing engine, not a silent user.</summary>
     property HeardSpeech: Boolean read FHeardSpeech;
+    /// <summary>Recognized text, on the main thread. Never raised by an
+    /// engine whose <c>ReportsText</c> is False.</summary>
     property OnText: THelpChatVoiceTextEvent read FOnText write FOnText;
+    /// <summary>Listening began or ended, on the main thread.</summary>
     property OnState: THelpChatVoiceStateEvent read FOnState write FOnState;
+    /// <summary>The engine could not start or stopped by itself, on the
+    /// main thread; the message may be empty.</summary>
     property OnError: THelpChatVoiceErrorEvent read FOnError write FOnError;
   end;
 
   /// <summary>
   ///  The dictation of Windows, started by simulating Win+H. It types into the
-  ///  control that has the focus and reports nothing back.
+  ///  control that has the focus and reports nothing back - so the caller
+  ///  must put the focus in the question box before <c>Start</c>. The same
+  ///  shortcut opens and closes the dictation bar, which is one for the
+  ///  whole desktop: two instances that both believe they are listening
+  ///  toggle the same bar.
   /// </summary>
   THelpChatSystemDictation = class(THelpChatVoiceInput)
   strict protected
@@ -256,20 +303,39 @@ type
     FHypothesisHandler: TypedEventHandler_2__SpeechRecognition_ISpeechRecognizer__SpeechRecognition_ISpeechRecognitionHypothesisGeneratedEventArgs;
     FStateHandler: TypedEventHandler_2__SpeechRecognition_ISpeechRecognizer__SpeechRecognition_ISpeechRecognizerStateChangedEventArgs;
     FResultToken, FCompletedToken, FHypothesisToken, FStateToken: EventRegistrationToken;
+    // Recognizer built, constraints compiled, handlers attached.
     FReady: Boolean;
+    // A start is on its way on the WinRT thread: a second one is ignored.
     FStarting: Boolean;
     FApartment: TVoiceApartment;
+    // The main thread waits on it for an answer of the WinRT thread.
     FSignal: TEvent;
+    // IsAvailable asked once, and what it was told.
     FChecked: Boolean;
     FAvailable: Boolean;
+    /// <summary>Builds the recognizer for free dictation and attaches the
+    /// handlers. On the WinRT thread only; False when any step fails.</summary>
     function Prepare: Boolean;
+    /// <summary>Detaches the handlers and lets them go. On the WinRT
+    /// thread, which is the one that attached them.</summary>
     procedure Unhook;
   strict protected
+    /// <summary>Prepares the recognizer if need be and starts the session,
+    /// all on the WinRT thread: the call returns at once.</summary>
     procedure DoStart; override;
+    /// <summary>Stops the session on the WinRT thread; the state changes
+    /// when that thread gets to it.</summary>
     procedure DoStop; override;
   public
+    /// <summary>Starts the WinRT thread; the recognizer itself is created
+    /// by the first <c>Start</c>.</summary>
     constructor Create;
+    /// <summary>Stops, lets the WinRT thread release the recognizer (up to
+    /// three seconds), then ends that thread. Blocks the caller meanwhile.</summary>
     destructor Destroy; override;
+    /// <summary>Whether Windows has a speech language at all, asked on the
+    /// WinRT thread (up to eight seconds, once). True does not promise a
+    /// transcription: the consent and the language pack show at start.</summary>
     function IsAvailable: Boolean; override;
     function EngineName: string; override;
     /// <summary>Called by the handlers, on a WinRT thread.</summary>
@@ -835,6 +901,7 @@ begin
     Exit;
   if AEngine = hveSystemDictation then
     Exit(THelpChatSystemDictation.Create);
+  // hveRecognizer: that engine or nothing, never the dictation in its place.
 {$IFDEF D11+}
   try
     Result := THelpChatWinRTVoice.Create;
