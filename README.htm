@@ -136,7 +136,7 @@ help system, so the <code>HelpKeyword</code> you already wrote keeps working.</p
 <tbody>
 <tr>
 <td><img src="./Images/delphi-helpchat_64.png" alt="TVclHelpChatAI" /></td>
-<td><strong>TVclHelpChatAI</strong> is the VCL component: drop it on the main form, set <code>Active</code>, and you have the bubble, F1 contextual help and the chat panel (a WebView2 <code>TEdgeBrowser</code>), either in its own tool window or embedded in a container of yours. Colours follow the active VCL style</td>
+<td><strong>TVclHelpChatAI</strong> is the VCL component: drop it on the main form - or on any form that deserves an expert of its own - set <code>Active</code>, and you have the bubble, F1 contextual help and the chat panel (a WebView2 <code>TEdgeBrowser</code>), either in its own tool window or embedded in a container of yours. Colours follow the active VCL style</td>
 </tr>
 <tr>
 <td><img src="./Images/AIAssistant_Female_64.png" alt="TFmxHelpChatAI" /></td>
@@ -168,8 +168,10 @@ headed with the name of your application, the user and the page number.</li>
 </ol>
 <p>The engine knows nothing about the UI: it runs inside your application or on a <strong>HelpChatAI
 server</strong>, chosen in a configuration file, so the model API key never has to reach the user's
-machine. When it has to, <code>OnDecryptSecret</code> lets you keep it encrypted in the configuration
-and decrypt it the way your application sees fit.</p>
+machine. When it has to, every key has two nodes in the configuration: <code>ApiKey</code> in clear, which
+you develop with and the IDE reads, and <code>ApiKeyEncrypted</code>, which your application writes with
+its own cipher and decrypts in <code>OnDecryptSecret</code> at run time. A file you deploy carries only
+the encrypted one.</p>
 <h3 id="providers">Providers</h3>
 <table>
 <thead>
@@ -211,19 +213,19 @@ and decrypt it the way your application sees fit.</p>
 OpenRouter, Mistral, DeepSeek, Ollama and LM Studio also speak, so <code>BaseUrl</code> and <code>Model</code> are
 enough to point the same provider at any of them — including a model running on the user's own
 machine, where nothing leaves the PC.</p>
-<h3 id="more-than-one-assistant">More than one assistant</h3>
-<p><code>Assistants</code> in <code>helpchatai.json</code> lists the assistants the user may switch between from the
-panel: each one has a name, a provider, and the model, endpoint and key it adds to that
-provider's section when they differ — three local models on one Ollama are three entries on
-<code>openai</code>. <code>Assistant</code> names the one in use at start; the choice made in the panel is remembered
-per user. The header shows the icon of the model in use (deduced from the model name, then from
-the endpoint, then from the provider; <code>Icon</code> overrides it), with name and model as the tooltip,
-and with more than one assistant a click on it opens the list. With no list, <code>Provider</code> alone is
-the one assistant and nothing can be switched.</p>
+<h3 id="more-than-one-model">More than one model</h3>
+<p><code>Models</code> in <code>helpchatai.json</code> lists the models the user may switch between from the panel: each
+one has a name, a provider, and the model, endpoint and key it adds to that provider's section
+when they differ — three local models on one Ollama are three entries on <code>openai</code>.
+<code>SelectedModel</code> names the one in use at start; the choice made in the panel is remembered per
+user. The header shows the icon of the model in use (deduced from the model name, then from the
+endpoint, then from the provider; <code>Icon</code> overrides it), with name and model as the tooltip, and
+with more than one model a click on it opens the list. With no list, <code>Provider</code> alone is the
+one model and nothing can be switched.</p>
 <div style="font-family: Arial, 'Courier New', monospace; font-size: 12pt;  background-color: #FFFFFF; color: #000000;">
 <pre><code><span style="color: #555555; ">{</span>
-<span>  </span><span style="color: #000080; ">&quot;Assistant&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Claude&quot;</span><span style="color: #555555; ">,</span>
-<span>  </span><span style="color: #000080; ">&quot;Assistants&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span>
+<span>  </span><span style="color: #000080; ">&quot;SelectedModel&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Claude&quot;</span><span style="color: #555555; ">,</span>
+<span>  </span><span style="color: #000080; ">&quot;Models&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span>
 <span>    </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;Name&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Claude&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Provider&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;claude&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Model&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;claude-haiku-4-5&quot;</span><span> </span><span style="color: #555555; ">},</span>
 <span>    </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;Name&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Gemini&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Provider&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;gemini&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Model&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;gemini-3.8-flash&quot;</span><span> </span><span style="color: #555555; ">},</span>
 <span>    </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;Name&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Gemma (local)&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Provider&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;openai&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Model&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;gemma4:12b&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;BaseUrl&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;http://localhost:11434/v1&quot;</span><span> </span><span style="color: #555555; ">}</span>
@@ -233,6 +235,56 @@ the one assistant and nothing can be switched.</p>
 </div>
 <p>The icons of the providers and models are those of <a href="https://github.com/lobehub/lobe-icons">lobe-icons</a>
 (MIT); the logos themselves are trademarks of their respective owners.</p>
+<h3 id="more-than-one-assistant-profiles">More than one assistant: profiles</h3>
+<p>A large application can have <strong>several assistants, each the expert of one part of it</strong>, and
+active at the same time: a general one on the main form, and one on the form of an important
+function - order entry, planning - with its own name, its own instructions, its own part of the
+manual, its own models and the actions only it may run.</p>
+<ul>
+<li><strong>One component per form, one <code>Profile</code> per assistant.</strong> The component lives on the form that
+owns it: its bubble is there, and <strong>F1 goes to the assistant of the active form</strong> - on a form
+with none (a dialog, a print preview), to the one whose form was active last.
+<code>CurrentAssistant</code> says which one that is. One help viewer and one message hook serve them all.</li>
+<li><strong>One configuration file, a root and a section per assistant.</strong> The root holds what every
+assistant shares (keys, endpoints, the catalogue of models); <code>&quot;Profiles&quot;</code> holds, under the
+<code>Profile</code> of each component, what that assistant changes, with the same keys. Within a file
+the profile wins over the root.</li>
+<li><strong>An expert knows an area of the manual.</strong> One manual, one index: the area of a page is its
+sub-folder (or the <code>areas:</code> of its front matter), and <code>DocAreas</code> says which areas an
+assistant answers from. The pages of no area belong to everybody.</li>
+<li><strong>Actions belong to the form that registers them</strong>, plus those the whole application shares
+(<code>HelpChatSharedActions</code>); <code>AllowedActions</code> in a profile narrows them, and can never add one
+the code did not register.</li>
+<li><strong>Two windows of the same profile are one assistant</strong>: one engine, one conversation, the
+index loaded once, while an action still fills the window it was asked from. Each profile
+keeps its own conversation, choices and window position.</li>
+</ul>
+<div style="font-family: Arial, 'Courier New', monospace; font-size: 12pt;  background-color: #FFFFFF; color: #000000;">
+<pre><code><span style="color: #555555; ">{</span>
+<span>  </span><span style="color: #000080; ">&quot;Claude&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;ApiKey&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;sk-ant-...&quot;</span><span> </span><span style="color: #555555; ">},</span>
+<span>  </span><span style="color: #000080; ">&quot;Models&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span>
+<span>    </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;Name&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Claude&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Provider&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;claude&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Model&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;claude-haiku-4-5&quot;</span><span> </span><span style="color: #555555; ">},</span>
+<span>    </span><span style="color: #555555; ">{</span><span> </span><span style="color: #000080; ">&quot;Name&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Gemma (local)&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Provider&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;openai&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #000080; ">&quot;Model&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;gemma4:12b&quot;</span><span style="color: #555555; ">,</span>
+<span>      </span><span style="color: #000080; ">&quot;BaseUrl&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;http://localhost:11434/v1&quot;</span><span> </span><span style="color: #555555; ">}</span>
+<span>  </span><span style="color: #555555; ">],</span>
+<span>  </span><span style="color: #000080; ">&quot;Profiles&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">{</span>
+<span>    </span><span style="color: #000080; ">&quot;Orders&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">{</span>
+<span>      </span><span style="color: #000080; ">&quot;AssistantName&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Giulio&quot;</span><span style="color: #555555; ">,</span>
+<span>      </span><span style="color: #000080; ">&quot;Instructions&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;You are the expert of order entry.&quot;</span><span style="color: #555555; ">,</span>
+<span>      </span><span style="color: #000080; ">&quot;DocAreas&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span><span style="color: #0000FF; ">&quot;Orders&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #0000FF; ">&quot;Customers&quot;</span><span style="color: #555555; ">],</span>
+<span>      </span><span style="color: #000080; ">&quot;Models&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span><span style="color: #0000FF; ">&quot;Claude&quot;</span><span style="color: #555555; ">],</span>
+<span>      </span><span style="color: #000080; ">&quot;AllowedActions&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span><span style="color: #0000FF; ">&quot;create_order&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #0000FF; ">&quot;open_screen&quot;</span><span style="color: #555555; ">]</span>
+<span>    </span><span style="color: #555555; ">}</span>
+<span>  </span><span style="color: #555555; ">}
+}</span>
+</code></pre>
+</div>
+<p>All of this is edited from the IDE too: <strong>Configuration…</strong>, the first verb of both component
+editors (and what a double click opens), shows every setting with the value in force and where
+it comes from - the library, the component, a file and its root or profile - and writes it to
+the profile, to the root of a file or to the component. It edits keys in their clear node only,
+and never puts one in the form file. The VCL and FireMonkey editors are two native views over
+one controller.</p>
 <h3 id="commands">Commands</h3>
 <p>A line that starts with <code>/</code> in the question box is a command, answered without the model:
 <code>/who</code> (assistant, model, provider, endpoint), <code>/use name</code> and <code>/retry [name]</code> (switch, ask
@@ -245,7 +297,7 @@ which runs a registered action by hand (with the usual confirmation). Every answ
 what it answers, e.g. “Available actions (/actions):“.</p>
 <p>Everything the panel does can be done from code on the component: <code>ExecuteCommand(hccActions)</code>
 shows an answer in the panel (any command, enabled or not), <code>ExplainCommand(hccActions)</code> returns
-it as text without opening anything, and <code>ClearConversation</code>, <code>SelectAssistant</code>, <code>Assistants</code>,
+it as text without opening anything, and <code>ClearConversation</code>, <code>SelectModel</code>, <code>Models</code>,
 <code>RetryLastQuestion</code>, <code>SaveConversationPdf</code>, <code>CopyLastAnswer</code> and <code>AttachFile</code> do what their buttons do.</p>
 <h2 id="setup-for-automatic-installation-of-components">Setup for automatic installation of components</h2>
 <p>An “Installer” ready to use is located in the Release area:
@@ -260,8 +312,9 @@ packages and adds source paths.</p>
 <li>build it and install <code>dclHelpChatAIVcl</code> (and
 <code>dclHelpChatAIFmx</code>, then add <code>source</code> and <code>Ext/MarkdownProcessor/source</code> to the library path.</li>
 </ul>
-<p><code>Tools/Build_Packages.cmd [Delphi13|Delphi12|Delphi11|Delphi10.4|all]</code> builds them from a
-command line.</p>
+<p><code>packages/BuildAllPackages.ps1</code> builds them from a command line, every installed version or
+the ones named with <code>-DelphiVersion D13,D12</code>; <code>BuildAllPackagesD13.ps1</code> (and D12, D11, D10.4)
+does one version.</p>
 <p>Ship <code>WebView2Loader.dll</code> (<code>Redist/WebView2/x86|x64</code>) next to your executable; the WebView2
 runtime itself is already part of Windows 11 and of every machine with Edge.</p>
 <h2 id="installation-with-dpm-delphi-package-manager">Installation with DPM (Delphi Package Manager)</h2>
@@ -296,8 +349,8 @@ assistant to your Delphi application, and how to make its answers good.</p>
 <td>The five of them, their settings, writing your own</td>
 </tr>
 <tr>
-<td><a href="https://ethea.it/docs/helpchatai/Assistants">Assistants</a></td>
-<td>Several providers and models in one panel, and the switch between them</td>
+<td><a href="https://ethea.it/docs/helpchatai/Assistants">Assistants and models</a></td>
+<td>Several assistants in one application, their profiles, and the models each one offers</td>
 </tr>
 <tr>
 <td><a href="https://ethea.it/docs/helpchatai/Commands">Slash commands</a></td>
@@ -390,7 +443,7 @@ assistant to your Delphi application, and how to make its answers good.</p>
 <tr>
 <td><code>dclHelpChatAIVcl</code> (design-time)</td>
 <td>HelpChatAIVcl, designide</td>
-<td>palette, splash and About box, component editor with the live preview, property editors</td>
+<td>palette, splash and About box, component editor with the configuration editor and the live preview, property editors</td>
 </tr>
 <tr>
 <td><code>HelpChatAIFmx</code> (runtime)</td>
@@ -400,7 +453,7 @@ assistant to your Delphi application, and how to make its answers good.</p>
 <tr>
 <td><code>dclHelpChatAIFmx</code> (design-time)</td>
 <td>HelpChatAIFmx, designide</td>
-<td>palette, component editor with the configuration check</td>
+<td>palette, component editor with the configuration editor and the configuration check</td>
 </tr>
 </tbody>
 </table>
@@ -440,14 +493,48 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 <code>Tools\ResetDemoKey.ps1</code> puts that back to “no key”, to show it again.</p>
 <p><code>CRM Demo\BuildAllDemos.ps1</code> builds both with every Delphi it finds, Win32 and Win64: twelve
 builds, and the FireMonkey ones are reported <code>N/A</code> below Delphi 12 rather than failed.</p>
-<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>352 tests</strong> that runs without
-network: store, worker pool, cancellation, index scoring, Markdown safety, the SSE parsing and
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>452 tests</strong> that runs without
+network: store, worker pool, cancellation, index scoring and the areas of a manual, Markdown
+safety, profiles and the configuration editor's controller, several assistants on real forms
+and the engine they share, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, the actions from a real worker thread, the secrets of the settings and the printable
 document - the last two of which write a real PDF with the WebView2 runtime of the machine,
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>11 Nov 2026: ver. 1.7.1</p>
+<ul>
+<li>Compatibility with Delphi 13.2</li>
+</ul>
+<p>11 Nov 2026: ver. 1.7.0</p>
+<ul>
+<li>Several assistants in one application, each the expert of one part of it, active at the same time: one component per form, and the component lives on the form that owns it - its bubble, its window, its F1</li>
+<li>F1 goes to the assistant of the active form; on a form that has none (a dialog, a print preview) to the one whose form was active last. One help viewer and one message hook serve every assistant of the process; <code>CurrentAssistant</code> (class function) and <code>ResolvedHostForm</code> on both components. In FireMonkey each component keeps chaining the <code>OnKeyDown</code> of its own form, and <code>HandleKeyDown</code> from a form without an assistant reaches the current one</li>
+<li><code>Profile</code> on both components and <code>&quot;Profiles&quot;</code> in <code>helpchatai.json</code>: one configuration file, a root every assistant shares and a section per assistant with the same keys, applied on top of the root. <code>AssistantName</code> may be set in the configuration and prevails over the property</li>
+<li><code>Instructions</code> (what the assistant is, added to the system prompt after the built-in rules) and <code>SystemPrompt</code> move to the root of the settings: switching model no longer changes the expert</li>
+<li>What the panel switches between is a model: <code>Settings.Assistants</code> / <code>Assistant</code> become <code>Models</code> / <code>SelectedModel</code>, and <code>SelectAssistant</code>, <code>Assistants</code>, <code>THelpChatAssistantInfo</code> become <code>SelectModel</code>, <code>Models</code>, <code>THelpChatModelInfo</code>. In a profile a model may be just the name of one of the catalogue at the root</li>
+<li>One engine per profile (<code>THelpChatEngines</code>): two windows of the same profile share one conversation and load the index once. The actions of a component travel with each of its questions (<code>IHelpChatTransport.SetActions</code>, <code>THelpChatEngine.Send</code> with <code>AActions</code>), so an action fills the window it was asked from</li>
+<li>Conversation, model and language choice, and window position are kept per profile (<code>helpchatai-conversation-&lt;Profile&gt;.json</code>…); the default assistant keeps the file names it had</li>
+<li>Areas of the manual: the area of a page is its sub-folder or the <code>areas:</code> of its front matter, <code>HelpIndexBuilder</code> writes them into the index, and <code>Settings.DocAreas</code> says which ones an assistant answers from. Pages of no area belong to everybody; a manual without sub-folders gives the index it always gave</li>
+<li>Actions of one assistant and of all: <code>HelpChatSharedActions</code> holds the actions every assistant may use (<code>UseSharedActions</code> on the components), and <code>Settings.AllowedActions</code> narrows own and shared alike - a configuration can take an action away, never add one</li>
+<li>Every secret has two nodes: <code>ApiKey</code> in clear, which the developer writes and the IDE reads, and <code>ApiKeyEncrypted</code>, which the application writes and decrypts in <code>OnDecryptSecret</code> at run time, where it wins when present. The same for a model of the catalogue, <code>Remote.AppKey</code> and <code>Remote.UserToken</code>. The CRM demos write <code>ApiKeyEncrypted</code></li>
+<li>The configuration editor: <strong>Configuration…</strong>, the first verb of both component editors and what a double click opens, edits one configuration file at a time, at its root or in the profile, shows every setting with the value in force and where it comes from, and edits the catalogue of models and the profiles. Keys in their clear node only, masked, never into the form file. The VCL and FireMonkey editors are two native views over one controller (<code>HelpChatAI.ConfigController</code>); the VCL one follows the light or dark theme of the IDE</li>
+<li><code>PanelStyleSheet</code> on both components: a CSS file of the application, added to the page of the chat after its own - a radius, a spacing, a button hidden - without rebuilding the library. It reaches <code>OnGetTheme</code> as <code>ATheme.StyleSheet</code>, where code may change it or add CSS of its own, and travels with the theme, so it reaches a remote engine too. A named file that is not there stops the activation</li>
+<li>Links read on every style: <code>--hc-link</code> (<code>THelpChatTheme.Link</code>) is the accent when it stands out from the assistant bubble, otherwise the accent moved towards the text until it does - Windows10 and Carbon used to show links nobody could see. The send button takes the colour of the user's bubble, which no longer vanishes into the footer</li>
+<li>An × at the top right of every system bubble (the answer of a slash command, a notice) removes it from the chat</li>
+<li>A key never follows a model to another address: a model of the catalogue served by another host than its section's endpoint, and with no key of its own, is called with no key at all, and the environment variable (<code>OPENAI_API_KEY</code>…) is read only while the endpoint is the service's own. <code>Settings.ConfiguredProvider</code> is what the configuration says, while <code>Provider</code> reads as the provider of the model in use</li>
+<li>Two assistants may live on the same form; the confirmation of an action is one dialog per assistant (a question of another assistant opens over the open one, <code>Asker</code> in the request); the actions of an assistant that was deactivated answer “cancelled” at once (<code>HostActive</code> on the broker)</li>
+<li>The steps of a reply (<code>MaxToolRounds</code>) are requests: with one, no action is declared to the model, and when the last one still asks for an action the reply says it was not run. Servers that speak the OpenAI API and end a tool turn with <code>stop</code> now run their actions; the API error names the service that answered it</li>
+<li>The configuration check: the provider of the model in use, <code>DocAreas</code> against the areas of the index, a profile no configuration file defines (<code>HelpChatCheckProfile</code>), the names of <code>AllowedActions</code> nobody registered (<code>HelpChatCheckActions</code>, in <code>/check</code>), and the per-user file at design time too</li>
+<li>The configuration editor never writes over a file it could not read (<code>LoadError</code>), a renamed model keeps its encrypted key, and the models a profile takes from another file or defines itself are shown and kept; it opens on the file the configuration comes from - no longer always on the one next to the executable, empty while everything was in the shared file - and has a Help button</li>
+<li>A remote session the server expired is opened again by itself, and the panel reloads; the server says at its start when no <code>OnAuthenticate</code> is set. Remote sessions are no longer freed under a request that is using them</li>
+<li>The profiles on a remote server: the client sends the <code>Profile</code> of the component, and the server answers with one engine per profile of its configuration, created by the first session that names it (<code>OnProfileSettings</code>; the console server takes the <code>Profiles</code> of <code>helpchatai-server.json</code>). A profile the server does not define gets its default engine; the same user has one conversation per assistant, and one file each with disk storage; <code>/health</code> lists the profiles running</li>
+<li>The texts of the panel, of the commands and of the dialogs follow the language of their own assistant, not the last one that spoke; the header button and <code>/who</code>, <code>/use</code>, <code>/retry</code> say “model” in the six languages</li>
+<li><code>areas:</code> in the front matter may be a YAML block list, and an empty one means no area; a text attachment that contains a code fence can no longer close the one around it</li>
+<li><strong>Breaking changes</strong>: the host of a component is the form that owns it, no longer <code>Application.MainForm</code> (<code>HostForm := Application.MainForm</code> restores it); <code>Assistants</code>, <code>Assistant</code> and <code>&lt;Provider&gt;.SystemPrompt</code> in a configuration file raise an error that names the new key; the key properties (<code>ApiKey</code>, <code>AppKey</code>, <code>UserToken</code>) are public and no longer published, so a form file that stored one does not load it; <code>OnDecryptSecret</code> receives only the encrypted node, never a clear value nor the environment variable - an encrypted value kept in <code>ApiKey</code> moves to <code>ApiKeyEncrypted</code>; <code>RawApiKey</code> is now <code>EnvironmentApiKey</code>; a section whose <code>BaseUrl</code> is not the service's own no longer receives the key of the environment variable - write its <code>ApiKey</code> in the configuration (Azure OpenAI, a gateway); <code>MaxToolRounds = 1</code> no longer offers actions</li>
+<li>452 tests</li>
+</ul>
 <p>9 Nov 2026: ver. 1.6.0</p>
 <ul>
 <li>Six languages: Spanish, French, German and Portuguese join English and Italian (<code>THelpChatLanguage</code>), every string of the library translated - the panel, the engine messages, the answers of the commands, the texts of the confirmation of an action, the PDF</li>
@@ -455,7 +542,7 @@ and skip themselves where there is none.</p>
 <li><code>/lang</code> lists the languages, <code>/lang de</code> (or <code>Deutsch</code>, or <code>german</code>) switches</li>
 <li><code>Settings.Languages</code>: the languages the user may pick (all six by default; with fewer than two there is no flag). <code>Settings.Language</code> is resolved among them</li>
 <li><code>Settings.DocLanguage</code>: the language the documentation is written in. When it differs from the language of the chat, the model is told to explain in the language of the user and write the names of screens, buttons and fields exactly as the manual spells them, so that the user finds them on the screen. The CRM demos set it to English</li>
-<li>The language rule of the system prompt now reads “The language of this chat is ...”: it is the language the user chose, no longer necessarily the one of the application</li>
+<li>The language rule of the system prompt now reads “The language of this chat is …“: it is the language the user chose, no longer necessarily the one of the application</li>
 <li><code>Languages</code>, <code>ActiveLanguage</code> and <code>SelectLanguage</code> on both components; <code>GET /api/languages</code> and <code>POST /api/language/select</code> on the server (read-only on a remote one, where the engine is everybody's); <code>HelpChatLanguageCode</code>, <code>HelpChatLanguageName</code>, <code>HelpChatLanguageNativeName</code>, <code>HelpChatLanguageFromCode</code> and <code>HelpChatFlagSvg</code> for code of your own</li>
 <li>An empty <code>AssistantName</code> reaches the page as it is, so the default name follows the language of the chat as well</li>
 <li>The console server takes any language code in <code>--lang</code></li>

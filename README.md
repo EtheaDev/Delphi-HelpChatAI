@@ -276,6 +276,9 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 
 ## Release Notes ##
 
+11 Nov 2026: ver. 1.7.1
+- Compatibility with Delphi 13.2
+
 11 Nov 2026: ver. 1.7.0
 - Several assistants in one application, each the expert of one part of it, active at the same time: one component per form, and the component lives on the form that owns it - its bubble, its window, its F1
 - F1 goes to the assistant of the active form; on a form that has none (a dialog, a print preview) to the one whose form was active last. One help viewer and one message hook serve every assistant of the process; `CurrentAssistant` (class function) and `ResolvedHostForm` on both components. In FireMonkey each component keeps chaining the `OnKeyDown` of its own form, and `HandleKeyDown` from a form without an assistant reaches the current one
