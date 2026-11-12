@@ -4,7 +4,7 @@ object LicenseActivationFormFmx: TLicenseActivationFormFmx
   BorderStyle = Single
   BorderIcons = [biSystemMenu]
   Caption = 'License activation'
-  ClientHeight = 321
+  ClientHeight = 491
   ClientWidth = 564
   Position = MainFormCenter
   FormFactor.Width = 320
@@ -87,55 +87,113 @@ object LicenseActivationFormFmx: TLicenseActivationFormFmx
     Position.X = 112.000000000000000000
     Position.Y = 60.000000000000000000
     Size.Width = 428.000000000000000000
-    Size.Height = 56.000000000000000000
+    Size.Height = 78.000000000000000000
     Size.PlatformDefault = False
     TextSettings.WordWrap = True
-    Text = 'This is where a real application activates its license: it asks the licensing service for the key and keeps what comes back. The demo has no service, so it asks you for an Anthropic API key - everything after that is the same.'
+    Text =
+      'This is where a real application activates its license: it asks' +
+      ' the licensing service for the keys and keeps what comes back. T' +
+      'he demo has no service, so it asks you: the key of the model in ' +
+      'use, in bold, and of any other service you want to register too.' +
+      ' A field left empty changes nothing.'
   end
-  object KeyLabel: TLabel
+  object KeyLabel1: TLabel
     Position.X = 112.000000000000000000
-    Position.Y = 120.000000000000000000
+    Position.Y = 144.000000000000000000
     Size.Width = 428.000000000000000000
     Size.Height = 17.000000000000000000
     Size.PlatformDefault = False
-    Text = 'Activation key (an API key, sk-ant-...):'
+    Text = 'API key:'
   end
-  object KeyEdit: TEdit
+  object KeyEdit1: TEdit
     Password = True
-    TextPrompt = 'sk-ant-...'
     Position.X = 112.000000000000000000
-    Position.Y = 141.000000000000000000
+    Position.Y = 163.000000000000000000
     Size.Width = 428.000000000000000000
     Size.Height = 26.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 0
     OnChangeTracking = KeyEditChangeTracking
   end
+  object KeyLabel2: TLabel
+    Position.X = 112.000000000000000000
+    Position.Y = 196.000000000000000000
+    Size.Width = 428.000000000000000000
+    Size.Height = 17.000000000000000000
+    Size.PlatformDefault = False
+    Text = 'API key:'
+  end
+  object KeyEdit2: TEdit
+    Password = True
+    Position.X = 112.000000000000000000
+    Position.Y = 215.000000000000000000
+    Size.Width = 428.000000000000000000
+    Size.Height = 26.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 1
+    OnChangeTracking = KeyEditChangeTracking
+  end
+  object KeyLabel3: TLabel
+    Position.X = 112.000000000000000000
+    Position.Y = 248.000000000000000000
+    Size.Width = 428.000000000000000000
+    Size.Height = 17.000000000000000000
+    Size.PlatformDefault = False
+    Text = 'API key:'
+  end
+  object KeyEdit3: TEdit
+    Password = True
+    Position.X = 112.000000000000000000
+    Position.Y = 267.000000000000000000
+    Size.Width = 428.000000000000000000
+    Size.Height = 26.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 2
+    OnChangeTracking = KeyEditChangeTracking
+  end
+  object KeyLabel4: TLabel
+    Position.X = 112.000000000000000000
+    Position.Y = 300.000000000000000000
+    Size.Width = 428.000000000000000000
+    Size.Height = 17.000000000000000000
+    Size.PlatformDefault = False
+    Text = 'API key:'
+  end
+  object KeyEdit4: TEdit
+    Password = True
+    Position.X = 112.000000000000000000
+    Position.Y = 319.000000000000000000
+    Size.Width = 428.000000000000000000
+    Size.Height = 26.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 3
+    OnChangeTracking = KeyEditChangeTracking
+  end
   object ShowKeyCheck: TCheckBox
     Position.X = 112.000000000000000000
-    Position.Y = 175.000000000000000000
+    Position.Y = 351.000000000000000000
     Size.Width = 200.000000000000000000
     Size.Height = 19.000000000000000000
     Size.PlatformDefault = False
-    TabOrder = 1
-    Text = 'Show the key'
+    TabOrder = 4
+    Text = 'Show the keys'
     OnChange = ShowKeyCheckChange
   end
   object StorageTitleLabel: TLabel
     Position.X = 112.000000000000000000
-    Position.Y = 208.000000000000000000
+    Position.Y = 380.000000000000000000
     Size.Width = 428.000000000000000000
     Size.Height = 32.000000000000000000
     Size.PlatformDefault = False
     TextSettings.WordWrap = True
     Text =
-      'It is never stored in clear: it is encrypted with the secret of ' +
-      'this application and written to'
+      'They are never stored in clear: they are encrypted with the secr' +
+      'et of this application and written to'
   end
   object StorageLabel: TLabel
     StyledSettings = [Style, FontColor]
     Position.X = 112.000000000000000000
-    Position.Y = 242.000000000000000000
+    Position.Y = 414.000000000000000000
     Size.Width = 428.000000000000000000
     Size.Height = 32.000000000000000000
     Size.PlatformDefault = False
@@ -146,22 +204,22 @@ object LicenseActivationFormFmx: TLicenseActivationFormFmx
   end
   object ActivateButton: TButton
     Position.X = 356.000000000000000000
-    Position.Y = 282.000000000000000000
+    Position.Y = 452.000000000000000000
     Size.Width = 90.000000000000000000
     Size.Height = 26.000000000000000000
     Size.PlatformDefault = False
-    TabOrder = 2
+    TabOrder = 5
     Text = 'Activate'
     OnClick = ActivateButtonClick
   end
   object SkipButton: TButton
     Cancel = True
     Position.X = 452.000000000000000000
-    Position.Y = 282.000000000000000000
+    Position.Y = 452.000000000000000000
     Size.Width = 88.000000000000000000
     Size.Height = 26.000000000000000000
     Size.PlatformDefault = False
-    TabOrder = 3
+    TabOrder = 6
     Text = 'Skip'
     OnClick = SkipButtonClick
   end

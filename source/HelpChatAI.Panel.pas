@@ -93,6 +93,11 @@ const
   /// language of the chat changed: the host rewrites the captions it owns
   /// (its window, the hint of the bubble) while the page reloads.</summary>
   HELPCHAT_UI_LANGUAGE = 'language';
+  /// <summary>The UI command a local server raises by itself after the user
+  /// switched model in the panel (the badge, or /use): the host may need to
+  /// know - a model whose key is missing is something the application can
+  /// ask for. The components turn it into <c>OnModelChanged</c>.</summary>
+  HELPCHAT_UI_MODEL = 'model';
   /// <summary>POST /api/context: the native client hands the transport the screen
   /// the user is on. Local transports keep it in memory; a remote one posts it.</summary>
   HELPCHAT_API_CONTEXT = '/api/context';

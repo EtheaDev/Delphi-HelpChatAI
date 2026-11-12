@@ -445,6 +445,7 @@ var
   var
     LMax: Integer;
     LRetriever: IHelpChatRetriever;
+    LQuestion: string;
   begin
     // Only for a model grounded on the documentation, and not for an answer
     // that reports what an action did.
@@ -458,10 +459,14 @@ var
     LRetriever := LShared.Retriever;
     if (LMax <= 0) or not Assigned(LRetriever) or not LRetriever.IsAvailable then
       Exit;
-    // The same search the system prompt was built with: the pages the model saw.
+    // The same search the system prompt was built with: the pages the model
+    // saw; and the one of the question alone, without the screen: only a page
+    // its words reach is a source the engine may add.
+    LQuestion := THelpChatProviderBase.LastUserMessage(LHistory);
     Result := HelpChatSourcesLine(LReply,
-      LRetriever.Search(THelpChatProviderBase.LastUserMessage(LHistory), ARequest.Context.SearchHint, LMax),
-      ARequest.Settings.Language);
+      LRetriever.Search(LQuestion, ARequest.Context.SearchHint, LMax),
+      ARequest.Settings.Language,
+      LRetriever.Search(LQuestion, '', HELPCHAT_SOURCES_QUERY_PAGES));
   end;
 
   procedure FinishCancelled;

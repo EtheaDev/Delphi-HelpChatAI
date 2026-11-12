@@ -273,7 +273,20 @@ begin
   AddTarget('qwen3-coder:30b', 'openai', 'qwen3-coder:30b', OLLAMA_BASEURL, OLLAMA_TIMEOUT_MS);
   // The references: the two remote providers as configured on this machine.
   AddTarget('claude', 'claude', '', '', CLOUD_TIMEOUT_MS);
+  // The current Claude generation, against the library default above.
+  AddTarget('claude-haiku-5-5', 'claude', 'claude-haiku-5-5', '', CLOUD_TIMEOUT_MS);
+  AddTarget('claude-sonnet-5-5', 'claude', 'claude-sonnet-5-5', '', CLOUD_TIMEOUT_MS);
+  AddTarget('claude-opus-5-5', 'claude', 'claude-opus-5-5', '', CLOUD_TIMEOUT_MS);
   AddTarget('gemini', 'gemini', '', '', CLOUD_TIMEOUT_MS);
+  // Other Gemini models, against the library default above.
+  AddTarget('gemini-4-argon', 'gemini', 'gemini-4-argon', '', CLOUD_TIMEOUT_MS);
+  AddTarget('gemini-4-carbon', 'gemini', 'gemini-4-carbon', '', CLOUD_TIMEOUT_MS);
+  AddTarget('gemini-pro-latest', 'gemini', 'gemini-pro-latest', '', CLOUD_TIMEOUT_MS);
+  AddTarget('gemini-3.5-flash-lite', 'gemini', 'gemini-3.5-flash-lite', '', CLOUD_TIMEOUT_MS);
+  // OpenAI itself, through the Responses API: the default model and the
+  // larger one.
+  AddTarget('gpt-6-luna', 'openai', 'gpt-6-luna', '', CLOUD_TIMEOUT_MS);
+  AddTarget('gpt-6.1-sol', 'openai', 'gpt-6.1-sol', '', CLOUD_TIMEOUT_MS);
 end;
 
 procedure TBenchRunner.AddDefaultQuestions;

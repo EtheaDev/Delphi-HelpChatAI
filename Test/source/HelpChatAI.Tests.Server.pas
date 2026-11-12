@@ -59,6 +59,7 @@ type
     [Test] procedure Pdf_WithoutAHost_Says501;
     [Test] procedure Pdf_Disabled_Says403;
     [Test] procedure Assistants_List_AndSelect;
+    [Test] procedure Assistants_Select_TellsTheHost;
     [Test] procedure Assistants_Single_CannotSelect;
     [Test] procedure Languages_List_AndSelect;
     [Test] procedure Languages_Single_CannotSelect;
@@ -644,6 +645,48 @@ begin
 
   Assert.AreEqual(404, Post(HELPCHAT_API_ASSISTANT_SELECT, 'name=Nobody').StatusCode);
   Assert.AreEqual(TEST_PROVIDER_SLOW, FSettings.Provider, 'an unknown name changes nothing');
+end;
+
+procedure TServerTests.Assistants_Select_TellsTheHost;
+var
+  LGot: TStringList;
+  I: Integer;
+begin
+  with FSettings.Models.Add do
+  begin
+    Name := 'Echo';
+    Provider := TEST_PROVIDER_ECHO;
+  end;
+  with FSettings.Models.Add do
+  begin
+    Name := 'Slow';
+    Provider := TEST_PROVIDER_SLOW;
+  end;
+  LGot := TStringList.Create;
+  try
+    FServer.SetOnUiCommand(
+      procedure(const ACommand: string)
+      begin
+        LGot.Add(ACommand);
+      end);
+    // A name nobody has changes nothing, and the host is not bothered.
+    Assert.AreEqual(404, Post(HELPCHAT_API_ASSISTANT_SELECT, 'name=Nobody').StatusCode);
+    Assert.AreEqual(200, Post(HELPCHAT_API_ASSISTANT_SELECT, 'name=Slow').StatusCode);
+    // Delivered with TThread.Queue: a console has to pump it.
+    for I := 1 to 200 do
+    begin
+      CheckSynchronize(10);
+      if LGot.Count > 0 then
+        Break;
+    end;
+    // What the components turn into OnModelChanged: the place where an
+    // application asks for the key of a model that has none.
+    Assert.AreEqual(1, LGot.Count, 'one switch, one command');
+    Assert.AreEqual(HELPCHAT_UI_MODEL, LGot[0]);
+    FServer.SetOnUiCommand(nil);
+  finally
+    LGot.Free;
+  end;
 end;
 
 procedure TServerTests.Assistants_Single_CannotSelect;

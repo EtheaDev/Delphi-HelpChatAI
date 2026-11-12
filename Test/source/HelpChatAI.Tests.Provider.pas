@@ -35,6 +35,7 @@ type
     [Test] procedure NotNamed_GetsNothing;
     [Test] procedure SeveralPages_InTheOrderOfTheRetriever;
     [Test] procedure Italian_SaysFonte;
+    [Test] procedure PageOfTheScreenAlone_IsNoSource;
   end;
 
 implementation
@@ -256,6 +257,29 @@ procedure TSourcesLineTests.SeveralPages_InTheOrderOfTheRetriever;
 begin
   Assert.AreEqual('Source: [Leads](Leads.md), [FAQ](FAQ.md)', HelpChatSourcesLine(
     'The FAQ answers it; on the leads board drag the row.', Pages, hclEnglish));
+end;
+
+procedure TSourcesLineTests.PageOfTheScreenAlone_IsNoSource;
+var
+  LScreen, LQuery: TArray<THelpChatDocPage>;
+begin
+  // The weather question on the Dashboard: the screen brought the
+  // Dashboard, the words of the question reach other pages.
+  SetLength(LScreen, 2);
+  LScreen[0].Title := 'Dashboard';
+  LScreen[0].Url := 'Dashboard.md';
+  LScreen[1].Title := 'Users';
+  LScreen[1].Url := 'Users.md';
+  SetLength(LQuery, 1);
+  LQuery[0].Title := 'Calendar';
+  LQuery[0].Url := 'Calendar.md';
+  Assert.AreEqual('', HelpChatSourcesLine('I can''t help with that. I can tell you what the ' +
+    'Dashboard tiles count or how Users filter records.', LScreen, hclEnglish, LQuery),
+    'what Claude 5.5 answered: a refusal has no source');
+  // A page the question reaches stays a source, wherever the user is.
+  LQuery[0] := LScreen[0];
+  Assert.AreEqual('Source: [Dashboard](Dashboard.md)', HelpChatSourcesLine(
+    'The Dashboard counts your leads.', LScreen, hclEnglish, LQuery));
 end;
 
 procedure TSourcesLineTests.Italian_SaysFonte;

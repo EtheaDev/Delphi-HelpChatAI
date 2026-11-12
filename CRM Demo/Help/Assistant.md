@@ -29,12 +29,13 @@ clears it.
 ## Choosing the assistant
 
 Next to the name in the header there may be a small icon: it is the model that is answering,
-and resting the mouse on it shows its name and the model. When the configuration offers more
-than one assistant — the cloud service of Anthropic, Google's Gemini, a model running on this
-very computer — a click on that icon opens the list, each with its icon, name and model, and
-the one you pick answers from the next question on. The choice is remembered. With one
-assistant configured the icon is only a label, and with none that has a face there is no icon
-at all.
+and resting the mouse on it shows its name and the model. Only the models you can use are
+listed: Claude, Gemini or OpenAI once you have registered their key, a local model once the
+configuration points at it. When there is more than one — the cloud service of Anthropic,
+Google's Gemini, a model running on this very computer — a click on that icon opens the
+list, each with its icon, name and model, and the one you pick answers from the next
+question on. The choice is remembered. With only one the icon is just a label, and with
+none that has a face there is no icon at all.
 
 ## Choosing the language
 
@@ -69,7 +70,7 @@ writes the document and the save dialog opens with it ready.
 
 ## Asking it to do things
 
-![Three things done by asking](Images/assistant-actions.png)
+![Things done by asking](Images/assistant-actions.png)
 
 Four things the assistant can do in this application, and nothing else:
 
@@ -107,9 +108,11 @@ correcting what the assistant understood is a normal edit.
 
 ## What it sends, and where
 
-The assistant uses Anthropic's Claude, so the question you type, the name of the screen you
-are on, the excerpts of this manual that look relevant and the outcome of any action it runs
-leave your machine and reach Anthropic's service. **The content of your database does not**:
+The assistant uses Anthropic's Claude, unless the configuration offers other models and you
+picked one in the header. The question you type, the name of the screen you are on, the
+excerpts of this manual that look relevant and the outcome of any action it runs leave your
+machine and reach the service of the model in use - Anthropic, Google, OpenAI - or stay on
+it, when the model runs on this computer. **The content of your database does not**:
 the leads, the accounts, the proposals and the attached documents stay where they are, and
 the assistant cannot read them. Ask it how many leads you have and it will tell you to look
 at the [Dashboard](Dashboard.md).
@@ -120,22 +123,30 @@ a requirement.
 
 ## Where the key lives
 
-The first run without a key opens a **License activation** window. That is where a real
-application would ask its licensing service for the key and keep what comes back; this demo
-has no service, so it asks you for an Anthropic key (`sk-ant-...`).
+When the model the assistant is about to use needs a key and has none, a **License
+activation** window opens. That is where a real application would ask its licensing service
+for the key and keep what comes back; this demo has no service, so it asks you. It has a
+field for each service - an Anthropic key (`sk-ant-...`) for Claude, a Google one
+(`AIza...`) for Gemini, an OpenAI one (`sk-...`) - and the one of the model in use is in
+bold: that is the key it needs now, and you can register the others too while you are at
+it. A field left empty changes nothing, and one whose key is already registered says so. It
+opens at startup, and again when you switch, in the header, to a model that has no key. A
+model running on this computer needs none, and never asks.
 
 What you paste is not stored the way you typed it. It is encrypted with a secret of this
 application and written to `helpchatai.json` in the folder of the application inside your
-user profile — `%APPDATA%\VCL_CRMDemo` or `%APPDATA%\FMX_CRMDemo`:
+user profile — `%APPDATA%\VCL_CRMDemo` or `%APPDATA%\FMX_CRMDemo` — under the service of that
+model:
 
 ```json
-{ "Claude": { "ApiKey": "enc:WMilAglKvAgz..." } }
+{ "Claude": { "ApiKeyEncrypted": "enc:WMilAglKvAgz..." } }
 ```
 
 The window only shows up when no key can be found at all. Before asking, the demo looks at
 `%APPDATA%\HelpChatAI\helpchatai.json` (shared by every HelpChatAI application), at a
-`helpchatai.json` next to the executable and at the `ANTHROPIC_API_KEY` environment
-variable — a key written in clear in any of them keeps working, nothing had to change.
+`helpchatai.json` next to the executable and at the environment variable of the service
+(`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`) — a key written in clear in any of
+them keeps working, nothing had to change.
 
 Encrypting it is worth something: the configuration file can be copied, backed up or shown
 on a screen without giving the key away. It is not a vault, and the demo says so in the

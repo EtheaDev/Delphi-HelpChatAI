@@ -236,8 +236,12 @@ type
       const AOutcome: THelpChatActionOutcome; const AResult: string);
     procedure HelpChatDecryptSecret(Sender: TObject; const AName, AValue: string;
       var AResult: string; var AHandled: Boolean);
+    procedure HelpChatModelChanged(Sender: TObject);
   private
     { Private declarations }
+    // La finestra di attivazione e' aperta: un altro cambio di modello non
+    // ne apre una seconda.
+    FAskingKey: Boolean;
     FRanOnce: Boolean;
     procedure AppIdle(Sender: TObject; var Done: Boolean);
     procedure RefreshGrids;
@@ -248,11 +252,12 @@ type
     /// conferma all'utente prima di partire.</summary>
     procedure RegisterHelpActions;
     function ResolveAccountName(const AText: string): string;
-    /// <summary>Ripiego: la chiave di Claude non c'e' da nessuna parte (ne'
-    /// nei file di configurazione ne' in ANTHROPIC_API_KEY). La chiediamo una
-    /// volta sola, la cifriamo con il segreto di questa applicazione e la
-    /// scriviamo nel file utente, da dove la prossima esecuzione la rilegge
-    /// cifrata.</summary>
+    /// <summary>Ripiego: il modello che l'assistente sta per usare vuole una
+    /// chiave e non ne ha (ne' nei file di configurazione ne' nella variabile
+    /// d'ambiente del suo servizio). La chiediamo per quel modello, la
+    /// cifriamo con il segreto di questa applicazione e la scriviamo nel file
+    /// utente, da dove la prossima esecuzione la rilegge cifrata. All'avvio e
+    /// a ogni cambio di modello dal pannello.</summary>
     procedure AskForApiKeyIfMissing;
     /// <summary>La scheda che l'assistente ha chiamato per nome.</summary>
     function FindTab(const AName: string): TTabSheet;
@@ -541,20 +546,52 @@ end;
 
 procedure TMainForm.AskForApiKeyIfMissing;
 var
-  LKey, LProtected: string;
+  LRequest: TAppSecretKeyRequest;
+  LRequests: TArray<TAppSecretKeyRequest>;
+  LKeys: TArray<string>;
+  LInfo: THelpChatModelInfo;
+  I: Integer;
 begin
-  // ResolveApiKey guarda la property, i tre helpchatai.json gia' caricati e
-  // la variabile d'ambiente, e passa dal gestore qui sopra: se risponde
-  // qualcosa, la chiave c'e' ed e' leggibile.
-  if HelpChat.Settings.Claude.ResolveApiKey <> '' then
+  // RunSettings sono le impostazioni del motore in esecuzione, con il modello
+  // scelto nel pannello gia' applicato: e' il suo provider a dire se manca
+  // la chiave (la property, i tre helpchatai.json gia' caricati, la variabile
+  // d'ambiente, il gestore qui sopra). docsearch o un Ollama locale non ne
+  // vogliono, e la finestra non si apre.
+  if FAskingKey or not AppSecretMissingKey(HelpChat.RunSettings, LRequest) then
     Exit;
-  if not TLicenseActivationForm.Execute(THelpChatSettings.UserConfigFile, LKey) then
-    Exit;
-  LProtected := AppSecretProtect(LKey);
-  AppSecretStoreApiKey('Claude', LProtected);
-  // Quella che resta in memoria e' la cifrata, come se fosse appena stata
-  // letta dal file: la chiave in chiaro vive quanto la richiesta.
-  HelpChat.Settings.Claude.ApiKeyEncrypted := LProtected;
+  FAskingKey := True;
+  try
+    // Una riga per servizio (Claude, Gemini, OpenAI), quella del modello in
+    // uso in grassetto: gia' che c'e', l'utente registra anche le altre.
+    LRequests := AppSecretKeyRequests(HelpChat.RunSettings);
+    if not TLicenseActivationForm.Execute(LRequests,
+      THelpChatSettings.UserConfigFile, LKeys) then
+      Exit;
+    // Cifrate, nella sezione del provider o nel modello del catalogo se ha
+    // un endpoint suo, e applicate subito: in memoria resta la cifrata.
+    AppSecretActivate(HelpChat.RunSettings, LRequests, LKeys);
+    for I := 0 to High(LKeys) do
+      LKeys[I] := '';
+    // Il modello in uso e' ancora senza chiave, ma l'utente ne ha registrata
+    // un'altra: si passa al primo che puo' rispondere. Models offre solo
+    // quelli (piu' quello in uso), e il cambio arriva anche al pannello.
+    if AppSecretMissingKey(HelpChat.RunSettings, LRequest) then
+      for LInfo in HelpChat.Models do
+        if not LInfo.Active then
+        begin
+          HelpChat.SelectModel(LInfo.Name);
+          Break;
+        end;
+  finally
+    FAskingKey := False;
+  end;
+end;
+
+procedure TMainForm.HelpChatModelChanged(Sender: TObject);
+begin
+  // L'utente ha scelto un altro modello nel pannello: se a quello manca la
+  // chiave, gliela chiediamo adesso invece di lasciarlo alla prima domanda.
+  AskForApiKeyIfMissing;
 end;
 
 procedure TMainForm.HelpChatGetContext(Sender: TObject; var AContext: THelpChatContext);

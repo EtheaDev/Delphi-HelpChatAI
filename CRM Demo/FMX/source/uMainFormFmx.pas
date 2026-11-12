@@ -203,12 +203,16 @@ type
     procedure HelpChatGetContext(Sender: TObject; var AContext: THelpChatContext);
     procedure HelpChatDecryptSecret(Sender: TObject; const AName, AValue: string;
       var AResult: string; var AHandled: Boolean);
+    procedure HelpChatModelChanged(Sender: TObject);
     procedure UserComboChange(Sender: TObject);
     procedure LeadsNewGridCellDblClick(const Column: TColumn; const Row: Integer);
     procedure LeadsActiveGridCellDblClick(const Column: TColumn; const Row: Integer);
     procedure LeadsProposalGridCellDblClick(const Column: TColumn; const Row: Integer);
     procedure LeadsClosedGridCellDblClick(const Column: TColumn; const Row: Integer);
   private
+    // The activation window is open: another switch of model does not open
+    // a second one.
+    FAskingKey: Boolean;
     FStarted: Boolean;
     function ResolveAccountName(const AText: string): string;
     procedure SetMenuCompact(ACompact: Boolean);
@@ -216,10 +220,12 @@ type
     procedure AppIdle(Sender: TObject; var Done: Boolean);
     procedure StartUp;
     procedure RegisterHelpActions;
-    /// <summary>Last resort: the Claude key is nowhere to be found, neither
-    /// in the configuration files nor in ANTHROPIC_API_KEY. It is asked for
-    /// once, encrypted with the secret of this application and written to
-    /// the per-user file, where the next run reads it back encrypted.</summary>
+    /// <summary>Last resort: the model the assistant is about to use needs a
+    /// key and has none, neither in the configuration files nor in the
+    /// environment variable of its service. It is asked for that model,
+    /// encrypted with the secret of this application and written to the
+    /// per-user file, where the next run reads it back encrypted. At startup
+    /// and whenever the user switches model in the panel.</summary>
     procedure AskForApiKeyIfMissing;
     function FindTab(const AName: string): TTabItem;
     /// <summary>The lead called by name, or by company when the name is not
@@ -748,23 +754,53 @@ begin
 end;
 
 procedure TMainFormFmx.AskForApiKeyIfMissing;
+var
+  LRequest: TAppSecretKeyRequest;
+  LRequests: TArray<TAppSecretKeyRequest>;
 begin
-  // ResolveApiKey looks at the property, at the configuration files already
-  // loaded and at the environment variable, and goes through the handler
-  // above: an answer means the key is there and can be read.
-  if HelpChat.Settings.Claude.ResolveApiKey <> '' then
+  // RunSettings are the settings of the running engine, with the model the
+  // user picked in the panel applied: its provider says whether the key is
+  // missing (the property, the configuration files already loaded, the
+  // environment variable, the handler above). docsearch or a local Ollama
+  // want none, and the window does not open.
+  if FAskingKey or not AppSecretMissingKey(HelpChat.RunSettings, LRequest) then
     Exit;
-  TLicenseActivationFormFmx.Execute(THelpChatSettings.UserConfigFile,
-    procedure(AKey: string)
+  FAskingKey := True;
+  // One row per service (Claude, Gemini, OpenAI), the one of the model in
+  // use in bold: while at it, the user registers the others too.
+  LRequests := AppSecretKeyRequests(HelpChat.RunSettings);
+  TLicenseActivationFormFmx.Execute(LRequests, THelpChatSettings.UserConfigFile,
+    procedure(AKeys: TArray<string>)
     var
-      LProtected: string;
+      LRequest: TAppSecretKeyRequest;
+      LInfo: THelpChatModelInfo;
     begin
-      LProtected := AppSecretProtect(AKey);
-      AppSecretStoreApiKey('Claude', LProtected);
-      // What stays in memory is the encrypted one, as if it had just been
-      // read from the file: the clear text lives as long as the request.
-      HelpChat.Settings.Claude.ApiKeyEncrypted := LProtected;
+      // Encrypted, into the section of the provider or the model of the
+      // catalogue with an endpoint of its own, and applied at once: what
+      // stays in memory is the encrypted one.
+      AppSecretActivate(HelpChat.RunSettings, LRequests, AKeys);
+      // The model in use still has no key, but the user registered another:
+      // switch to the first that can answer. Models offers only those (plus
+      // the one in use), and the switch reaches the panel too.
+      if AppSecretMissingKey(HelpChat.RunSettings, LRequest) then
+        for LInfo in HelpChat.Models do
+          if not LInfo.Active then
+          begin
+            HelpChat.SelectModel(LInfo.Name);
+            Break;
+          end;
+    end,
+    procedure
+    begin
+      FAskingKey := False;
     end);
+end;
+
+procedure TMainFormFmx.HelpChatModelChanged(Sender: TObject);
+begin
+  // The user picked another model in the panel: if that one has no key, it
+  // is asked for now rather than left to the first question.
+  AskForApiKeyIfMissing;
 end;
 
 initialization

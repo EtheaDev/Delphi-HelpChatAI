@@ -211,6 +211,7 @@ type
     FOnBeforeHideHelp: TNotifyEvent;
     FOnAfterHideHelp: TNotifyEvent;
     FOnOpenLink: THelpChatOpenLinkEvent;
+    FOnModelChanged: TNotifyEvent;
     procedure SetActionsEnabled(const Value: Boolean);
     /// <summary>The broker has a call to run - told on the worker thread that
     /// waits for it: queued to the main thread, with a reference that keeps
@@ -248,10 +249,6 @@ type
     /// first, then the property - unresolved: the page resolves an empty one
     /// in the language it is rendered in.</summary>
     function ConfiguredAssistantName: string;
-    /// <summary>The settings in force: the engine's while active - an engine is
-    /// shared by the assistants of a profile, and what the user changes in
-    /// the panel (the language, the model) changes there - else Settings.</summary>
-    function RunSettings: THelpChatSettings;
     procedure SetEnabledCommands(const Value: THelpChatCommands);
     procedure ApplyBubbleIcon;
     function EnsureVoice: Boolean;
@@ -295,6 +292,9 @@ type
     /// <summary>The language of the chat changed (from the flag of the page
     /// or from SelectLanguage): the captions this side writes follow it.</summary>
     procedure LanguageChanged;
+    /// <summary>The model in use changed - in the panel or through
+    /// <c>SelectModel</c>: fires <c>OnModelChanged</c>.</summary>
+    procedure ModelChanged;
     /// <summary>A document the engine built (an answer, the conversation, a
     /// page of the manual, or what the <c>export_pdf</c> action wrote) is to
     /// be saved: the stylesheet, the sheet and the bands are put on it here,
@@ -357,6 +357,13 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
 
+    /// <summary>The settings in force: the engine's while active - an engine is
+    /// shared by the assistants of a profile, and what the user changes in
+    /// the panel (the language, the model) changes there - else
+    /// <c>Settings</c>. Read it, not <c>Settings</c>, to know what the
+    /// assistant is using now: <c>RunSettings.ActiveModelName</c>, the
+    /// provider and the key of that model (see <c>OnModelChanged</c>).</summary>
+    function RunSettings: THelpChatSettings;
     /// <summary>Builds the context of the current screen: active form (name,
     /// class), the deepest control with HelpKeyword/HelpContext from the focused
     /// control upwards (the form last), the active tab sheet as label, the
@@ -655,6 +662,11 @@ type
     property OnBeforeHideHelp: TNotifyEvent read FOnBeforeHideHelp write FOnBeforeHideHelp;
     /// <summary>The chat has been hidden.</summary>
     property OnAfterHideHelp: TNotifyEvent read FOnAfterHideHelp write FOnAfterHideHelp;
+    /// <summary>The user switched model in the panel (the badge of the
+    /// header, or /use), or code did with <c>SelectModel</c>; on the main
+    /// thread. <c>RunSettings.ActiveModelName</c> is the new one: the place to
+    /// check that it has what it needs - a key - and to ask for it.</summary>
+    property OnModelChanged: TNotifyEvent read FOnModelChanged write FOnModelChanged;
     /// <summary>A link of the panel is leaving it (web site, mail, a page that
     /// is not in DocFolder): set AHandled to open it yourself, else it opens
     /// in the system browser.</summary>
@@ -2088,7 +2100,9 @@ begin
   else if ACommand = 'mic-stop' then
     StopVoice
   else if ACommand = HELPCHAT_UI_LANGUAGE then
-    LanguageChanged;
+    LanguageChanged
+  else if ACommand = HELPCHAT_UI_MODEL then
+    ModelChanged;
 end;
 
 { --- dictation ----------------------------------------------------------- }
@@ -2486,6 +2500,8 @@ begin
     FEngine.SelectModel(AName);
   if Result and Assigned(FView) then
     FView.RunScript('window.hcRefreshAssistants && window.hcRefreshAssistants();');
+  if Result then
+    ModelChanged;
 end;
 
 function TVclHelpChatAI.Languages: TArray<THelpChatLanguage>;
@@ -2512,6 +2528,12 @@ begin
   // The labels are written into the page when it is rendered.
   if Assigned(FView) and FView.PageReady then
     FView.RunScript('window.location.reload();');
+end;
+
+procedure TVclHelpChatAI.ModelChanged;
+begin
+  if FActive and Assigned(FOnModelChanged) then
+    FOnModelChanged(Self);
 end;
 
 procedure TVclHelpChatAI.LanguageChanged;

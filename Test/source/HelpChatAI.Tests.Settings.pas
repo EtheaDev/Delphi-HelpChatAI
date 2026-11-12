@@ -261,6 +261,7 @@ begin
     LSource.OpenAI.Organization := 'org-1';
     LSource.OpenAI.AzureDeployment := 'my-deployment';
     LSource.OpenAI.AzureApiVersion := '2099-02-02';
+    LSource.OpenAI.Api := 'chat';
     LSource.OpenAI.MaxToolRounds := 9;
     LSource.Gemini.ApiKey := 'g-test';
     LSource.Gemini.Model := 'gemini-x';
@@ -313,6 +314,7 @@ begin
     Assert.AreEqual('org-1', LCopy.OpenAI.Organization);
     Assert.AreEqual('my-deployment', LCopy.OpenAI.AzureDeployment);
     Assert.AreEqual('2099-02-02', LCopy.OpenAI.AzureApiVersion);
+    Assert.AreEqual('chat', LCopy.OpenAI.Api);
     Assert.AreEqual(9, LCopy.OpenAI.MaxToolRounds);
     Assert.IsTrue(LCopy.OpenAI.IsAzure, 'a deployment is what makes it Azure');
     Assert.AreEqual('g-test', LCopy.Gemini.ApiKey);

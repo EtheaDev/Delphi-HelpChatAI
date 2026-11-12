@@ -35,6 +35,9 @@ type
     [Test] procedure Flags_EveryLanguageHasOne;
     [Test] procedure Engine_Select_ChangesTheNextRequest;
     [Test] procedure Engine_Start_AppliesTheConfiguredOne;
+    [Test] procedure Engine_Models_OnlyTheOnesThatCanAnswer;
+    [Test] procedure Engine_Start_SkipsAModelThatCannotAnswer;
+    [Test] procedure Engine_Models_AKeyInAFile_OffersItsModel;
   end;
 
 implementation
@@ -44,6 +47,7 @@ uses
   System.SysUtils,
   HelpChatAI.Messages,
   HelpChatAI.Icons,
+  HelpChatAI.Provider,
   HelpChatAI.Tests.Helpers;
 
 procedure TModelsTests.Settings_NoList_IsTheImplicitOneOfTheProvider;
@@ -398,6 +402,143 @@ begin
 
       Assert.IsFalse(LEngine.SelectModel('Nobody'));
       Assert.AreEqual('Broken', LEngine.ActiveModelInfo.Name);
+    finally
+      LEngine.Free;
+    end;
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TModelsTests.Engine_Models_OnlyTheOnesThatCanAnswer;
+var
+  LSettings: THelpChatSettings;
+  LEngine: THelpChatEngine;
+  LList: TArray<THelpChatModelInfo>;
+begin
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.PersistConversation := False;
+    LSettings.DocIndexFile := 'Z:\no\index.json';
+    with LSettings.Models.Add do
+    begin
+      Name := 'Echo';
+      Provider := TEST_PROVIDER_ECHO;
+    end;
+    with LSettings.Models.Add do
+    begin
+      Name := 'Locked';
+      Provider := TEST_PROVIDER_UNCONFIGURED;
+    end;
+    Assert.IsTrue(HelpChatModelIsConfigured(LSettings, 'Echo'));
+    Assert.IsFalse(HelpChatModelIsConfigured(LSettings, 'Locked'));
+    Assert.IsFalse(HelpChatModelIsConfigured(LSettings, 'Nobody'));
+    LEngine := THelpChatEngine.Create(LSettings);
+    try
+      LEngine.Start;
+      LList := LEngine.Models;
+      Assert.AreEqual(1, Length(LList), 'a model that cannot answer is no choice');
+      Assert.AreEqual('Echo', LList[0].Name);
+      // Code may still pick it (the application then asks for its key), and
+      // the one in use is always listed: the panel shows what answers.
+      Assert.IsTrue(LEngine.SelectModel('Locked'));
+      LList := LEngine.Models;
+      Assert.AreEqual(2, Length(LList));
+      Assert.AreEqual('Locked', LEngine.ActiveModelInfo.Name);
+    finally
+      LEngine.Free;
+    end;
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TModelsTests.Engine_Models_AKeyInAFile_OffersItsModel;
+var
+  LSettings: THelpChatSettings;
+  LEngine: THelpChatEngine;
+  LList: TArray<THelpChatModelInfo>;
+  LNames: string;
+  LInfo: THelpChatModelInfo;
+begin
+  // The CRM demo: a catalogue of the three services in the form file, the
+  // per-user file carrying two encrypted keys and nothing else.
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.PersistConversation := False;
+    LSettings.DocIndexFile := 'Z:\no\index.json';
+    LSettings.Provider := 'claude';
+    with LSettings.Models.Add do
+    begin
+      Name := 'Claude';
+      Provider := 'claude';
+    end;
+    with LSettings.Models.Add do
+    begin
+      Name := 'Gemini';
+      Provider := 'gemini';
+    end;
+    with LSettings.Models.Add do
+    begin
+      Name := 'OpenAI';
+      Provider := 'openai';
+    end;
+    LSettings.LoadFromJSON('{"Claude": {"ApiKeyEncrypted": "enc:one"}, ' +
+      '"Gemini": {"ApiKeyEncrypted": "enc:two"}}');
+    Assert.AreEqual(3, LSettings.Models.Count, 'a file without Models keeps the list');
+    Assert.IsTrue(HelpChatModelIsConfigured(LSettings, 'Gemini'), 'settings');
+    LEngine := THelpChatEngine.Create(LSettings);
+    try
+      LEngine.Start;
+      LList := LEngine.Models;
+      LNames := '';
+      for LInfo in LList do
+        LNames := LNames + LInfo.Name + ' ';
+      Assert.IsTrue(Pos('Claude ', LNames) > 0, LNames);
+      Assert.IsTrue(Pos('Gemini ', LNames) > 0, LNames);
+    finally
+      LEngine.Free;
+    end;
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TModelsTests.Engine_Start_SkipsAModelThatCannotAnswer;
+var
+  LSettings: THelpChatSettings;
+  LEngine: THelpChatEngine;
+begin
+  LSettings := THelpChatSettings.Create;
+  try
+    LSettings.PersistConversation := False;
+    LSettings.DocIndexFile := 'Z:\no\index.json';
+    with LSettings.Models.Add do
+    begin
+      Name := 'Locked';
+      Provider := TEST_PROVIDER_UNCONFIGURED;
+    end;
+    with LSettings.Models.Add do
+    begin
+      Name := 'Echo';
+      Provider := TEST_PROVIDER_ECHO;
+    end;
+    LSettings.SelectedModel := 'Locked';
+    LEngine := THelpChatEngine.Create(LSettings);
+    try
+      LEngine.Start;
+      Assert.AreEqual('Echo', LEngine.ActiveModelInfo.Name,
+        'the first that can answer, not the one named');
+    finally
+      LEngine.Free;
+    end;
+    // With none that can answer, the one named stays: its first answer says
+    // what is missing.
+    LSettings.Models.Delete(1);
+    LEngine := THelpChatEngine.Create(LSettings);
+    try
+      LEngine.Start;
+      Assert.AreEqual('Locked', LEngine.ActiveModelInfo.Name);
     finally
       LEngine.Free;
     end;

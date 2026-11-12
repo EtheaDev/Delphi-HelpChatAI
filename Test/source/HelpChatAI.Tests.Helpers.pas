@@ -23,6 +23,7 @@ const
   TEST_PROVIDER_SLOW = 'test-slow';
   TEST_PROVIDER_FAIL = 'test-fail';
   TEST_PROVIDER_STUBBORN = 'test-stubborn';
+  TEST_PROVIDER_UNCONFIGURED = 'test-unconfigured';
   TEST_SLOW_STEPS = 40;
   TEST_SLOW_STEP_MS = 20;
   TEST_STUBBORN_MS = 1500;
@@ -67,6 +68,14 @@ type
     function Generate(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
       const ACancel: IHelpChatCancelToken): string; override;
+  end;
+
+  /// <summary>An echo that always says it is not configured, as a real
+  /// provider with no key does.</summary>
+  TUnconfiguredProvider = class(TEchoProvider)
+  public
+    function GetName: string; override;
+    class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
   end;
 
 /// <summary>Polls ACondition every 10 ms until True or ATimeoutMs elapsed.</summary>
@@ -203,13 +212,28 @@ begin
   Result := 'late';
 end;
 
+{ TUnconfiguredProvider }
+
+function TUnconfiguredProvider.GetName: string;
+begin
+  Result := TEST_PROVIDER_UNCONFIGURED;
+end;
+
+class function TUnconfiguredProvider.ConfigurationIssue(
+  const ASettings: THelpChatSettings): string;
+begin
+  Result := 'No API key.';
+end;
+
 initialization
+  THelpChatProviderRegistry.RegisterProvider(TEST_PROVIDER_UNCONFIGURED, TUnconfiguredProvider);
   THelpChatProviderRegistry.RegisterProvider(TEST_PROVIDER_ECHO, TEchoProvider);
   THelpChatProviderRegistry.RegisterProvider(TEST_PROVIDER_SLOW, TSlowProvider);
   THelpChatProviderRegistry.RegisterProvider(TEST_PROVIDER_FAIL, TFailingProvider);
   THelpChatProviderRegistry.RegisterProvider(TEST_PROVIDER_STUBBORN, TStubbornProvider);
 
 finalization
+  THelpChatProviderRegistry.UnregisterProvider(TEST_PROVIDER_UNCONFIGURED);
   THelpChatProviderRegistry.UnregisterProvider(TEST_PROVIDER_ECHO);
   THelpChatProviderRegistry.UnregisterProvider(TEST_PROVIDER_SLOW);
   THelpChatProviderRegistry.UnregisterProvider(TEST_PROVIDER_FAIL);

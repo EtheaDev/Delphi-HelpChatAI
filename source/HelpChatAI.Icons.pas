@@ -52,8 +52,8 @@ const
   /// under the resource name <c>HCICON_&lt;ID&gt;</c>. They are what
   /// <c>Icon</c> of a model of the catalogue may name; an id that is not
   /// here is ignored and the icon is deduced instead.</summary>
-  HELPCHAT_PROVIDER_ICONS: array[0..13] of string = (
-    'azure', 'claude', 'cohere', 'deepseek', 'gemini', 'gemma', 'groq',
+  HELPCHAT_PROVIDER_ICONS: array[0..14] of string = (
+    'azure', 'claude', 'cohere', 'deepseek', 'gemini', 'gemma', 'github', 'groq',
     'llama', 'lmstudio', 'mistral', 'ollama', 'openai', 'openrouter', 'qwen');
 
 /// <summary>True when AId is one of the shipped icons (trimmed, any

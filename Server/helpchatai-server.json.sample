@@ -19,7 +19,7 @@
   "//provider": "stub, docsearch, claude, openai or gemini. Only the section of the chosen one is read.",
   "Claude": {
     "ApiKey": "",
-    "Model": "claude-haiku-4-5"
+    "Model": "claude-haiku-5-5"
   },
   "OpenAI": {
     "//": "Empty BaseUrl means api.openai.com. Point it at Groq, OpenRouter, Mistral, DeepSeek, a local Ollama (http://localhost:11434/v1) or LM Studio to use those instead; set AzureDeployment for Azure OpenAI.",
@@ -30,7 +30,7 @@
   },
   "Gemini": {
     "ApiKey": "",
-    "Model": "gemini-3.8-flash"
+    "Model": "gemini-3.5-flash-lite"
   },
   "//profiles": "One section per assistant. A client whose component has that Profile gets the root of this file with its section on top, in an engine of its own; a Profile not listed here gets the root.",
   "Profiles": {

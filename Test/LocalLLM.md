@@ -171,6 +171,37 @@ The local models were the test bench for the system prompt of HelpChatAI: three 
    lead. Across the four runs `gemma4:12b` is the only local model that was right on everything
    every time, and it got faster (6.4 s on average in the first run, 4.2 s in the fourth).
 
+10. **The remote models of today** (12 November 2026: `llm-bench-full-v5.md`, every target,
+    then `llm-bench-claude5.md` and `llm-bench-gemini.md`). `openai` now reaches OpenAI through
+    the Responses API, so the GPT-6 models act while they reason:
+
+    | Model | Citations | Facts | Actions | Avg time |
+    |---|---:|---:|---:|---:|
+    | gemini-3.5-flash-lite | 8/8 | 10/11 | 8/8 | 1.1 s |
+    | claude-haiku-4-5 | 8/8 | 11/11 | 8/8 | 1.7 s |
+    | claude-haiku-5-5 | 7/8 | 11/11 | 8/8 | 2.0 s |
+    | claude-sonnet-5-5 | 6/8 | 11/11 | 8/8 | 2.3 s |
+    | gpt-6-luna | 7/8 | 11/11 | 8/8 | 2.5 s |
+    | claude-opus-5-5 | 6/8 | 11/11 | 8/8 | 2.6 s |
+    | gpt-6.1-sol | 7/8 | 11/11 | 8/8 | 2.8 s |
+    | gpt-oss:20b | 8/8 | 11/11 | 8/8 | 3.1 s |
+    | gemini-3.8-flash | 7/8 | 11/11 | 8/8 | 4.0 s |
+    | qwen3-coder:30b | 6/8 | 11/11 | 6/8 | 4.2 s |
+    | gemma4:12b | 8/8 | 11/11 | 8/8 | 5.2 s |
+    | gemini-pro-latest | 8/8 | 10/11 | 8/8 | 6.1 s |
+    | gemini-4-argon | 8/8 | 11/11 | 8/8 | 7.0 s |
+    | gemini-4-carbon | 8/8 | 11/11 | 8/8 | 8.6 s |
+
+    The defaults became `claude-haiku-5-5` and `gemini-3.5-flash-lite` (`gpt-6-luna` stays).
+    The citations the Claude 5.5 models lose are not theirs: they decline the weather question
+    naming the Dashboard, and `HelpChatSourcesLine` then appended it as the source, or they cite
+    the manual after creating the lead. `gpt-oss:20b` no longer asks for the optional
+    parameters.
+11. **The source line no longer follows the screen** (`llm-bench-claude5-sources.md`): only a
+    page the words of the question reach is added. The weather question gets no source from
+    any of the three, `claude-haiku-5-5` goes to 8/8 citations (1.8 s), Sonnet and Opus to 7/8:
+    what is left is their own link to the manual after creating the lead, a useful one.
+
 `/search words` in the panel (since 1.5.0) shows the pages the retriever would ground an answer
 on, and `/prompt` (off by default: `EnabledCommands`) the whole system prompt of the last
 question: the two tools to start from when an answer misses a page.

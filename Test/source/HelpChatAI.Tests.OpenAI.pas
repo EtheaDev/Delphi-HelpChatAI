@@ -35,7 +35,14 @@ type
     [Test] procedure AssistantToolMessage_HasToolCalls;
     [Test] procedure ExtractApiError_FromJson_AndFallback;
     [Test] procedure ConfigurationIssue_OnlyWhenCallingOpenAIItself;
+    [Test] procedure ReasoningEffort_OnlyWhenTheServiceAsksForIt;
+    [Test] procedure ConfigurationIssue_AServiceOnTheInternet_WantsAKey;
+    [Test] procedure LocalEndpoint_ThisMachine_AndThePrivateNetwork;
     [Test] procedure CompletionsUrl_Default_Local_AndAzure;
+    [Test] procedure Responses_OnOpenAIItself_ChatElsewhere;
+    [Test] procedure Responses_Url_Tools_AndBody;
+    [Test] procedure Responses_Stream_TextCallsAndItems;
+    [Test] procedure Responses_Stream_Failure_IsKept;
   end;
 
 implementation
@@ -43,6 +50,7 @@ implementation
 uses
   System.SysUtils,
   System.JSON,
+  HelpChatAI.Messages,
   HelpChatAI.Provider;
 
 const
@@ -256,6 +264,27 @@ begin
     Assert.AreEqual('assistant', (LMessages.Items[2] as TJSONObject).GetValue<string>('role'));
     Assert.AreEqual('tool', (LMessages.Items[3] as TJSONObject).GetValue<string>('role'));
     Assert.AreEqual('call_1', (LMessages.Items[3] as TJSONObject).GetValue<string>('tool_call_id'));
+    Assert.IsNull(LRoot.GetValue('reasoning_effort'), 'never sent unless asked for');
+  finally
+    LRoot.Free;
+  end;
+end;
+
+procedure TOpenAITests.ReasoningEffort_OnlyWhenTheServiceAsksForIt;
+var
+  LRoot: TJSONObject;
+begin
+  // What gpt-6-luna answers in Chat Completions to a request with tools.
+  Assert.IsTrue(THelpChatOpenAIProvider.AsksForNoReasoning('Function tools with ' +
+    'reasoning_effort are not supported for gpt-6-luna in /v1/chat/completions. To use ' +
+    'function tools, use /v1/responses or set reasoning_effort to ''none''.'));
+  Assert.IsFalse(THelpChatOpenAIProvider.AsksForNoReasoning('Incorrect API key provided'));
+  Assert.IsFalse(THelpChatOpenAIProvider.AsksForNoReasoning(
+    'Unrecognized request argument supplied: reasoning_effort'), 'not a request for none');
+  LRoot := TJSONObject.ParseJSONValue(THelpChatOpenAIProvider.BuildRequestBody(
+    [Msg(hcrUser, 'ciao')], '', FSettings.OpenAI, '', '[]', nil, hclAuto, 'none')) as TJSONObject;
+  try
+    Assert.AreEqual('none', LRoot.GetValue<string>('reasoning_effort'));
   finally
     LRoot.Free;
   end;
@@ -305,6 +334,40 @@ begin
   Assert.AreEqual('', THelpChatOpenAIProvider.ConfigurationIssue(FSettings));
 end;
 
+procedure TOpenAITests.ConfigurationIssue_AServiceOnTheInternet_WantsAKey;
+begin
+  FSettings.OpenAI.ApiKey := '';
+  // OpenRouter, Groq: on the internet, and the key of OpenAI never goes
+  // there - the environment variable included.
+  FSettings.OpenAI.BaseUrl := 'https://openrouter.ai/api/v1';
+  Assert.Contains(THelpChatOpenAIProvider.ConfigurationIssue(FSettings), 'openrouter.ai');
+  FSettings.OpenAI.BaseUrl := 'https://api.groq.com/openai/v1';
+  Assert.AreNotEqual('', THelpChatOpenAIProvider.ConfigurationIssue(FSettings));
+  FSettings.OpenAI.ApiKey := 'gsk_not-a-real-key';
+  Assert.AreEqual('', THelpChatOpenAIProvider.ConfigurationIssue(FSettings));
+  // A server of the LAN asks for none, like a local one.
+  FSettings.OpenAI.ApiKey := '';
+  FSettings.OpenAI.BaseUrl := 'http://192.168.1.20:11434/v1';
+  Assert.AreEqual('', THelpChatOpenAIProvider.ConfigurationIssue(FSettings));
+end;
+
+procedure TOpenAITests.LocalEndpoint_ThisMachine_AndThePrivateNetwork;
+begin
+  Assert.IsTrue(HelpChatIsLocalEndpoint('http://localhost:11434/v1'));
+  Assert.IsTrue(HelpChatIsLocalEndpoint('http://127.0.0.1:1234'));
+  Assert.IsTrue(HelpChatIsLocalEndpoint('http://[::1]:8080/v1'));
+  Assert.IsTrue(HelpChatIsLocalEndpoint('http://10.0.0.5/v1'));
+  Assert.IsTrue(HelpChatIsLocalEndpoint('http://172.20.1.1:8000'));
+  Assert.IsTrue(HelpChatIsLocalEndpoint('http://192.168.1.20:11434/v1'));
+  Assert.IsTrue(HelpChatIsLocalEndpoint('http://gpu-box:11434/v1'), 'a name of the LAN');
+  Assert.IsTrue(HelpChatIsLocalEndpoint('http://studio.local:1234'));
+  Assert.IsFalse(HelpChatIsLocalEndpoint('https://api.openai.com/v1'));
+  Assert.IsFalse(HelpChatIsLocalEndpoint('https://openrouter.ai/api/v1'));
+  Assert.IsFalse(HelpChatIsLocalEndpoint('http://172.32.0.1'), 'outside 172.16/12');
+  Assert.IsFalse(HelpChatIsLocalEndpoint('https://user@api.groq.com/openai/v1'));
+  Assert.IsFalse(HelpChatIsLocalEndpoint(''));
+end;
+
 procedure TOpenAITests.CompletionsUrl_Default_Local_AndAzure;
 begin
   Assert.AreEqual(HELPCHAT_OPENAI_DEF_BASEURL + HELPCHAT_OPENAI_COMPLETIONS_PATH,
@@ -325,6 +388,138 @@ begin
   Assert.AreEqual('https://my-resource.openai.azure.com/openai/deployments/my-gpt' +
     '/chat/completions?api-version=2024-10-21',
     THelpChatOpenAIProvider.CompletionsUrl(FSettings.OpenAI));
+end;
+
+procedure TOpenAITests.Responses_OnOpenAIItself_ChatElsewhere;
+begin
+  // OpenAI itself: Responses, where a GPT-6 keeps its reasoning while it acts.
+  Assert.IsTrue(FSettings.OpenAI.UsesResponses);
+  // Every other service speaks Chat Completions.
+  FSettings.OpenAI.BaseUrl := 'http://localhost:11434/v1';
+  Assert.IsFalse(FSettings.OpenAI.UsesResponses);
+  FSettings.OpenAI.BaseUrl := 'https://openrouter.ai/api/v1';
+  Assert.IsFalse(FSettings.OpenAI.UsesResponses);
+  FSettings.OpenAI.BaseUrl := 'https://my-resource.openai.azure.com';
+  FSettings.OpenAI.AzureDeployment := 'my-gpt';
+  Assert.IsFalse(FSettings.OpenAI.UsesResponses, 'Azure keeps its deployments');
+  // Api says it outright, both ways.
+  FSettings.OpenAI.Api := 'Responses';
+  Assert.IsTrue(FSettings.OpenAI.UsesResponses);
+  FSettings.OpenAI.AzureDeployment := '';
+  FSettings.OpenAI.BaseUrl := '';
+  FSettings.OpenAI.Api := 'chat';
+  Assert.IsFalse(FSettings.OpenAI.UsesResponses);
+end;
+
+procedure TOpenAITests.Responses_Url_Tools_AndBody;
+var
+  LRoot, LTool, LLast: TJSONObject;
+  LTools, LInput: TJSONArray;
+begin
+  Assert.AreEqual('https://api.openai.com/v1/responses',
+    THelpChatOpenAIProvider.ResponsesUrl(FSettings.OpenAI));
+  FSettings.OpenAI.BaseUrl := 'http://localhost:1234/v1/';
+  Assert.AreEqual('http://localhost:1234/v1/responses',
+    THelpChatOpenAIProvider.ResponsesUrl(FSettings.OpenAI));
+  FSettings.OpenAI.BaseUrl := '';
+
+  LTools := TJSONObject.ParseJSONValue(THelpChatOpenAIProvider.BuildResponsesToolsJson(
+    '[{"name":"open_screen","description":"d","input_schema":{"type":"object","properties":{}}}]'))
+    as TJSONArray;
+  try
+    LTool := LTools.Items[0] as TJSONObject;
+    // Flat, unlike Chat Completions, and not strict: a parameter may be optional.
+    Assert.AreEqual('function', LTool.GetValue<string>('type'));
+    Assert.AreEqual('open_screen', LTool.GetValue<string>('name'));
+    Assert.IsNull(LTool.GetValue('function'));
+    Assert.IsFalse(LTool.GetValue<Boolean>('strict'));
+    Assert.IsNotNull(LTool.GetValue('parameters'));
+  finally
+    LTools.Free;
+  end;
+
+  LRoot := TJSONObject.ParseJSONValue(THelpChatOpenAIProvider.BuildResponsesBody(
+    [Msg(hcrUser, 'ciao'), Msg(hcrAssistant, 'buongiorno'), Msg(hcrUser, 'apri i clienti')],
+    'istruzione', FSettings.OpenAI, '',
+    '[{"type":"function_call","call_id":"call_1","name":"open_screen","arguments":"{}"},' +
+    '{"type":"function_call_output","call_id":"call_1","output":"fatto"}]')) as TJSONObject;
+  try
+    Assert.AreEqual('istruzione', LRoot.GetValue<string>('instructions'));
+    Assert.IsFalse(LRoot.GetValue<Boolean>('store'), 'nothing kept on the service');
+    Assert.IsTrue(LRoot.GetValue<Boolean>('stream'));
+    Assert.Contains(LRoot.GetValue('include').ToJSON, 'reasoning.encrypted_content');
+    Assert.IsNull(LRoot.GetValue('messages'));
+    Assert.IsNull(LRoot.GetValue('tools'), 'no tools, no key');
+    LInput := LRoot.GetValue('input') as TJSONArray;
+    // three turns, the call, its result
+    Assert.AreEqual(5, LInput.Count);
+    Assert.AreEqual('assistant', (LInput.Items[1] as TJSONObject).GetValue<string>('role'));
+    Assert.AreEqual('buongiorno', (LInput.Items[1] as TJSONObject).GetValue<string>('content'));
+    LLast := LInput.Items[4] as TJSONObject;
+    Assert.AreEqual('function_call_output', LLast.GetValue<string>('type'));
+    Assert.AreEqual('call_1', LLast.GetValue<string>('call_id'));
+  finally
+    LRoot.Free;
+  end;
+end;
+
+procedure TOpenAITests.Responses_Stream_TextCallsAndItems;
+var
+  LStream: THelpChatOpenAIResponsesStream;
+  LBytes: TBytes;
+  LCalls: TArray<THelpChatToolCall>;
+  LItems: TJSONArray;
+begin
+  // What gpt-6.1-sol streamed, cut down: a reasoning item, a call, a text.
+  LBytes := TEncoding.UTF8.GetBytes(
+    'event: response.created'#10 +
+    'data: {"type":"response.created","response":{"id":"resp_1","error":null}}'#10#10 +
+    'event: response.output_item.done'#10 +
+    'data: {"type":"response.output_item.done","item":{"id":"rs_1","type":"reasoning","encrypted_content":"gAAA"}}'#10#10 +
+    'data: {"type":"response.output_item.done","item":{"id":"fc_1","type":"function_call","status":"completed","arguments":"{\"screen\":\"Leads\"}","call_id":"call_9","name":"open_screen"}}'#10#10 +
+    'data: {"type":"response.output_text.delta","delta":"Fatto, "}'#10#10 +
+    'data: {"type":"response.output_text.delta","delta":"città"}'#10#10 +
+    'data: {"type":"response.completed","response":{"id":"resp_1"}}'#10#10);
+  LStream := THelpChatOpenAIResponsesStream.Create(nil);
+  try
+    LStream.Write(LBytes[0], Length(LBytes));
+    LStream.Finish;
+    Assert.AreEqual('Fatto, città', LStream.Text);
+    Assert.AreEqual('', LStream.Error);
+    LCalls := LStream.ToolCalls;
+    Assert.AreEqual(1, Length(LCalls));
+    Assert.AreEqual('call_9', LCalls[0].Id, 'the call_id is what the result answers');
+    Assert.AreEqual('open_screen', LCalls[0].Name);
+    Assert.AreEqual('{"screen":"Leads"}', LCalls[0].InputJson);
+    // Both items go back with the next round, the reasoning first.
+    LItems := TJSONObject.ParseJSONValue('[' + LStream.ItemsJson + ']') as TJSONArray;
+    try
+      Assert.AreEqual(2, LItems.Count);
+      Assert.AreEqual('reasoning', (LItems.Items[0] as TJSONObject).GetValue<string>('type'));
+      Assert.AreEqual('gAAA', (LItems.Items[0] as TJSONObject).GetValue<string>('encrypted_content'));
+    finally
+      LItems.Free;
+    end;
+  finally
+    LStream.Free;
+  end;
+end;
+
+procedure TOpenAITests.Responses_Stream_Failure_IsKept;
+var
+  LStream: THelpChatOpenAIResponsesStream;
+  LBytes: TBytes;
+begin
+  LBytes := TEncoding.UTF8.GetBytes(
+    'data: {"type":"response.failed","response":{"error":{"code":"server_error","message":"boom"}}}'#10#10);
+  LStream := THelpChatOpenAIResponsesStream.Create(nil);
+  try
+    LStream.Write(LBytes[0], Length(LBytes));
+    LStream.Finish;
+    Assert.AreEqual('boom', LStream.Error);
+  finally
+    LStream.Free;
+  end;
 end;
 
 end.

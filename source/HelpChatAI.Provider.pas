@@ -240,6 +240,18 @@ type
 function HelpChatPromptField(const AValue: string; const AMaxChars: Integer = 80): string;
 
 /// <summary>
+///  True when the model AName of ASettings could answer as it is configured:
+///  its provider is registered and its <c>ConfigurationIssue</c> has nothing
+///  to say once that model is applied - a key for <c>claude</c> and
+///  <c>gemini</c>, a key or an endpoint of its own for <c>openai</c>, an
+///  index for <c>docsearch</c>. False for a name that is not in the list.
+///  Works on a copy: ASettings is not touched. A key is resolved the way a
+///  request resolves it, so <c>OnDecryptSecret</c> may be called.
+/// </summary>
+function HelpChatModelIsConfigured(const ASettings: THelpChatSettings;
+  const AName: string): Boolean;
+
+/// <summary>
 ///  The source line the engine adds to an answer that used the documentation
 ///  without linking it: "Source: [Leads](Leads.md), [FAQ](FAQ.md)", in the
 ///  language of the panel. Empty - nothing to add - when the answer already
@@ -251,7 +263,27 @@ function HelpChatPromptField(const AValue: string; const AMaxChars: Integer = 80
 ///  same prompt gave 8/8 one run and 6/8 the next. This makes it certain.
 /// </summary>
 function HelpChatSourcesLine(const AReply: string; const APages: TArray<THelpChatDocPage>;
-  const ALanguage: THelpChatLanguage): string;
+  const ALanguage: THelpChatLanguage): string; overload;
+
+/// <summary>
+///  The same, with only the pages of <c>APages</c> that <c>AQueryPages</c>
+///  also has eligible: the pages the words of the question reach by
+///  themselves, without the screen. A page the screen alone brought says
+///  where the user is, not what the answer is about - asked about the
+///  weather on the Dashboard, a model declines and offers what it can do
+///  "such as what the Dashboard tiles count", and the Dashboard was then
+///  added as the source of a refusal (measured, Claude 5.5). A link to any
+///  page of <c>APages</c> still means the model cited, and nothing is added.
+///  What the runner calls.
+/// </summary>
+function HelpChatSourcesLine(const AReply: string; const APages: TArray<THelpChatDocPage>;
+  const ALanguage: THelpChatLanguage;
+  const AQueryPages: TArray<THelpChatDocPage>): string; overload;
+
+const
+  /// <summary>How many pages the search of the question alone may return
+  /// when the runner asks which pages its words reach.</summary>
+  HELPCHAT_SOURCES_QUERY_PAGES = 10;
 
 type
   /// <summary>
@@ -338,13 +370,59 @@ uses
   System.Generics.Defaults,
   System.RegularExpressions;
 
+function HelpChatModelIsConfigured(const ASettings: THelpChatSettings;
+  const AName: string): Boolean;
+var
+  LCopy: THelpChatSettings;
+  LName: string;
+  LClass: THelpChatProviderClass;
+begin
+  Result := False;
+  if not Assigned(ASettings) then
+    Exit;
+  LCopy := THelpChatSettings.Create;
+  try
+    LCopy.Assign(ASettings);
+    if not LCopy.ApplyModel(AName) then
+      Exit;
+    LName := Trim(LCopy.Provider);
+    if LName = '' then
+      LName := HELPCHAT_PROVIDER_STUB;
+    LClass := THelpChatProviderRegistry.FindProviderClass(LName);
+    if (LClass = nil) and SameText(LName, HELPCHAT_PROVIDER_STUB) then
+      LClass := THelpChatStubProvider;
+    // What a provider needs, the provider says: the same question the
+    // configuration check asks, and nothing else.
+    Result := (LClass <> nil) and (LClass.ConfigurationIssue(LCopy) = '');
+  finally
+    LCopy.Free;
+  end;
+end;
+
 function HelpChatSourcesLine(const AReply: string; const APages: TArray<THelpChatDocPage>;
   const ALanguage: THelpChatLanguage): string;
+begin
+  // Every page eligible: they are all reached by the question.
+  Result := HelpChatSourcesLine(AReply, APages, ALanguage, APages);
+end;
+
+function HelpChatSourcesLine(const AReply: string; const APages: TArray<THelpChatDocPage>;
+  const ALanguage: THelpChatLanguage; const AQueryPages: TArray<THelpChatDocPage>): string;
 
   function Named(const AWord: string): Boolean;
   begin
     Result := (Trim(AWord) <> '') and
       TRegEx.IsMatch(AReply, '(?<![\w-])' + TRegEx.Escape(Trim(AWord)) + '(?![\w-])', [roIgnoreCase]);
+  end;
+
+  function ReachedByTheQuestion(const AUrl: string): Boolean;
+  var
+    LQueryPage: THelpChatDocPage;
+  begin
+    for LQueryPage in AQueryPages do
+      if SameText(LQueryPage.Url, AUrl) then
+        Exit(True);
+    Result := False;
   end;
 
 var
@@ -360,7 +438,7 @@ begin
   LLinks := '';
   for LPage in APages do
   begin
-    if LPage.Url = '' then
+    if (LPage.Url = '') or not ReachedByTheQuestion(LPage.Url) then
       Continue;
     // "Leads" or "Data model" as written, or "Draft-Proposal" the way the
     // file is called: either says the answer comes from that page.

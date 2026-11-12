@@ -83,8 +83,8 @@ one model and nothing can be switched.
 {
   "SelectedModel": "Claude",
   "Models": [
-    { "Name": "Claude", "Provider": "claude", "Model": "claude-haiku-4-5" },
-    { "Name": "Gemini", "Provider": "gemini", "Model": "gemini-3.8-flash" },
+    { "Name": "Claude", "Provider": "claude", "Model": "claude-haiku-5-5" },
+    { "Name": "Gemini", "Provider": "gemini", "Model": "gemini-3.5-flash-lite" },
     { "Name": "Gemma (local)", "Provider": "openai", "Model": "gemma4:12b", "BaseUrl": "http://localhost:11434/v1" }
   ]
 }
@@ -122,7 +122,7 @@ manual, its own models and the actions only it may run.
 {
   "Claude": { "ApiKey": "sk-ant-..." },
   "Models": [
-    { "Name": "Claude", "Provider": "claude", "Model": "claude-haiku-4-5" },
+    { "Name": "Claude", "Provider": "claude", "Model": "claude-haiku-5-5" },
     { "Name": "Gemma (local)", "Provider": "openai", "Model": "gemma4:12b",
       "BaseUrl": "http://localhost:11434/v1" }
   ],
@@ -275,6 +275,18 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+13 Nov 2026: ver. 1.8.0
+- `OnModelChanged` on both components: the user switched model in the panel (the badge, or `/use`), or code did with `SelectModel`. The local server raises the UI command `model` (`HELPCHAT_UI_MODEL`) for it, the way it raises `language`
+- `RunSettings` is public on both components: the settings in force, with the model the user picked applied - what to read to know which model, provider and key the assistant is using now
+- The panel offers only the models that could answer: a model of the list whose provider reports something missing (`claude` and `gemini` with no key, `openai` with neither a key nor an endpoint of its own, `docsearch` with no index) is left out, except the one in use; at start the engine never picks such a model while another can answer. `HelpChatModelIsConfigured` is the test, `Models` on the components and the engine apply it, `SelectModel` still accepts any model of the list, and the page asks for the list again when it gets the focus
+- `openai` wants a key for every endpoint on the internet, not only for api.openai.com: only a server on this machine or on a private network (`HelpChatIsLocalEndpoint`) is spared, so a model on Groq or OpenRouter without its key is reported by the configuration check and not offered in the panel
+- The `github` icon, for a model of the catalogue that names it
+- New default models, the best for in-app help in the benchmark (`Test\LLMBench`): `claude-haiku-5-5` (was `claude-haiku-4-5`) and `gemini-3.5-flash-lite` (was `gemini-3.8-flash`, four times slower and no more accurate); `gpt-6-luna` stays. A configuration that names its model is not affected
+- `openai` speaks the Responses API to OpenAI itself: in Chat Completions the GPT-6 models refuse actions with their reasoning on, which broke every question with actions on the default `gpt-6-luna` - and `gpt-6.1-sol` refuses them in every combination. With Responses they reason and act together; the requests stay stateless (`store: false`), the encrypted reasoning of a round going back with the results of its actions. `OpenAI.Api` (`responses`, `chat`, empty = by the endpoint) forces one; every other service (Ollama, Groq, OpenRouter, Azure) keeps Chat Completions, where a refusal that asks for `reasoning_effort: 'none'` is answered by repeating the round with it (`AsksForNoReasoning`)
+- The automatic source line is no longer added to a refusal: only a page the words of the question reach by themselves is cited by the engine, not one the screen alone brought - asked about the weather on the Dashboard, a model declined naming the Dashboard, and the Dashboard became the source of a refusal
+- CRM demos: a catalogue of their own (Claude, Gemini, OpenAI), so each developer sees the services they have a key for. The License activation window opens when the model in use has no key - at startup and when the user switches to a model that has none - and offers a field for each service (Claude, Gemini, OpenAI), the one of the model in use in bold: the user registers that key and any other, and a field left empty changes nothing. The provider decides whether a key is missing, so `docsearch` and a local server never ask; the key goes to the section of the provider, or to the entry of the catalogue when that model has an endpoint of its own. `Tools\ResetDemoKey.ps1` warns about every key variable, not only `ANTHROPIC_API_KEY`
+- 464 tests
 
 11 Nov 2026: ver. 1.7.1
 - Compatibility with Delphi 13.2

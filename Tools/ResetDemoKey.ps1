@@ -4,12 +4,14 @@
     activation window shows up again.
 
 .DESCRIPTION
-    The demo asks for a key only when it cannot find one. ResolveApiKey looks,
-    in this order, at Settings.Claude.ApiKey, at the three helpchatai.json
-    files (the shared one in %APPDATA%\HelpChatAI, the one next to the
-    executable, the per-application one in %APPDATA%\<exe>) and at the
-    ANTHROPIC_API_KEY environment variable - so showing the activation window
-    means taking all of them out of the way.
+    The demo asks for a key only when the model it is about to use needs one
+    and cannot find it - at startup, and when the user switches model in the
+    panel. The key of a model is looked for, in this order, in the settings
+    of the component, in the three helpchatai.json files (the shared one in
+    %APPDATA%\HelpChatAI, the one next to the executable, the per-application
+    one in %APPDATA%\<exe>) and in the environment variable of its service
+    (ANTHROPIC_API_KEY, GEMINI_API_KEY or GOOGLE_API_KEY, OPENAI_API_KEY) - so
+    showing the activation window means taking all of them out of the way.
 
     This script does two things and warns about the rest:
 
@@ -20,7 +22,7 @@
         helpchatai.json.bak. It is never deleted: it is the file that holds
         your key in clear, and -Restore brings it back.
 
-    It warns when ANTHROPIC_API_KEY is set in this session, or when a
+    It warns when one of those variables is set in this session, or when a
     helpchatai.json next to one of the executables carries an ApiKey: either
     would answer before the window ever appears.
 
@@ -113,9 +115,11 @@ if (-not $KeepShared) {
 }
 
 # ---- what this script cannot take away
-if ($env:ANTHROPIC_API_KEY) {
-    Write-Host "WARNING: ANTHROPIC_API_KEY is set in this session - the demo will find that one and never ask." -ForegroundColor Yellow
-    Write-Host "         Start the demo from a prompt where it is not set, or clear it first." -ForegroundColor Yellow
+foreach ($variable in @("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY")) {
+    if ([Environment]::GetEnvironmentVariable($variable)) {
+        Write-Host "WARNING: $variable is set in this session - a model of that service will find it and never ask." -ForegroundColor Yellow
+        Write-Host "         Start the demo from a prompt where it is not set, or clear it first." -ForegroundColor Yellow
+    }
 }
 
 $binRoot = Join-Path (Split-Path $PSScriptRoot -Parent) "CRM Demo\bin"

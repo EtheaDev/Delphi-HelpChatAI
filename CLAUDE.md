@@ -264,14 +264,27 @@ the edit on every version, not on the one that happens to be open.
   choice in `helpchatai-state[-<Profile>].json` next to the conversation file, never in a configuration
   file. The page asks `GET /api/assistants` the way it asks for the history, posts
   `/api/assistant/select`, and a remote server answers 403 to that: the engine there is
-  everybody's. The icon is an id of `HelpChatAI.Icons` (lobe-icons SVG in
+  everybody's. A switch that succeeds raises the UI command `model` (`HELPCHAT_UI_MODEL`),
+  as the language does, and the components turn it into `OnModelChanged` (so does their
+  `SelectModel`): what the application reads then is `RunSettings`, public for that reason -
+  the component's own `Settings` never sees what the user picked. The icon is an id of `HelpChatAI.Icons` (lobe-icons SVG in
   `HelpChatAI.Providers.res`, the fourth versioned `.res`, listed in `Setup.iss` by name like
   the others), deduced by `HelpChatProviderIconFor` from the model name first, the endpoint
   second, the provider last - a `gemma4` served by `openai` shows Gemma - and served inline in
   the JSON so that a monochrome icon (`currentColor`) follows the theme; `docsearch` and `stub`
   get none, and the page shows no badge for a lone model without one. `ApplyModel` and
   `Assign` share a `TMonitor` lock: the switch arrives on an HTTP thread while a worker
-  snapshots the settings.
+  snapshots the settings. **The panel offers only the models that could answer**:
+  `THelpChatEngine.Models` (what `GET /api/assistants` and the components' `Models` list)
+  drops every entry for which `HelpChatModelIsConfigured` (`HelpChatAI.Provider`: a copy of
+  the settings, `ApplyModel`, the provider's `ConfigurationIssue`) says no - `claude` and
+  `gemini` without a key, `openai` on api.openai.com without one, `docsearch` without an
+  index - except the one in use, which is always listed. `Start` never picks such a model
+  while another of the list can answer (the first that can, not remembered). `SelectModel`
+  still accepts any name of the list, and `ResolveModels` and the configuration check still
+  see them all. The page asks for the list again on `focus`, because the application may
+  register a key while it is open. So a catalogue may name every service an application
+  supports: each user sees the ones they have a key for.
 - **The language is the engine's too, and the user picks it the same way.** Six of them
   (`THelpChatLanguage`, new members **at the end**: a DFM stores the identifier, a
   configuration file the code). `Settings.Language` is the language of the chat - the strings
@@ -510,7 +523,9 @@ the edit on every version, not on the one that happens to be open.
 - **Colours are CSS variables only.** `panel.css` never hard-codes a colour outside the `--hc-*`
   definitions; a `THelpChatTheme` (RTL, `HelpChatAI.Theme`) sets them, rendered as `:root{}` at
   page load and pushed with `window.hcApplyTheme` at runtime. Per-framework producers:
-  `Vcl.HelpChatAI.Theme` (table of VCL styles + StyleServices fallback), FMX to come. Adding a
+  `Vcl.HelpChatAI.Theme` (table of VCL styles + StyleServices fallback); FMX has no unit of
+  its own, `ThemeMode` in `FMX.HelpChatAI` picks the page defaults or a built-in light or dark
+  theme, and `OnGetTheme` is how a custom style gets its colours. Adding a
   variable = panel.css + `ForEachVariable` in HelpChatAI.Theme + the `names` list in panel.js.
 - **The application's CSS travels with the theme, ahead of the colours.** `PanelStyleSheet`
   (a `TFileName` on both components, next to `PdfStyleSheet`, read once at activation, a
@@ -572,8 +587,9 @@ the edit on every version, not on the one that happens to be open.
   registered it". A provider the application registers still cannot run in the IDE, and the
   check says so instead of calling it a typo. **What a provider needs, the provider
   says**: `THelpChatProviderBase.ConfigurationIssue` is a virtual class function returning one
-  sentence or nothing, overridden by `claude` and `gemini` (the key), `openai` (the key, but
-  only when it is really calling api.openai.com) and `docsearch` (the index), and that is the
+  sentence or nothing, overridden by `claude` and `gemini` (the key), `openai` (the key,
+  unless the endpoint is on this machine or a private network: `HelpChatIsLocalEndpoint`)
+  and `docsearch` (the index), and that is the
   only thing `HelpChatAI.Diagnostics` knows about any of them — a check that grew a
   `if name = 'claude'` would break the promise above.
 - **One settings section per provider, one shape for all of them.** `THelpChatModelSettings`
@@ -595,7 +611,14 @@ the edit on every version, not on the one that happens to be open.
   name - the same search the prompt was built with. Nothing is added when the model linked a
   page, when it named none (an answer the documentation does not cover), for a provider with no
   model behind it, or after an action (`THelpChatProviderBase.ActionsInvoked`). It goes through
-  the token callback too, so the stream and the stored text agree.
+  the token callback too, so the stream and the stored text agree. **Only a page the words of
+  the question reach is a source the engine may add**: the runner searches the question a
+  second time without the screen hint (`HELPCHAT_SOURCES_QUERY_PAGES`) and passes both lists.
+  A page the screen alone brought says where the user is, not what the answer is about:
+  asked about the weather on the Dashboard, Claude 5.5 declined offering "what the Dashboard
+  tiles count", and the Dashboard became the source of a refusal. The price, accepted: "what
+  can I do here?" gets no automatic source for the page of the screen - the model usually
+  cites it itself.
 - **The prompt and the tool-call record belong to every provider.**
   `THelpChatProviderBase.BuildSystemPrompt` builds the instruction, the language rule, the
   screen context and the documentation excerpts: two providers that grounded their answers
@@ -612,10 +635,26 @@ the edit on every version, not on the one that happens to be open.
 - **`openai` is the provider of a dozen services.** Chat Completions is what Azure OpenAI,
   Groq, OpenRouter, Mistral, DeepSeek, Ollama and LM Studio all speak, so `BaseUrl` + `Model`
   is the whole configuration. Two details earn their code: a `BaseUrl` already ending in `/v1`
-  does not get a second one, and a non-default endpoint is never reported as missing a key,
-  because a local server has none. Azure is the one that needs more than a URL —
+  does not get a second one, and only an endpoint on this machine or a private network
+  (`HelpChatIsLocalEndpoint`: localhost, 127/8, 10/8, 172.16/12, 192.168/16, `.local`, a
+  name with no dot) is spared the missing key - Groq, OpenRouter and Azure all want one,
+  and without it the model is not offered in the panel. (GitHub Models, briefly in the
+  demo, was retired by GitHub: its endpoint answers 200 with a bare `OK`, which reads as an
+  empty reply; the `github` icon stays.) `Generate` still refuses only api.openai.com without a key: another service
+  answers its own 401. Azure is the one that needs more than a URL —
   `AzureDeployment` moves the path to `/openai/deployments/<name>/chat/completions` and the
-  key from `Authorization` to `api-key`.
+  key from `Authorization` to `api-key`. **OpenAI itself is spoken to with the Responses
+  API** (`UsesResponses`: `OpenAI.Api` = `responses`/`chat`, empty = Responses only on the
+  default endpoint and not Azure): in Chat Completions the GPT-6 family refuses tools while
+  reasoning - `gpt-6-luna` accepts them with `reasoning_effort: 'none'`, `gpt-6.1-sol` in no
+  combination at all (measured). `GenerateResponses` is the same loop of rounds: flat tools
+  (`strict: false`, an action may have optional parameters), `instructions` for the system
+  prompt, `store: false` and `include: reasoning.encrypted_content`, and every output item of
+  a round - the encrypted reasoning first - sent back verbatim with one
+  `function_call_output` per call (`THelpChatOpenAIResponsesStream`: the events are typed,
+  a `function_call` arrives whole in `response.output_item.done`). Chat Completions keeps
+  the other path: a refusal that asks for `reasoning_effort: 'none'` repeats the round with
+  it (`AsksForNoReasoning`), never decided from the model name.
 - **Gemini agrees with nobody.** `contents` instead of messages, `parts` inside a turn, the
   assistant called `model`, `systemInstruction` apart, limits under `generationConfig`, the
   key in `x-goog-api-key`. `?alt=sse` is not optional: without it the endpoint answers with
@@ -624,7 +663,7 @@ the edit on every version, not on the one that happens to be open.
   reassemble and nothing like `finish_reason` to wait for: a `functionCall` part *is* the
   signal.
 - **The thought signature travels with the call, and must come back.** A thinking Gemini
-  (3 and 4, the default `gemini-3.8-flash` among them) puts a `thoughtSignature` on the part
+  (3 and 4, the default `gemini-3.5-flash-lite` among them) puts a `thoughtSignature` on the part
   that carries the first `functionCall` of a round, and the next request is rejected with a
   400 if that part comes back without it — which is exactly what the second round of the tool
   loop does. It belongs to the **part**, next to `functionCall`, not inside it; with parallel
@@ -985,7 +1024,19 @@ the edit on every version, not on the one that happens to be open.
   (AES-256 CBC, random IV, PKCS#7, the passphrase in two XORed halves) and the
   `License activation` window of each demo, which is where a real application would ask
   its licensing service for the key - and which writes `ApiKeyEncrypted`, next to the
-  developer's clear `ApiKey`. Its header says what it is - obfuscation, not
+  developer's clear `ApiKey`. Both demos carry a catalogue of their own in the form file
+  (`Claude`, `Gemini`, `OpenAI`, no key, no model: the defaults of each section), which a
+  `Models` of a configuration file replaces. It opens when **the model in use** has no key, at startup and
+  on `OnModelChanged`: `AppSecretMissingKey` reads `RunSettings` and lets the provider's
+  `ConfigurationIssue` decide (so `docsearch` and a local server never ask). It then offers
+  a field per service (`AppSecretKeyRequests`: claude, gemini, openai, then each model of
+  the catalogue on a service of its own on the internet, whose key is that entry's; at
+  most `APPSECRET_MAX_ROWS`, four, the rows of the form), the one in use in
+  bold, so the user registers the others while at it; `AppSecretActivate` writes every key
+  typed, to the section of the provider or, for a model of the catalogue with an endpoint
+  of its own, to that entry; if the model in use is still without one, the demo switches to
+  the first model `Models` offers - in the per-user file, whose `Models` then names the other models of
+  the catalogue by name, because a list in a file replaces the one before it. Its header says what it is - obfuscation, not
   secrecy - and that is the honest claim: it is worth something against a configuration
   file that travels, nothing against whoever owns the machine. `DCPcrypt.EncryptString` is
   not used, and a second example should not use it either: it treats the string as

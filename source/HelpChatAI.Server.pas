@@ -1103,7 +1103,12 @@ begin
     if not CanSelectModel(LEngine) then
       WriteStatus(AResponseInfo, 403)
     else if LEngine.SelectModel(FormField(LBody, 'name')) then
-      WriteJson(AResponseInfo, AssistantListJson(LEngine))
+    begin
+      // The host is told, as for the language: the model in use is
+      // something it may act on (a key to ask for, a caption of its own).
+      HandleUiCommand(ASession, HELPCHAT_UI_MODEL);
+      WriteJson(AResponseInfo, AssistantListJson(LEngine));
+    end
     else
       WriteStatus(AResponseInfo, 404);
   end

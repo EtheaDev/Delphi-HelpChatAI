@@ -147,8 +147,10 @@ const
   HELPCHAT_CLAUDE_DEF_LANGUAGE_RULE = HELPCHAT_MODEL_DEF_LANGUAGE_RULE;
   HELPCHAT_CLAUDE_ACTIONS_RULE = HELPCHAT_MODEL_ACTIONS_RULE;
 
-  // claude - Anthropic Messages API.
-  HELPCHAT_CLAUDE_DEF_MODEL = 'claude-haiku-4-5';
+  // claude - Anthropic Messages API. The defaults of the three providers are
+  // the models the benchmark (Test\LLMBench, 12 Nov 2026) found best for
+  // in-app help: fast, and right on citations and actions.
+  HELPCHAT_CLAUDE_DEF_MODEL = 'claude-haiku-5-5';
   HELPCHAT_CLAUDE_DEF_VERSION = '2023-06-01';
   HELPCHAT_CLAUDE_DEF_BASEURL = 'https://api.anthropic.com';
   HELPCHAT_CLAUDE_APIKEY_ENVVAR = 'ANTHROPIC_API_KEY';
@@ -161,9 +163,14 @@ const
   HELPCHAT_OPENAI_APIKEY_ENVVAR = 'OPENAI_API_KEY';
   /// <summary>api-version of Azure OpenAI, used only when AzureDeployment is set.</summary>
   HELPCHAT_OPENAI_DEF_AZURE_APIVERSION = '2024-10-21';
+  /// <summary>Values of <c>OpenAI.Api</c>: the Responses API, Chat
+  /// Completions, or - empty or anything else - the one that fits the
+  /// endpoint.</summary>
+  HELPCHAT_OPENAI_API_RESPONSES = 'responses';
+  HELPCHAT_OPENAI_API_CHAT = 'chat';
 
   // gemini - Google generateContent.
-  HELPCHAT_GEMINI_DEF_MODEL = 'gemini-3.8-flash';
+  HELPCHAT_GEMINI_DEF_MODEL = 'gemini-3.5-flash-lite';
   HELPCHAT_GEMINI_DEF_BASEURL = 'https://generativelanguage.googleapis.com';
   HELPCHAT_GEMINI_APIKEY_ENVVAR = 'GEMINI_API_KEY';
   /// <summary>Read when GEMINI_API_KEY is empty: the name Google Cloud uses.</summary>
@@ -371,6 +378,7 @@ type
     FOrganization: string;
     FAzureDeployment: string;
     FAzureApiVersion: string;
+    FApi: string;
   public
     class function DefaultModel: string; override;
     class function DefaultBaseUrl: string; override;
@@ -380,6 +388,11 @@ type
     class function SectionName: string; override;
     /// <summary>True when the request must be shaped for Azure OpenAI.</summary>
     function IsAzure: Boolean;
+    /// <summary>True when the provider talks the Responses API: <c>Api</c>
+    /// says so, or - <c>Api</c> empty - the endpoint in force is OpenAI's own
+    /// and not Azure. Every other service keeps Chat Completions, which is
+    /// what they speak.</summary>
+    function UsesResponses: Boolean;
     procedure LoadFromJSONObject(const AObject: TJSONObject); override;
     procedure SaveToJSONObject(const AObject: TJSONObject); override;
   published
@@ -391,6 +404,12 @@ type
     property AzureDeployment: string read FAzureDeployment write FAzureDeployment;
     /// <summary>api-version query parameter of Azure OpenAI.</summary>
     property AzureApiVersion: string read FAzureApiVersion write FAzureApiVersion;
+    /// <summary>Which API the requests use: <c>responses</c>, <c>chat</c>
+    /// (Chat Completions), or empty for the one that fits the endpoint -
+    /// Responses on api.openai.com, where a reasoning model (the GPT-6
+    /// family) can use the actions without giving up its reasoning, Chat
+    /// Completions everywhere else. See <c>UsesResponses</c>.</summary>
+    property Api: string read FApi write FApi;
   end;
 
   /// <summary>Settings of the <c>gemini</c> provider (Google generateContent).</summary>
@@ -1425,12 +1444,22 @@ begin
     FOrganization := LSource.FOrganization;
     FAzureDeployment := LSource.FAzureDeployment;
     FAzureApiVersion := LSource.FAzureApiVersion;
+    FApi := LSource.FApi;
   end;
 end;
 
 function THelpChatOpenAISettings.IsAzure: Boolean;
 begin
   Result := Trim(FAzureDeployment) <> '';
+end;
+
+function THelpChatOpenAISettings.UsesResponses: Boolean;
+begin
+  if SameText(Trim(FApi), HELPCHAT_OPENAI_API_RESPONSES) then
+    Exit(True);
+  if SameText(Trim(FApi), HELPCHAT_OPENAI_API_CHAT) then
+    Exit(False);
+  Result := not IsAzure and SameText(NormalizedBaseUrl, DefaultBaseUrl);
 end;
 
 procedure THelpChatOpenAISettings.LoadFromJSONObject(const AObject: TJSONObject);
@@ -1441,6 +1470,7 @@ begin
   FOrganization := JsonStr(AObject, 'Organization', FOrganization);
   FAzureDeployment := JsonStr(AObject, 'AzureDeployment', FAzureDeployment);
   FAzureApiVersion := JsonStr(AObject, 'AzureApiVersion', FAzureApiVersion);
+  FApi := JsonStr(AObject, 'Api', FApi);
 end;
 
 procedure THelpChatOpenAISettings.SaveToJSONObject(const AObject: TJSONObject);
@@ -1449,6 +1479,7 @@ begin
   AObject.AddPair('Organization', FOrganization);
   AObject.AddPair('AzureDeployment', FAzureDeployment);
   AObject.AddPair('AzureApiVersion', FAzureApiVersion);
+  AObject.AddPair('Api', FApi);
 end;
 
 { THelpChatGeminiSettings }

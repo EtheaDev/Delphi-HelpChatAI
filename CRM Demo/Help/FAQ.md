@@ -61,8 +61,10 @@ FireDAC's own format, meant to be read back by this application.
 
 ## Does the assistant need an internet connection?
 
-Yes, and an API key: it uses Anthropic's Claude. Put the key in `helpchatai.json` under
-`%APPDATA%\HelpChatAI`. Without it the assistant opens and says the key is missing, and the
+Yes, and an API key: it uses Anthropic's Claude, or another model the configuration offers.
+The first time, the application asks you for the key; you can also put it in
+`helpchatai.json` under `%APPDATA%\HelpChatAI`. Only a model running on this computer needs
+neither. Without a key the assistant opens and says the key is missing, and the
 rest of the application works exactly as before — see
 [Asking the assistant](Assistant.md).
 

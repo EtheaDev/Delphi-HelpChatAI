@@ -28,7 +28,8 @@ unit uAppSecret;
 interface
 
 uses
-  System.SysUtils;
+  System.SysUtils,
+  HelpChatAI.Settings;
 
 const
   /// <summary>What marks a value this unit wrote. The library imposes no
@@ -50,12 +51,88 @@ function AppSecretProtect(const AClearText: string): string;
 /// passphrase is not a key with a typo in it.</summary>
 function AppSecretReveal(const AValue: string): string;
 
-/// <summary>Writes AProtectedKey into the <c>ApiKeyEncrypted</c> of the named
-/// section of the per-user configuration file of this application
-/// (<c>%APPDATA%\&lt;exe&gt;\helpchatai.json</c>), leaving the rest of the
-/// file as it is - a clear <c>ApiKey</c> of the developer included: the IDE
-/// reads that one, the running application this one.</summary>
-procedure AppSecretStoreApiKey(const ASection, AProtectedKey: string);
+type
+  /// <summary>The key the model in use is missing, and where it belongs.</summary>
+  TAppSecretKeyRequest = record
+    /// <summary>The name of the model in use, as the panel shows it.</summary>
+    Model: string;
+    /// <summary>What it calls (gemini-3.5-flash-lite), when it says more than the name.</summary>
+    ModelId: string;
+    /// <summary>Its provider: claude, gemini, openai.</summary>
+    Provider: string;
+    /// <summary>The section of that provider in helpchatai.json (Claude,
+    /// Gemini, OpenAI).</summary>
+    Section: string;
+    /// <summary>The entry of <c>Models</c> that gets the key, when the model
+    /// has an endpoint of its own: a key goes with the host it is for, and
+    /// the key of the section is never sent there. Empty: the section.</summary>
+    Entry: string;
+    /// <summary>The endpoint of that entry, when it has one: what tells a
+    /// GitHub token from an OpenAI key.</summary>
+    BaseUrl: string;
+    /// <summary>The model the assistant is using now is of this service.</summary>
+    InUse: Boolean;
+    /// <summary>A key is already there (a file, the handler, the
+    /// environment): a field left empty keeps it.</summary>
+    HasKey: Boolean;
+    /// <summary>"Gemini (gemini-3.5-flash-lite)": who the key is for.</summary>
+    function Caption: string;
+    /// <summary>What a key of that service looks like ("AIza..."), or empty.</summary>
+    function Example: string;
+    /// <summary>The label of its row in the activation window: who the key
+    /// is for, and whether it is the model in use.</summary>
+    function RowCaption: string;
+    /// <summary>The hint of its empty field: what a key looks like, or that
+    /// one is registered already and stays unless replaced.</summary>
+    function Hint: string;
+  end;
+
+/// <summary>True when the model the assistant would use now needs a key and
+/// has none: none in the files, none the handler can decrypt, none in the
+/// environment. The provider decides (its <c>ConfigurationIssue</c>), so a
+/// <c>docsearch</c> or a local server on <c>openai</c> never asks. ASettings
+/// is <c>RunSettings</c> of the component: the settings of the running
+/// engine, with the model the user picked in the panel applied.</summary>
+function AppSecretMissingKey(const ASettings: THelpChatSettings;
+  out ARequest: TAppSecretKeyRequest): Boolean;
+
+const
+  /// <summary>The services the activation window offers a key for, in the
+  /// order of its rows: the three built-in providers that need one.</summary>
+  APPSECRET_SERVICES: array[0..2] of string = ('claude', 'gemini', 'openai');
+  /// <summary>The rows of the activation window.</summary>
+  APPSECRET_MAX_ROWS = 4;
+
+/// <summary>What the activation window shows, at most
+/// <c>APPSECRET_MAX_ROWS</c>: one row per service of
+/// <c>APPSECRET_SERVICES</c>, then one per model of the catalogue served by
+/// a service of its own on the internet (Groq, OpenRouter...), whose key
+/// is that model's and not the section's. The user registers the key the
+/// model in use is missing and, while at it, the others; the row of the
+/// model in use is always there.</summary>
+function AppSecretKeyRequests(const ASettings: THelpChatSettings): TArray<TAppSecretKeyRequest>;
+
+/// <summary>Every non-empty key of AKeys (parallel to ARequests) encrypted,
+/// written to the per-user file and applied to ASettings: what the
+/// activation window hands back. A clear key lives as long as this call.</summary>
+procedure AppSecretActivate(const ASettings: THelpChatSettings;
+  const ARequests: TArray<TAppSecretKeyRequest>; const AKeys: TArray<string>);
+
+/// <summary>Writes AProtectedKey as <c>ApiKeyEncrypted</c> where ARequest
+/// says, in the per-user configuration file of this application
+/// (<c>%APPDATA%\&lt;exe&gt;\helpchatai.json</c>): the section of the
+/// provider, or the entry of the model in <c>Models</c> - added to the list
+/// of that file, or, when the file has none, in a list naming the other
+/// models of the catalogue as they are. The rest of the file stays as it is,
+/// a clear <c>ApiKey</c> of the developer included: the IDE reads that one,
+/// the running application this one.</summary>
+procedure AppSecretStoreApiKey(const ASettings: THelpChatSettings;
+  const ARequest: TAppSecretKeyRequest; const AProtectedKey: string);
+
+/// <summary>The same key into the settings in memory, as if it had just been
+/// read from the file: the next question uses it, no restart.</summary>
+procedure AppSecretApplyApiKey(const ASettings: THelpChatSettings;
+  const ARequest: TAppSecretKeyRequest; const AProtectedKey: string);
 
 type
   /// <summary>The handler to hang on <c>OnDecryptSecret</c>, for a host that
@@ -76,10 +153,12 @@ implementation
 
 uses
   System.Classes,
+  System.Generics.Collections,
   System.IOUtils,
   System.JSON,
   System.NetEncoding,
-  HelpChatAI.Settings,
+  HelpChatAI.Provider,
+  HelpChatAI.Provider.OpenAI,
   DCPcrypt2,
   DCPrijndael,
   DCPsha256;
@@ -291,7 +370,255 @@ begin
   end;
 end;
 
-procedure AppSecretStoreApiKey(const ASection, AProtectedKey: string);
+{ TAppSecretKeyRequest }
+
+function TAppSecretKeyRequest.Caption: string;
+begin
+  Result := Model;
+  if (ModelId <> '') and not SameText(ModelId, Model) then
+    Result := Format('%s (%s)', [Model, ModelId]);
+end;
+
+function TAppSecretKeyRequest.Example: string;
+begin
+  // Only to help whoever pastes it: a key of another service is the most
+  // common mistake, and it looks exactly like a right one until the first
+  // question fails.
+  if BaseUrl.ToLower.Contains('groq.com') then
+    Result := 'gsk_...'
+  else if BaseUrl.ToLower.Contains('openrouter.ai') then
+    Result := 'sk-or-...'
+  else if SameText(Provider, 'claude') then
+    Result := 'sk-ant-...'
+  else if SameText(Provider, 'gemini') then
+    Result := 'AIza...'
+  else if SameText(Provider, 'openai') then
+    Result := 'sk-...'
+  else
+    Result := '';
+end;
+
+function TAppSecretKeyRequest.RowCaption: string;
+begin
+  Result := Caption;
+  if InUse then
+    Result := Result + ' - the model in use';
+  Result := Result + ':';
+end;
+
+function TAppSecretKeyRequest.Hint: string;
+begin
+  if HasKey then
+    Result := 'Registered: leave empty to keep it'
+  else
+    Result := Example;
+end;
+
+function AppSecretMissingKey(const ASettings: THelpChatSettings;
+  out ARequest: TAppSecretKeyRequest): Boolean;
+var
+  LSection: THelpChatModelSettings;
+  LClass: THelpChatProviderClass;
+  LEntry: THelpChatModelEntry;
+begin
+  ARequest := Default(TAppSecretKeyRequest);
+  // The provider in force: the one of the model the user picked, when it
+  // names one. A provider with no model behind it (docsearch, stub) has no
+  // section, and no key to ask for.
+  ARequest.Provider := ASettings.Provider;
+  LSection := ASettings.ModelFor(ARequest.Provider);
+  if LSection = nil then
+    Exit(False);
+  // The provider says what it needs, and the demo does not second-guess it:
+  // for the three built-in ones that is the key, and only where a key makes
+  // sense - openai on a local server or a gateway needs none.
+  LClass := THelpChatProviderRegistry.FindProviderClass(ARequest.Provider);
+  if (LClass = nil) or (LClass.ConfigurationIssue(ASettings) = '') then
+    Exit(False);
+  ARequest.Model := ASettings.ActiveModelName;
+  ARequest.ModelId := LSection.ResolveModel;
+  ARequest.Section := LSection.SectionName;
+  // A model of the catalogue with an endpoint of its own keeps its key with
+  // it: the library never sends the key of the section to another host.
+  LEntry := ASettings.Models.Find(ARequest.Model);
+  if (LEntry <> nil) and (Trim(LEntry.BaseUrl) <> '') then
+  begin
+    ARequest.Entry := LEntry.Name;
+    ARequest.BaseUrl := Trim(LEntry.BaseUrl);
+  end;
+  Result := True;
+end;
+
+function AppSecretKeyRequests(const ASettings: THelpChatSettings): TArray<TAppSecretKeyRequest>;
+var
+  LMissing, LRow: TAppSecretKeyRequest;
+  LIsMissing, LActiveOwnUrl: Boolean;
+  LSection: THelpChatModelSettings;
+  LActive, LEntry: THelpChatModelEntry;
+  LProvider: string;
+  I: Integer;
+begin
+  Result := nil;
+  LIsMissing := AppSecretMissingKey(ASettings, LMissing);
+  LActive := ASettings.Models.Find(ASettings.ActiveModelName);
+  LActiveOwnUrl := (LActive <> nil) and (Trim(LActive.BaseUrl) <> '');
+  // The sections: one key per service.
+  for I := 0 to High(APPSECRET_SERVICES) do
+  begin
+    if LIsMissing and (LMissing.Entry = '') and
+       SameText(LMissing.Provider, APPSECRET_SERVICES[I]) then
+    begin
+      // What the model in use needs, and where it goes.
+      LRow := LMissing;
+      LRow.InUse := True;
+      Result := Result + [LRow];
+      Continue;
+    end;
+    LRow := Default(TAppSecretKeyRequest);
+    LRow.Provider := APPSECRET_SERVICES[I];
+    LSection := ASettings.ModelFor(LRow.Provider);
+    if LSection = nil then
+      Continue;
+    LRow.Section := LSection.SectionName;
+    LRow.Model := LSection.SectionName;
+    LRow.ModelId := LSection.ResolveModel;
+    LRow.InUse := not LActiveOwnUrl and SameText(ASettings.Provider, LRow.Provider);
+    // Through the handler, as a request would: a key that is there but
+    // cannot be read is no key.
+    LRow.HasKey := LSection.ResolveApiKey <> '';
+    Result := Result + [LRow];
+  end;
+  // The models of the catalogue on a service of their own on the internet:
+  // their key is theirs, never the section's (a local server wants none).
+  for I := 0 to ASettings.Models.Count - 1 do
+  begin
+    LEntry := ASettings.Models[I];
+    if (Trim(LEntry.BaseUrl) = '') or HelpChatIsLocalEndpoint(LEntry.BaseUrl) then
+      Continue;
+    if LIsMissing and SameText(LMissing.Entry, LEntry.Name) then
+    begin
+      LRow := LMissing;
+      LRow.InUse := True;
+    end
+    else
+    begin
+      LProvider := Trim(LEntry.Provider);
+      if LProvider = '' then
+        LProvider := ASettings.ConfiguredProvider;
+      LSection := ASettings.ModelFor(LProvider);
+      if LSection = nil then
+        Continue;
+      LRow := Default(TAppSecretKeyRequest);
+      LRow.Provider := LProvider;
+      LRow.Section := LSection.SectionName;
+      LRow.Model := LEntry.Name;
+      LRow.ModelId := Trim(LEntry.Model);
+      LRow.Entry := LEntry.Name;
+      LRow.BaseUrl := Trim(LEntry.BaseUrl);
+      LRow.InUse := LEntry = LActive;
+      LRow.HasKey := HelpChatModelIsConfigured(ASettings, LEntry.Name);
+    end;
+    if Length(Result) < APPSECRET_MAX_ROWS then
+      Result := Result + [LRow]
+    else if LRow.InUse then
+      // No room: the model in use takes the place of the last of these.
+      Result[High(Result)] := LRow;
+  end;
+end;
+
+procedure AppSecretActivate(const ASettings: THelpChatSettings;
+  const ARequests: TArray<TAppSecretKeyRequest>; const AKeys: TArray<string>);
+var
+  LProtected: string;
+  I: Integer;
+begin
+  for I := 0 to High(ARequests) do
+    if (I <= High(AKeys)) and (Trim(AKeys[I]) <> '') and (ARequests[I].Section <> '') then
+    begin
+      LProtected := AppSecretProtect(Trim(AKeys[I]));
+      // In the section of the provider, or in the model of the catalogue
+      // when it has an endpoint of its own: a key goes with its host.
+      AppSecretStoreApiKey(ASettings, ARequests[I], LProtected);
+      // What stays in memory is the encrypted one, as if it had just been
+      // read from the file: the clear text lives as long as the request.
+      AppSecretApplyApiKey(ASettings, ARequests[I], LProtected);
+    end;
+end;
+
+procedure SetEncryptedKey(const AObject: TJSONObject; const AProtectedKey: string);
+begin
+  AObject.RemovePair('ApiKeyEncrypted').Free;
+  AObject.AddPair('ApiKeyEncrypted', AProtectedKey);
+end;
+
+/// <summary>The <c>Models</c> of the file with the entry carrying the key:
+/// the entry of the file when it has one, else the model of the catalogue
+/// written out. A file with no list gets one: the other models by name - a
+/// name is a model of the catalogue already loaded - so that the list in
+/// force stays what it was.</summary>
+function ModelsWithKey(const ASettings: THelpChatSettings; const AOld: TJSONValue;
+  const AEntry, AProtectedKey: string): TJSONArray;
+
+  function EntryObject: TJSONObject;
+  var
+    LEntry: THelpChatModelEntry;
+  begin
+    Result := TJSONObject.Create;
+    LEntry := ASettings.Models.Find(AEntry);
+    if LEntry <> nil then
+      LEntry.SaveToJSONObject(Result)
+    else
+      Result.AddPair('Name', AEntry);
+    SetEncryptedKey(Result, AProtectedKey);
+  end;
+
+  function NameOf(const AItem: TJSONValue): string;
+  begin
+    if AItem is TJSONObject then
+      Result := TJSONObject(AItem).GetValue<string>('Name', '')
+    else if AItem is TJSONString then
+      Result := TJSONString(AItem).Value
+    else
+      Result := '';
+  end;
+
+var
+  LItem: TJSONValue;
+  LFound: Boolean;
+  I: Integer;
+begin
+  Result := TJSONArray.Create;
+  LFound := False;
+  if AOld is TJSONArray then
+  begin
+    for LItem in TJSONArray(AOld) do
+      if SameText(NameOf(LItem), AEntry) then
+      begin
+        LFound := True;
+        if LItem is TJSONObject then
+        begin
+          // The entry as the file wrote it, the key added: nothing else moves.
+          Result.AddElement(TJSONValue(LItem.Clone));
+          SetEncryptedKey(TJSONObject(Result.Items[Result.Count - 1]), AProtectedKey);
+        end
+        else
+          Result.AddElement(EntryObject);
+      end
+      else
+        Result.AddElement(TJSONValue(LItem.Clone));
+    if not LFound then
+      Result.AddElement(EntryObject);
+  end
+  else
+    for I := 0 to ASettings.Models.Count - 1 do
+      if SameText(ASettings.Models[I].Name, AEntry) then
+        Result.AddElement(EntryObject)
+      else
+        Result.Add(ASettings.Models[I].Name);
+end;
+
+procedure AppSecretStoreApiKey(const ASettings: THelpChatSettings;
+  const ARequest: TAppSecretKeyRequest; const AProtectedKey: string);
 var
   LFileName: string;
   LRoot, LSection: TJSONObject;
@@ -305,20 +632,53 @@ begin
   if LRoot = nil then
     LRoot := TJSONObject.Create;
   try
-    LValue := LRoot.GetValue(ASection);
-    if LValue is TJSONObject then
-      LSection := TJSONObject(LValue)
+    if ARequest.Entry <> '' then
+    begin
+      LValue := ModelsWithKey(ASettings, LRoot.GetValue('Models'), ARequest.Entry,
+        AProtectedKey);
+      LRoot.RemovePair('Models').Free;
+      LRoot.AddPair('Models', LValue);
+    end
     else
     begin
-      LSection := TJSONObject.Create;
-      LRoot.AddPair(ASection, LSection);
+      LValue := LRoot.GetValue(ARequest.Section);
+      if LValue is TJSONObject then
+        LSection := TJSONObject(LValue)
+      else
+      begin
+        LSection := TJSONObject.Create;
+        LRoot.AddPair(ARequest.Section, LSection);
+      end;
+      SetEncryptedKey(LSection, AProtectedKey);
     end;
-    LSection.RemovePair('ApiKeyEncrypted').Free;
-    LSection.AddPair('ApiKeyEncrypted', AProtectedKey);
     TDirectory.CreateDirectory(TPath.GetDirectoryName(LFileName));
     TFile.WriteAllText(LFileName, LRoot.Format(2), TEncoding.UTF8);
   finally
     LRoot.Free;
+  end;
+end;
+
+procedure AppSecretApplyApiKey(const ASettings: THelpChatSettings;
+  const ARequest: TAppSecretKeyRequest; const AProtectedKey: string);
+var
+  LEntry: THelpChatModelEntry;
+  LSection: THelpChatModelSettings;
+begin
+  if ARequest.Entry <> '' then
+  begin
+    LEntry := ASettings.Models.Find(ARequest.Entry);
+    if LEntry = nil then
+      Exit;
+    LEntry.ApiKeyEncrypted := AProtectedKey;
+    // The key of a model reaches its section as an override, set when the
+    // model is applied: apply it again.
+    ASettings.ApplyModel(ARequest.Entry);
+  end
+  else
+  begin
+    LSection := ASettings.ModelFor(ARequest.Provider);
+    if LSection <> nil then
+      LSection.ApiKeyEncrypted := AProtectedKey;
   end;
 end;
 

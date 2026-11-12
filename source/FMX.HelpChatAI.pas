@@ -238,6 +238,7 @@ type
     FOnBeforeHideHelp: TNotifyEvent;
     FOnAfterHideHelp: TNotifyEvent;
     FOnOpenLink: THelpChatOpenLinkEvent;
+    FOnModelChanged: TNotifyEvent;
     procedure SetActionsEnabled(const Value: Boolean);
     /// <summary>The broker has a request queued. Called on the worker thread
     /// that waits for the action: queues <c>ExecutePending</c> to the main
@@ -284,10 +285,6 @@ type
     /// first, then the property - unresolved: the page resolves an empty one
     /// in the language it is rendered in.</summary>
     function ConfiguredAssistantName: string;
-    /// <summary>The settings in force: the engine's while active - an engine is
-    /// shared by the assistants of a profile, and what the user changes in
-    /// the panel (the language, the model) changes there - else Settings.</summary>
-    function RunSettings: THelpChatSettings;
     procedure SetEnabledCommands(const Value: THelpChatCommands);
     /// <summary>Moves bubble and key handler to the new host; with nil they
     /// go back to the form that owns the component.</summary>
@@ -328,6 +325,9 @@ type
     /// <summary>The language of the chat changed (from the flag of the page
     /// or from SelectLanguage): the captions this side writes follow it.</summary>
     procedure LanguageChanged;
+    /// <summary>The model in use changed - in the panel or through
+    /// <c>SelectModel</c>: fires <c>OnModelChanged</c>.</summary>
+    procedure ModelChanged;
     /// <summary>A document to save as PDF, from the page (through the
     /// transport) or from the <c>export_pdf</c> action, on the main thread:
     /// puts the stylesheet on it, asks where it goes, builds the bands and
@@ -418,6 +418,13 @@ type
     /// <summary>Creates the settings and the action broker, so both can be
     /// used before <c>Active</c>; nothing starts here.</summary>
     constructor Create(AOwner: TComponent); override;
+    /// <summary>The settings in force: the engine's while active - an engine is
+    /// shared by the assistants of a profile, and what the user changes in
+    /// the panel (the language, the model) changes there - else
+    /// <c>Settings</c>. Read it, not <c>Settings</c>, to know what the
+    /// assistant is using now: <c>RunSettings.ActiveModelName</c>, the
+    /// provider and the key of that model (see <c>OnModelChanged</c>).</summary>
+    function RunSettings: THelpChatSettings;
     /// <summary>Deactivates, then lets go of the broker: it is reference
     /// counted and lives on while a queued call still holds it.</summary>
     destructor Destroy; override;
@@ -750,6 +757,11 @@ type
     /// <summary>The chat is hidden; also fired when the user closes the own
     /// window with its button.</summary>
     property OnAfterHideHelp: TNotifyEvent read FOnAfterHideHelp write FOnAfterHideHelp;
+    /// <summary>The user switched model in the panel (the badge of the
+    /// header, or /use), or code did with <c>SelectModel</c>; on the main
+    /// thread. <c>RunSettings.ActiveModelName</c> is the new one: the place to
+    /// check that it has what it needs - a key - and to ask for it.</summary>
+    property OnModelChanged: TNotifyEvent read FOnModelChanged write FOnModelChanged;
     /// <summary>A link of the panel is leaving it (web site, mail, a page that
     /// is not in DocFolder): set AHandled to open it yourself, else it opens
     /// in the system browser.</summary>
@@ -2211,7 +2223,9 @@ begin
   if FActive and (ACommand = 'close') then
     Close
   else if ACommand = HELPCHAT_UI_LANGUAGE then
-    LanguageChanged;
+    LanguageChanged
+  else if ACommand = HELPCHAT_UI_MODEL then
+    ModelChanged;
 end;
 
 procedure TFmxHelpChatAI.ViewPageReady(Sender: TObject);
@@ -2564,6 +2578,8 @@ begin
   // when a model was called an assistant.
   if Result and Assigned(FView) then
     FView.RunScript('window.hcRefreshAssistants && window.hcRefreshAssistants();');
+  if Result then
+    ModelChanged;
 end;
 
 function TFmxHelpChatAI.Languages: TArray<THelpChatLanguage>;
@@ -2587,6 +2603,12 @@ begin
   // The labels are written into the page when it is rendered.
   if Assigned(FView) and FView.PageReady then
     FView.RunScript('window.location.reload();');
+end;
+
+procedure TFmxHelpChatAI.ModelChanged;
+begin
+  if FActive and Assigned(FOnModelChanged) then
+    FOnModelChanged(Self);
 end;
 
 procedure TFmxHelpChatAI.LanguageChanged;

@@ -199,7 +199,10 @@ type
 
     /// <summary>The models the panel may switch between, with the icon each
     /// one shows: the configured list, or the one implicit model of
-    /// <c>Settings.Provider</c>. See <c>THelpChatSettings.ResolveModels</c>.</summary>
+    /// <c>Settings.Provider</c>. See <c>THelpChatSettings.ResolveModels</c>.
+    /// Of the list, only the ones that could answer
+    /// (<c>HelpChatModelIsConfigured</c>), plus the one in use whatever it
+    /// lacks.</summary>
     function Models: TArray<THelpChatModelInfo>;
     /// <summary>The one in use.</summary>
     function ActiveModelInfo: THelpChatModelInfo;
@@ -355,7 +358,8 @@ uses
   System.SyncObjs,
   System.Generics.Collections,
   HelpChatAI.Html,
-  HelpChatAI.Icons;
+  HelpChatAI.Icons,
+  HelpChatAI.Provider;
 
 { THelpChatEngine }
 
@@ -642,6 +646,7 @@ end;
 procedure THelpChatEngine.ApplyModelState;
 var
   LName: string;
+  I: Integer;
 begin
   if FSettings.Models.Count = 0 then
     Exit;
@@ -651,19 +656,49 @@ begin
   // The remembered one, if it is still in the list; else what the configuration names.
   if (LName = '') or not FSettings.ApplyModel(LName) then
     FSettings.ApplyModel(FSettings.ActiveModelName);
+  // Never start on a model that cannot answer when one of the list can: the
+  // first that is configured takes its place, and nothing is remembered -
+  // once its key is there, the one named comes back at the next start. With
+  // none configured, the one named stays, and its first answer says what is
+  // missing.
+  if HelpChatModelIsConfigured(FSettings, FSettings.ActiveModelName) then
+    Exit;
+  for I := 0 to FSettings.Models.Count - 1 do
+    if HelpChatModelIsConfigured(FSettings, FSettings.Models[I].Name) then
+    begin
+      FSettings.ApplyModel(FSettings.Models[I].Name);
+      Exit;
+    end;
 end;
 
 function THelpChatEngine.Models: TArray<THelpChatModelInfo>;
 var
-  I: Integer;
+  LAll: TArray<THelpChatModelInfo>;
+  LInfo: THelpChatModelInfo;
+  LCount: Integer;
 begin
-  Result := FSettings.ResolveModels;
-  for I := 0 to High(Result) do
+  LAll := FSettings.ResolveModels;
+  SetLength(Result, Length(LAll));
+  LCount := 0;
+  for LInfo in LAll do
+  begin
+    // Offered only when it could answer: a model of the catalogue whose
+    // service has no key (or, for openai, neither a key nor an endpoint of
+    // its own) is not a choice, it is an error waiting for the first
+    // question. The one in use stays, whatever it lacks: the panel must
+    // show what is answering. The configuration check lists them all.
+    if (FSettings.Models.Count > 0) and not LInfo.Active and
+       not HelpChatModelIsConfigured(FSettings, LInfo.Name) then
+      Continue;
+    Result[LCount] := LInfo;
     // An icon named in the configuration must exist; otherwise the model,
     // the endpoint and the provider say which one it is.
-    if not HelpChatProviderIconExists(Result[I].Icon) then
-      Result[I].Icon := HelpChatProviderIconFor(Result[I].Model, Result[I].BaseUrl,
-        Result[I].Provider);
+    if not HelpChatProviderIconExists(Result[LCount].Icon) then
+      Result[LCount].Icon := HelpChatProviderIconFor(Result[LCount].Model,
+        Result[LCount].BaseUrl, Result[LCount].Provider);
+    Inc(LCount);
+  end;
+  SetLength(Result, LCount);
 end;
 
 function THelpChatEngine.ActiveModelInfo: THelpChatModelInfo;

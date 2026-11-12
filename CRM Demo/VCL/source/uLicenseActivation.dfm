@@ -4,7 +4,7 @@ object LicenseActivationForm: TLicenseActivationForm
   BorderIcons = [biSystemMenu]
   BorderStyle = bsDialog
   Caption = 'License activation'
-  ClientHeight = 321
+  ClientHeight = 491
   ClientWidth = 564
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -83,32 +83,107 @@ object LicenseActivationForm: TLicenseActivationForm
     Left = 112
     Top = 56
     Width = 428
-    Height = 56
+    Height = 80
     AutoSize = False
-    Caption = 'This is where a real application activates its license: it asks the licensing service for the key and keeps what comes back. The demo has no service, so it asks you for an Anthropic API key - everything after that is the same.'
+    Caption =
+      'This is where a real application activates its license: it asks' +
+      ' the licensing service for the keys and keeps what comes back. T' +
+      'he demo has no service, so it asks you: the key of the model in ' +
+      'use, in bold, and of any other service you want to register too.' +
+      ' A field left empty changes nothing.'
     WordWrap = True
   end
-  object KeyLabel: TLabel
+  object KeyLabel1: TLabel
     Left = 112
-    Top = 120
-    Width = 211
+    Top = 144
+    Width = 428
     Height = 15
-    Caption = 'Activation key (an API key, sk-ant-...):'
+    AutoSize = False
+    Caption = 'API key:'
+  end
+  object KeyEdit1: TEdit
+    Left = 112
+    Top = 163
+    Width = 428
+    Height = 23
+    PasswordChar = '*'
+    TabOrder = 0
+    OnChange = KeyEditChange
+  end
+  object KeyLabel2: TLabel
+    Left = 112
+    Top = 196
+    Width = 428
+    Height = 15
+    AutoSize = False
+    Caption = 'API key:'
+  end
+  object KeyEdit2: TEdit
+    Left = 112
+    Top = 215
+    Width = 428
+    Height = 23
+    PasswordChar = '*'
+    TabOrder = 1
+    OnChange = KeyEditChange
+  end
+  object KeyLabel3: TLabel
+    Left = 112
+    Top = 248
+    Width = 428
+    Height = 15
+    AutoSize = False
+    Caption = 'API key:'
+  end
+  object KeyEdit3: TEdit
+    Left = 112
+    Top = 267
+    Width = 428
+    Height = 23
+    PasswordChar = '*'
+    TabOrder = 2
+    OnChange = KeyEditChange
+  end
+  object KeyLabel4: TLabel
+    Left = 112
+    Top = 300
+    Width = 428
+    Height = 15
+    AutoSize = False
+    Caption = 'API key:'
+  end
+  object KeyEdit4: TEdit
+    Left = 112
+    Top = 319
+    Width = 428
+    Height = 23
+    PasswordChar = '*'
+    TabOrder = 3
+    OnChange = KeyEditChange
+  end
+  object ShowKeyCheck: TCheckBox
+    Left = 112
+    Top = 351
+    Width = 162
+    Height = 17
+    Caption = 'Show the keys'
+    TabOrder = 4
+    OnClick = ShowKeyCheckClick
   end
   object StorageTitleLabel: TLabel
     Left = 112
-    Top = 208
+    Top = 380
     Width = 428
     Height = 30
     AutoSize = False
     Caption =
-      'It is never stored in clear: it is encrypted with the secret of ' +
-      'this application and written to'
+      'They are never stored in clear: they are encrypted with the secr' +
+      'et of this application and written to'
     WordWrap = True
   end
   object StorageLabel: TLabel
     Left = 112
-    Top = 240
+    Top = 412
     Width = 428
     Height = 30
     AutoSize = False
@@ -120,43 +195,24 @@ object LicenseActivationForm: TLicenseActivationForm
     ParentFont = False
     WordWrap = True
   end
-  object KeyEdit: TEdit
-    Left = 112
-    Top = 141
-    Width = 428
-    Height = 23
-    PasswordChar = '*'
-    TabOrder = 0
-    TextHint = 'sk-ant-...'
-    OnChange = KeyEditChange
-  end
-  object ShowKeyCheck: TCheckBox
-    Left = 112
-    Top = 173
-    Width = 162
-    Height = 17
-    Caption = 'Show the key'
-    TabOrder = 1
-    OnClick = ShowKeyCheckClick
-  end
   object ActivateButton: TButton
     Left = 356
-    Top = 282
+    Top = 452
     Width = 90
     Height = 25
     Caption = 'Activate'
     Default = True
     ModalResult = 1
-    TabOrder = 2
+    TabOrder = 5
   end
   object SkipButton: TButton
     Left = 452
-    Top = 282
+    Top = 452
     Width = 88
     Height = 25
     Cancel = True
     Caption = 'Skip'
     ModalResult = 2
-    TabOrder = 3
+    TabOrder = 6
   end
 end

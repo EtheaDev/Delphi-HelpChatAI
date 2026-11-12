@@ -732,6 +732,10 @@
       document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAgents(); });
     }
     loadAgents();
+    // Only the models that could answer are offered, so a key registered
+    // while the page was open - the application asks for it in a window of
+    // its own - changes the list: ask again when the user comes back.
+    window.addEventListener('focus', loadAgents);
   }
   window.hcRefreshAssistants = loadAgents;
 

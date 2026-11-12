@@ -6466,6 +6466,19 @@ object MainForm: TMainForm
   object HelpChat: TVclHelpChatAI
     EnabledCommands = [hccHelp, hccWho, hccUse, hccLang, hccRetry, hccSearch, hccDoc, hccPages, hccContext, hccActions, hccCheck, hccStats, hccClear, hccPdf, hccCopy, hccAttach, hccPrompt, hccRun]
     Settings.Provider = 'claude'
+    Settings.Models = <
+      item
+        Name = 'Claude'
+        Provider = 'claude'
+      end
+      item
+        Name = 'Gemini'
+        Provider = 'gemini'
+      end
+      item
+        Name = 'OpenAI'
+        Provider = 'openai'
+      end>
     Settings.Claude.MaxToolRounds = 6
     Settings.OpenAI.MaxToolRounds = 6
     Settings.Gemini.MaxToolRounds = 6
@@ -6479,6 +6492,7 @@ object MainForm: TMainForm
     OnActionExecuted = HelpChatActionExecuted
     OnDecryptSecret = HelpChatDecryptSecret
     OnGetContext = HelpChatGetContext
+    OnModelChanged = HelpChatModelChanged
     Left = 480
     Top = 456
   end
