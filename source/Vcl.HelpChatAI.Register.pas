@@ -433,19 +433,20 @@ begin
       // file, so the designer is told each time.
       if Assigned(LChat) then
         TVclHelpChatConfigEditor.Execute(TVclHelpChatAI(LChat).Settings,
-          TVclHelpChatAI(LChat).Profile, HelpChatDesignExeFile,
-          TVclHelpChatAI(LChat).ConfigFileName,
+          TVclHelpChatAI(LChat).Profile, TVclHelpChatAI(LChat).AssistantName,
+          HelpChatDesignExeFile, TVclHelpChatAI(LChat).ConfigFileName,
           procedure(AProfile: string)
           begin
             TVclHelpChatAI(LChat).Profile := AProfile;
             Designer.Modified;
           end,
-          procedure
+          procedure(APath: string)
           begin
             // "To component" writes into Settings, and the name of the
             // assistant is not a published property there: it lives on the
-            // component, which is what the form file stores.
-            if TVclHelpChatAI(LChat).Settings.AssistantName <> '' then
+            // component, which is what the form file stores. Moved even when
+            // empty, which is how the name is taken away again.
+            if SameText(APath, 'AssistantName') then
             begin
               TVclHelpChatAI(LChat).AssistantName := TVclHelpChatAI(LChat).Settings.AssistantName;
               TVclHelpChatAI(LChat).Settings.AssistantName := '';

@@ -59,7 +59,8 @@ uses
   HelpChatAI.Tests.Areas in '..\source\HelpChatAI.Tests.Areas.pas',
   HelpChatAI.Tests.ActionScope in '..\source\HelpChatAI.Tests.ActionScope.pas',
   HelpChatAI.Tests.SecretNodes in '..\source\HelpChatAI.Tests.SecretNodes.pas',
-  HelpChatAI.Tests.ConfigController in '..\source\HelpChatAI.Tests.ConfigController.pas';
+  HelpChatAI.Tests.ConfigController in '..\source\HelpChatAI.Tests.ConfigController.pas',
+  HelpChatAI.Tests.UiState in '..\source\HelpChatAI.Tests.UiState.pas';
 
 {$IFNDEF TESTINSIGHT}
 var

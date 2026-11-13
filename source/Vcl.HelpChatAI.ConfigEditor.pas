@@ -38,6 +38,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  Vcl.Graphics,
   Vcl.Controls,
   Vcl.Forms,
   Vcl.StdCtrls,
@@ -96,11 +97,23 @@ type
     ValueMemo: TMemo;
     SecretEdit: TEdit;
     ShowSecretCheck: TCheckBox;
+    /// <summary>The value controls, one per kind of setting
+    /// (<see cref="THelpChatConfigValueKind" />), only one visible at a time:
+    /// a line for text and free lists, the memo for the prompts, the masked
+    /// line for a key, a check box, a number with its arrows, a combo for a
+    /// choice and a check list for a set.</summary>
+    ValueEdit: TEdit;
+    ValueCombo: TComboBox;
+    ValueCheck: TCheckBox;
+    NumberEdit: TEdit;
+    NumberUpDown: TUpDown;
+    ValueChecks: TCheckListBox;
     ToProfileButton: TButton;
     ToRootButton: TButton;
     ToComponentButton: TButton;
     RemoveProfileButton: TButton;
     RemoveRootButton: TButton;
+    RemoveComponentButton: TButton;
     ModelsList: TListView;
     ModelPanel: TPanel;
     ModelNameLabel: TLabel;
@@ -140,12 +153,17 @@ type
     procedure SaveButtonClick(Sender: TObject);
     procedure ProfileComboChange(Sender: TObject);
     procedure SettingsListSelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
+    procedure SettingsListCustomDrawItem(Sender: TCustomListView; Item: TListItem;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
+    procedure SettingsListCustomDrawSubItem(Sender: TCustomListView; Item: TListItem;
+      SubItem: Integer; State: TCustomDrawState; var DefaultDraw: Boolean);
     procedure ShowSecretCheckClick(Sender: TObject);
     procedure ToProfileButtonClick(Sender: TObject);
     procedure ToRootButtonClick(Sender: TObject);
     procedure ToComponentButtonClick(Sender: TObject);
     procedure RemoveProfileButtonClick(Sender: TObject);
     procedure RemoveRootButtonClick(Sender: TObject);
+    procedure RemoveComponentButtonClick(Sender: TObject);
     procedure ModelsListSelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure ModelAddButtonClick(Sender: TObject);
     procedure ModelUpdateButtonClick(Sender: TObject);
@@ -175,14 +193,25 @@ type
     /// editor changes (the combo, or the rename of the profile in use); nil
     /// is allowed.</summary>
     FOnProfileChanged: TProc<string>;
-    /// <summary>Called after a value was written into the settings of the
-    /// component; nil is allowed.</summary>
-    FOnComponentChanged: TProc;
+    /// <summary>Called with the path of a value just written into the
+    /// settings of the component; nil is allowed.</summary>
+    FOnComponentChanged: TProc<string>;
+    /// <summary>The colour of a value the form file sets, in the "In use"
+    /// column: the blue of the Object Inspector, lighter on a dark theme of
+    /// the IDE, where that blue would not read.</summary>
+    FComponentColor: TColor;
+    /// <summary>The colour of the other values: the text of the theme.</summary>
+    FTextColor: TColor;
+    /// <summary>The background of the list: the window of the theme.</summary>
+    FWindowColor: TColor;
     /// <summary>What the Test button runs; nil disables the button.</summary>
     FOnTest: TProc;
     /// <summary>True while the form fills its own combos: their
     /// <c>OnChange</c> must not read that as a choice of the user.</summary>
     FRefreshing: Boolean;
+    /// <summary>The colours of the theme on the canvas of a cell, the font
+    /// plain: what both custom draw handlers start from.</summary>
+    procedure PrepareCell(const AList: TCustomListView);
     /// <summary>The list of files, then everything that depends on the one
     /// being edited. Once, when the editor opens.</summary>
     procedure RefreshAll;
@@ -214,8 +243,10 @@ type
     procedure ShowSelected;
     /// <summary>The entry of the selected row; False when none is.</summary>
     function SelectedEntry(out AEntry: THelpChatConfigEntry): Boolean;
-    /// <summary>What the user typed for the selected setting, trimmed: from
-    /// the masked edit box for a secret, from the memo for the rest.</summary>
+    /// <summary>What the user set for the selected setting, as text the
+    /// controller reads: from the control of its kind, trimmed; "true" or
+    /// "false" for a check box, the ticked items separated by commas for a
+    /// set.</summary>
     function EditedValue: string;
     /// <summary>The model the edit boxes of the Models page describe.</summary>
     function ModelFromEdits: THelpChatConfigModel;
@@ -228,7 +259,9 @@ type
     ///  returns when it is closed. Main thread, inside the IDE.
     ///  <para><c>ASettings</c> are the component's own (not owned): "To
     ///  component" writes into them at once. <c>AProfile</c> is its
-    ///  <c>Profile</c>, empty for the default assistant.
+    ///  <c>Profile</c>, empty for the default assistant, and
+    ///  <c>AAssistantName</c> its <c>AssistantName</c>, which is a property of
+    ///  the component and not of its settings.
     ///  <c>AExeFile</c> is the executable of the project - its folder holds
     ///  the application file, its name the per-user folder; empty (no
     ///  project open) leaves the shared file alone to edit.
@@ -237,8 +270,10 @@ type
     ///  <para><c>AOnProfileChanged</c> receives the profile each time it
     ///  changes in the editor - while the user types it, too - and is where
     ///  the caller sets <c>Profile</c> on the component;
-    ///  <c>AOnComponentChanged</c> tells the designer that the form file
-    ///  changed; <c>AOnTest</c> opens the design-time preview, and nil
+    ///  <c>AOnComponentChanged</c> receives the path of a value written into
+    ///  the settings and tells the designer that the form file changed - for
+    ///  <c>AssistantName</c> it is where the caller moves the name from the
+    ///  settings to the property of the component; <c>AOnTest</c> opens the design-time preview, and nil
     ///  disables its button. All three run inside the modal loop of the
     ///  editor; any of them may be nil.</para>
     ///  <para>There is no result and no Cancel: the files change only on
@@ -246,8 +281,8 @@ type
     ///  as the user goes.</para>
     /// </summary>
     class procedure Execute(const ASettings: THelpChatSettings;
-      const AProfile, AExeFile, AConfigFileName: string;
-      const AOnProfileChanged: TProc<string>; const AOnComponentChanged, AOnTest: TProc);
+      const AProfile, AAssistantName, AExeFile, AConfigFileName: string;
+      const AOnProfileChanged, AOnComponentChanged: TProc<string>; const AOnTest: TProc);
   end;
 
 implementation
@@ -257,7 +292,6 @@ implementation
 uses
   System.UITypes,
   System.StrUtils,
-  Vcl.Graphics,
   Vcl.Themes,
   Vcl.Dialogs,
   Winapi.Windows,
@@ -272,8 +306,8 @@ const
   SCOPE_TEXT: array[Boolean] of string = ('', 'set');
 
 class procedure TVclHelpChatConfigEditor.Execute(const ASettings: THelpChatSettings;
-  const AProfile, AExeFile, AConfigFileName: string;
-  const AOnProfileChanged: TProc<string>; const AOnComponentChanged, AOnTest: TProc);
+  const AProfile, AAssistantName, AExeFile, AConfigFileName: string;
+  const AOnProfileChanged, AOnComponentChanged: TProc<string>; const AOnTest: TProc);
 var
   LForm: TVclHelpChatConfigEditor;
 begin
@@ -285,6 +319,7 @@ begin
     LForm.FSettings := ASettings;
     LForm.FController := THelpChatConfigController.Create(ASettings, AProfile, AExeFile,
       AConfigFileName);
+    LForm.FController.ComponentAssistantName := AAssistantName;
     LForm.FOnProfileChanged := AOnProfileChanged;
     LForm.FOnComponentChanged := AOnComponentChanged;
     LForm.FOnTest := AOnTest;
@@ -299,6 +334,7 @@ end;
 procedure TVclHelpChatConfigEditor.FormCreate(Sender: TObject);
 var
   LStyle: TCustomStyleServices;
+  LWindow: TColor;
 
   procedure PaintPanel(const APanel: TPanel);
   begin
@@ -325,6 +361,22 @@ begin
     IDEThemeManager.RegisterFormClass(TVclHelpChatConfigEditor);
     ThemeProperties.ApplyTheme(Self);
   end;
+  // The colours of the "In use" column, from the window the list is painted
+  // on: the blue of the Object Inspector on a light one, a light blue on a
+  // dark one.
+  FTextColor := clWindowText;
+  FWindowColor := clWindow;
+  if IDEThemeAvailable then
+  begin
+    FTextColor := ThemeProperties.StyleServices.GetSystemColor(clWindowText);
+    FWindowColor := ThemeProperties.StyleServices.GetSystemColor(clWindow);
+  end;
+  LWindow := ColorToRGB(FWindowColor);
+  SettingsList.Font.Color := FTextColor;
+  if (GetRValue(LWindow) * 299 + GetGValue(LWindow) * 587 + GetBValue(LWindow) * 114) div 1000 < 128 then
+    FComponentColor := RGB($6C, $B4, $FF)
+  else
+    FComponentColor := clBlue;
   PageControl.ActivePage := SettingsTab;
   // The profile is taken when it is picked or when the box is left, not at
   // every letter typed into it (the form file says OnChange).
@@ -429,7 +481,7 @@ begin
     begin
       LItem := SettingsList.Items.Add;
       LItem.Caption := LEntry.Caption;
-      LItem.SubItems.Add(LEntry.Effective);
+      LItem.SubItems.Add(LEntry.InUse);
       LItem.SubItems.Add(LEntry.Origin);
       if LEntry.InRoot then
         LItem.SubItems.Add(LEntry.RootValue)
@@ -470,15 +522,25 @@ procedure TVclHelpChatConfigEditor.ShowSelected;
 var
   LEntry: THelpChatConfigEntry;
   LSecret, LHasProfile: Boolean;
-  LText: string;
+  LText, LChoice: string;
+  LTicked: TArray<string>;
+  I: Integer;
 begin
   LHasProfile := FController.Profile <> '';
+  // One control per kind: all hidden first, the one of the setting shown.
+  ValueMemo.Visible := False;
+  ValueEdit.Visible := False;
+  SecretEdit.Visible := False;
+  ShowSecretCheck.Visible := False;
+  ValueCheck.Visible := False;
+  NumberEdit.Visible := False;
+  NumberUpDown.Visible := False;
+  ValueCombo.Visible := False;
+  ValueChecks.Visible := False;
   if not SelectedEntry(LEntry) then
   begin
     SettingLabel.Caption := 'Select a setting';
     HintLabel.Caption := '';
-    ValueMemo.Lines.Clear;
-    SecretEdit.Text := '';
     EditPanel.Enabled := False;
     Exit;
   end;
@@ -486,39 +548,110 @@ begin
   SettingLabel.Caption := LEntry.Caption + '  (' + LEntry.Path + ')';
   HintLabel.Caption := LEntry.Hint;
   LSecret := LEntry.Kind = cvkSecret;
-  ValueMemo.Visible := not LSecret;
-  SecretEdit.Visible := LSecret;
-  ShowSecretCheck.Visible := LSecret;
-  // What the file says where the user would write it: the profile first.
+  // What the file says where the user would write it, the profile first;
+  // when it says nothing, the value in use - the one of the component or
+  // of another file, so that what is shown is what runs. A key only from
+  // the file being edited: copying one into another file must be typed.
   if not (LHasProfile and FController.GetValue(LEntry.Path, ccsProfile, LText)) then
     if not FController.GetValue(LEntry.Path, ccsRoot, LText) then
-      LText := '';
-  if LSecret then
-  begin
-    // The clear key of the file, hidden by the edit box and not replaced by
-    // a mask: the mask of the list (asterisks and the last four characters)
-    // never gets here, so it can never be saved as the key.
-    SecretEdit.Text := LText;
-    ShowSecretCheck.Checked := False;
-    SecretEdit.PasswordChar := '*';
-  end
+      LText := LEntry.Value;
+  case LEntry.Kind of
+    cvkMemo:
+      begin
+        ValueMemo.Text := LText;
+        ValueMemo.Visible := True;
+      end;
+    cvkSecret:
+      begin
+        // The clear key of the file, hidden by the edit box and not replaced
+        // by a mask: the mask of the list (asterisks and the last four
+        // characters) never gets here, so it can never be saved as the key.
+        SecretEdit.Text := LText;
+        ShowSecretCheck.Checked := False;
+        SecretEdit.PasswordChar := '*';
+        SecretEdit.Visible := True;
+        ShowSecretCheck.Visible := True;
+      end;
+    cvkBoolean:
+      begin
+        ValueCheck.Checked := SameText(LText, 'true') or (LText = '1');
+        ValueCheck.Visible := True;
+      end;
+    cvkNumber:
+      begin
+        NumberUpDown.Position := StrToIntDef(LText, 0);
+        NumberEdit.Text := IntToStr(StrToIntDef(LText, 0));
+        NumberEdit.Visible := True;
+        NumberUpDown.Visible := True;
+      end;
+    cvkLanguage, cvkChoice:
+      begin
+        // A language is one of the list; a provider or a model may be one
+        // the list does not know (registered by the application, named by a
+        // file read later), so that combo takes any text.
+        if LEntry.Kind = cvkLanguage then
+          ValueCombo.Style := csDropDownList
+        else
+          ValueCombo.Style := csDropDown;
+        ValueCombo.Items.Clear;
+        for LChoice in LEntry.Choices do
+          ValueCombo.Items.Add(LChoice);
+        ValueCombo.ItemIndex := ValueCombo.Items.IndexOf(LText);
+        if (ValueCombo.ItemIndex < 0) and (LEntry.Kind = cvkChoice) then
+          ValueCombo.Text := LText;
+        ValueCombo.Visible := True;
+      end;
+    cvkLanguages:
+      begin
+        LTicked := LText.Split([',', ';']);
+        ValueChecks.Items.Clear;
+        for LChoice in LEntry.Choices do
+        begin
+          I := ValueChecks.Items.Add(LChoice);
+          for LText in LTicked do
+            if SameText(Trim(LText), LChoice) then
+              ValueChecks.Checked[I] := True;
+        end;
+        ValueChecks.Visible := True;
+      end;
   else
-    ValueMemo.Text := LText;
+    // Text and the free lists (areas, actions): one line.
+    ValueEdit.Text := LText;
+    ValueEdit.Visible := True;
+  end;
   ToProfileButton.Enabled := LHasProfile;
   RemoveProfileButton.Enabled := LHasProfile and LEntry.InProfile;
   RemoveRootButton.Enabled := LEntry.InRoot;
   // A key belongs to a file, never to the form file.
   ToComponentButton.Enabled := not LSecret;
+  RemoveComponentButton.Enabled := LEntry.InComponent and not LSecret;
 end;
 
 function TVclHelpChatConfigEditor.EditedValue: string;
 var
   LEntry: THelpChatConfigEntry;
+  I: Integer;
 begin
-  if SelectedEntry(LEntry) and (LEntry.Kind = cvkSecret) then
-    Result := Trim(SecretEdit.Text)
+  Result := '';
+  if not SelectedEntry(LEntry) then
+    Exit;
+  case LEntry.Kind of
+    cvkMemo: Result := Trim(ValueMemo.Text);
+    cvkSecret: Result := Trim(SecretEdit.Text);
+    cvkBoolean: Result := LowerCase(BoolToStr(ValueCheck.Checked, True));
+    cvkNumber: Result := IntToStr(StrToIntDef(Trim(NumberEdit.Text), 0));
+    cvkLanguage, cvkChoice: Result := Trim(ValueCombo.Text);
+    cvkLanguages:
+      for I := 0 to ValueChecks.Items.Count - 1 do
+        if ValueChecks.Checked[I] then
+        begin
+          if Result <> '' then
+            Result := Result + ', ';
+          Result := Result + ValueChecks.Items[I];
+        end;
   else
-    Result := Trim(ValueMemo.Text);
+    Result := Trim(ValueEdit.Text);
+  end;
 end;
 
 procedure TVclHelpChatConfigEditor.Changed;
@@ -590,6 +723,55 @@ begin
     ShowSelected;
 end;
 
+procedure TVclHelpChatConfigEditor.PrepareCell(const AList: TCustomListView);
+begin
+  // With seFont the IDE theme paints the text in the colour of its style and
+  // the blue never shows; without seClient the whole list went white on a
+  // dark theme. So only seFont goes - here, because the theme put it back
+  // when it was taken away in FormCreate. Without it the colours of a cell
+  // are the canvas's, and the VCL resets that canvas to the font and colour
+  // of the control (black, white) before every cell: both are set here, the
+  // background included, or a dark theme draws white cells. The column
+  // headers are painted by the style hook with the Font of the control when
+  // seFont is off (TStyleHook.DrawControlText): that one gets the colour of
+  // the theme's text too, or the titles are black on grey.
+  if seFont in AList.StyleElements then
+    AList.StyleElements := AList.StyleElements - [seFont];
+  if SettingsList.Font.Color <> FTextColor then
+    SettingsList.Font.Color := FTextColor;
+  AList.Canvas.Brush.Color := FWindowColor;
+  AList.Canvas.Font.Style := [];
+  AList.Canvas.Font.Color := FTextColor;
+end;
+
+procedure TVclHelpChatConfigEditor.SettingsListCustomDrawItem(Sender: TCustomListView;
+  Item: TListItem; State: TCustomDrawState; var DefaultDraw: Boolean);
+begin
+  // The first column, which is the caption of the item: the sub-item handler
+  // is not asked for it.
+  PrepareCell(Sender);
+end;
+
+procedure TVclHelpChatConfigEditor.SettingsListCustomDrawSubItem(Sender: TCustomListView;
+  Item: TListItem; SubItem: Integer; State: TCustomDrawState; var DefaultDraw: Boolean);
+begin
+  // The "In use" column tells at a glance what "From" says in words, the way
+  // the Object Inspector does: bold for a value of a configuration file,
+  // bold and blue for one of the form file, plain for the library's.
+  PrepareCell(Sender);
+  if (SubItem <> 1) or (Item.Index > High(FEntries)) then
+    Exit;
+  case FEntries[Item.Index].Source of
+    csrFile:
+      Sender.Canvas.Font.Style := [fsBold];
+    csrComponent:
+      begin
+        Sender.Canvas.Font.Style := [fsBold];
+        Sender.Canvas.Font.Color := FComponentColor;
+      end;
+  end;
+end;
+
 procedure TVclHelpChatConfigEditor.ShowSecretCheckClick(Sender: TObject);
 begin
   if ShowSecretCheck.Checked then
@@ -631,7 +813,7 @@ begin
   // value they cannot read.
   FController.SetComponentValue(LEntry.Path, EditedValue);
   if Assigned(FOnComponentChanged) then
-    FOnComponentChanged();
+    FOnComponentChanged(LEntry.Path);
   Changed;
 end;
 
@@ -655,6 +837,20 @@ begin
     FController.RemoveValue(LEntry.Path, ccsRoot);
     Changed;
   end;
+end;
+
+procedure TVclHelpChatConfigEditor.RemoveComponentButtonClick(Sender: TObject);
+var
+  LEntry: THelpChatConfigEntry;
+begin
+  if not SelectedEntry(LEntry) then
+    Exit;
+  // The library's value back into the settings of the component, now, like
+  // "Write to the component": the form file stops storing it.
+  FController.ResetComponentValue(LEntry.Path);
+  if Assigned(FOnComponentChanged) then
+    FOnComponentChanged(LEntry.Path);
+  Changed;
 end;
 
 procedure TVclHelpChatConfigEditor.RefreshModels;

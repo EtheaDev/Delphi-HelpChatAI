@@ -141,6 +141,7 @@
         <DCCReference Include="..\..\source\HelpChatAI.Types.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Messages.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Assistant.pas"/>
+        <DCCReference Include="..\..\source\HelpChatAI.UiState.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Icons.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Commands.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Settings.pas"/>

@@ -87,7 +87,8 @@ uses
   HelpChatAI.Engine,
   HelpChatAI.Html,
   HelpChatAI.Pdf,
-  HelpChatAI.Transport;
+  HelpChatAI.Transport,
+  HelpChatAI.UiState;
 
 const
   /// <summary>Default width of the component's own window, in the logical
@@ -107,10 +108,14 @@ const
   /// request routed twice) is shown but not sent again.</summary>
   HELPCHAT_FMX_ASK_DEBOUNCE_MS = 1500;
   /// <summary>Per-application UI state (position and size of the own
-  /// window), in the per-user folder of the application. The name carries
-  /// the profile of the assistant (<c>THelpChatSettings.ProfileFileName</c>),
-  /// the default assistant keeping this one.</summary>
-  HELPCHAT_FMX_UI_STATE_FILENAME = 'helpchatai-ui.json';
+  /// window, place of the bubble), in the per-user folder of the
+  /// application. The name carries the profile of the assistant
+  /// (<c>THelpChatSettings.ProfileFileName</c>), the default assistant
+  /// keeping this one. See <c>HelpChatAI.UiState</c>.</summary>
+  HELPCHAT_FMX_UI_STATE_FILENAME = HELPCHAT_UI_STATE_FILENAME;
+  /// <summary>How far a press on the bubble must move before it is a drag
+  /// and not a click, in logical units.</summary>
+  HELPCHAT_FMX_BUBBLE_DRAG_THRESHOLD = 4;
 
 type
   TFmxHelpChatAI = class;
@@ -206,6 +211,15 @@ type
     FHandleF1: Boolean;
     FRegisterHelpViewer: Boolean;
     FShowBubble: Boolean;
+    FBubbleDraggable: Boolean;
+    // A left button went down on the bubble and has not come up yet; whether
+    // that press moved it (then the click it ends is not a click: reset at
+    // the next press); where it started, in coordinates of the form, and
+    // where the bubble was.
+    FBubbleTracking: Boolean;
+    FBubbleDragged: Boolean;
+    FBubbleDownPoint: TPointF;
+    FBubbleDownPos: TPointF;
     FConfigFileName: TFileName;
     FPdfStyleSheet: TFileName;
     FPanelStyleSheet: TFileName;
@@ -271,6 +285,7 @@ type
     /// starts.</summary>
     procedure SetActive(const Value: Boolean);
     procedure SetShowBubble(const Value: Boolean);
+    procedure SetBubbleDraggable(const Value: Boolean);
     procedure SetImages(const Value: TCustomImageList);
     procedure SetImageIndex(const Value: TImageIndex);
     procedure SetImageName(const Value: string);
@@ -305,6 +320,20 @@ type
     procedure ApplyBubbleColors;
     procedure DestroyBubble;
     procedure BubbleClick(Sender: TObject);
+    /// <summary>The drag of the bubble: a press that moves farther than
+    /// HELPCHAT_FMX_BUBBLE_DRAG_THRESHOLD moves it inside its form, and the
+    /// release anchors it to the nearest corner and remembers it.</summary>
+    procedure BubbleMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Single);
+    procedure BubbleMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Single);
+    procedure BubbleMouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Single);
+    /// <summary>Puts the bubble at a place of its form and anchors it to
+    /// that corner, so that it keeps its distance when the form is resized.</summary>
+    procedure PlaceBubble(const APlace: THelpChatBubblePlace);
+    /// <summary>The key of the host form in the UI state: its class, so that
+    /// every instance of one form shares the place.</summary>
+    function BubbleFormKey: string;
     /// <summary>The web view parented to AContainer. A view that sits in
     /// another container is freed and a new one created - a native browser
     /// is not reparented - so the page loads again and the conversation
@@ -512,6 +541,9 @@ type
     procedure Close;
     /// <summary>Close when visible, Open otherwise: the click on the bubble.</summary>
     procedure Toggle;
+    /// <summary>Takes the bubble back to the bottom-right corner of its form
+    /// and forgets the place the user dragged it to.</summary>
+    procedure ResetBubblePosition;
     /// <summary>True while the view is shown in its container - and, for the
     /// own window, while that window is visible. A container of the
     /// application hidden by the application itself is not noticed.</summary>
@@ -646,6 +678,11 @@ type
     /// <summary>Round button with the assistant icon, in the bottom-right
     /// corner of the host form.</summary>
     property ShowBubble: Boolean read FShowBubble write SetShowBubble default True;
+    /// <summary>The user may drag the bubble to another place of its form:
+    /// it keeps its distance from the corner it is nearest to, and with
+    /// RememberPanelPosition it is found there again, per form.
+    /// ResetBubblePosition takes it back.</summary>
+    property BubbleDraggable: Boolean read FBubbleDraggable write SetBubbleDraggable default True;
     /// <summary>Image list holding the bubble icon; nil uses the icons
     /// compiled into the component (HELPCHAT_ICON_* names). The same icon is
     /// drawn in the header of the chat panel, left of AssistantName.</summary>
@@ -726,9 +763,10 @@ type
     /// <summary>Fired after every action, for a log or a status bar.</summary>
     property OnActionExecuted: THelpChatActionExecutedEvent read FOnActionExecuted write FOnActionExecuted;
 
-    /// <summary>Reopen the own window where the user left it (per application,
-    /// per user, per profile). A container of the application is the
-    /// application's to remember.</summary>
+    /// <summary>Reopen the own window where the user left it, and show the
+    /// bubble where it was dragged to (per application, per user, per
+    /// profile). A container of the application is the application's to
+    /// remember.</summary>
     property RememberPanelPosition: Boolean read FRememberPanelPosition write FRememberPanelPosition default True;
     /// <summary>Page defaults (follow the system), or the built-in light/dark theme.</summary>
     property ThemeMode: TFmxHelpChatThemeMode read FThemeMode write SetThemeMode default tmAuto;
@@ -1230,6 +1268,7 @@ begin
   FEnabledCommands := HELPCHAT_DEF_COMMANDS;
   FRegisterHelpViewer := True;
   FShowBubble := True;
+  FBubbleDraggable := True;
   FImageIndex := -1;
   FRememberPanelPosition := True;
   FPanelWidth := HELPCHAT_FMX_DEF_PANEL_WIDTH;
@@ -1607,6 +1646,7 @@ end;
 procedure TFmxHelpChatAI.EnsureBubble;
 var
   LHost: TCommonCustomForm;
+  LPlace: THelpChatBubblePlace;
 begin
   if Assigned(FBubble) or not FShowBubble or not FActive then
     Exit;
@@ -1624,6 +1664,11 @@ begin
   FBubble.Hint := HelpChatMsg(hcmUiHelp, ActiveLanguage) + ' (F1)';
   FBubble.ShowHint := True;
   FBubble.OnClick := BubbleClick;
+  FBubble.OnMouseDown := BubbleMouseDown;
+  FBubble.OnMouseMove := BubbleMouseMove;
+  FBubble.OnMouseUp := BubbleMouseUp;
+  // The mouse stays the bubble's while it is dragged faster than it follows.
+  FBubble.AutoCapture := True;
 
   // The glyph is a child of the circle and lets the click through to it, so
   // the whole disc is the button.
@@ -1658,10 +1703,11 @@ begin
   // resized the button is pushed far outside the window. It was invisible in
   // the FMX demo until this line moved up.
   FBubble.Parent := LHost;
-  FBubble.SetBounds(LHost.ClientWidth - HELPCHAT_FMX_DEF_BUBBLE_SIZE - HELPCHAT_FMX_MARGIN,
-    LHost.ClientHeight - HELPCHAT_FMX_DEF_BUBBLE_SIZE - HELPCHAT_FMX_MARGIN,
-    HELPCHAT_FMX_DEF_BUBBLE_SIZE, HELPCHAT_FMX_DEF_BUBBLE_SIZE);
-  FBubble.Anchors := [TAnchorKind.akRight, TAnchorKind.akBottom];
+  FBubble.SetBounds(0, 0, HELPCHAT_FMX_DEF_BUBBLE_SIZE, HELPCHAT_FMX_DEF_BUBBLE_SIZE);
+  if not FRememberPanelPosition or
+     not HelpChatLoadBubblePlace(UiStateFile, BubbleFormKey, LPlace) then
+    LPlace := THelpChatBubblePlace.Create(hbcBottomRight, HELPCHAT_FMX_MARGIN, HELPCHAT_FMX_MARGIN);
+  PlaceBubble(LPlace);
   ApplyBubbleColors;
   ApplyBubbleIcon;
   FBubble.BringToFront;
@@ -1852,7 +1898,121 @@ end;
 
 procedure TFmxHelpChatAI.BubbleClick(Sender: TObject);
 begin
+  if FBubbleDragged then
+    Exit;                         // the end of a drag, not a click
   Toggle;
+end;
+
+function TFmxHelpChatAI.BubbleFormKey: string;
+begin
+  if Assigned(FBubble) and (FBubble.Parent <> nil) then
+    Result := FBubble.Parent.ClassName
+  else
+    Result := '';
+end;
+
+procedure TFmxHelpChatAI.PlaceBubble(const APlace: THelpChatBubblePlace);
+var
+  LHost: TCommonCustomForm;
+  LLeft, LTop: Single;
+  LAnchors: TAnchors;
+begin
+  if not Assigned(FBubble) or not (FBubble.Parent is TCommonCustomForm) then
+    Exit;
+  LHost := TCommonCustomForm(FBubble.Parent);
+  // FireMonkey coordinates are already independent of the DPI: scale 1.
+  APlace.ToPosition(FBubble.Width, LHost.ClientWidth, LHost.ClientHeight, 1, LLeft, LTop);
+  if APlace.IsLeft then
+    LAnchors := [TAnchorKind.akLeft]
+  else
+    LAnchors := [TAnchorKind.akRight];
+  if APlace.IsTop then
+    Include(LAnchors, TAnchorKind.akTop)
+  else
+    Include(LAnchors, TAnchorKind.akBottom);
+  // Bounds first, anchors after: the anchor rules are taken from where the
+  // control is, against the parent it has (see EnsureBubble).
+  FBubble.SetBounds(LLeft, LTop, FBubble.Width, FBubble.Height);
+  FBubble.Anchors := LAnchors;
+end;
+
+procedure TFmxHelpChatAI.BubbleMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Single);
+begin
+  if (Button <> TMouseButton.mbLeft) or not Assigned(FBubble) then
+    Exit;
+  FBubbleTracking := True;
+  FBubbleDragged := False;
+  // In coordinates of the form: the bubble moves under the mouse, its own
+  // coordinates would drift.
+  FBubbleDownPoint := FBubble.LocalToAbsolute(PointF(X, Y));
+  FBubbleDownPos := FBubble.Position.Point;
+end;
+
+procedure TFmxHelpChatAI.BubbleMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Single);
+var
+  LHost: TCommonCustomForm;
+  LPoint: TPointF;
+  LLeft, LTop: Single;
+begin
+  if not FBubbleTracking or not FBubbleDraggable or not (ssLeft in Shift) or
+     not Assigned(FBubble) or not (FBubble.Parent is TCommonCustomForm) then
+    Exit;
+  LHost := TCommonCustomForm(FBubble.Parent);
+  LPoint := FBubble.LocalToAbsolute(PointF(X, Y));
+  if not FBubbleDragged then
+  begin
+    if (Abs(LPoint.X - FBubbleDownPoint.X) < HELPCHAT_FMX_BUBBLE_DRAG_THRESHOLD) and
+       (Abs(LPoint.Y - FBubbleDownPoint.Y) < HELPCHAT_FMX_BUBBLE_DRAG_THRESHOLD) then
+      Exit;
+    FBubbleDragged := True;
+  end;
+  LLeft := Max(0, Min(FBubbleDownPos.X + LPoint.X - FBubbleDownPoint.X, LHost.ClientWidth - FBubble.Width));
+  LTop := Max(0, Min(FBubbleDownPos.Y + LPoint.Y - FBubbleDownPoint.Y, LHost.ClientHeight - FBubble.Height));
+  FBubble.SetBounds(LLeft, LTop, FBubble.Width, FBubble.Height);
+end;
+
+procedure TFmxHelpChatAI.BubbleMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Single);
+var
+  LHost: TCommonCustomForm;
+  LPlace: THelpChatBubblePlace;
+begin
+  if Button <> TMouseButton.mbLeft then
+    Exit;
+  FBubbleTracking := False;
+  if not FBubbleDragged or not Assigned(FBubble) or not (FBubble.Parent is TCommonCustomForm) then
+    Exit;
+  LHost := TCommonCustomForm(FBubble.Parent);
+  LPlace := THelpChatBubblePlace.FromBounds(FBubble.Position.X, FBubble.Position.Y,
+    FBubble.Width, LHost.ClientWidth, LHost.ClientHeight, 1);
+  PlaceBubble(LPlace);
+  if FRememberPanelPosition then
+    HelpChatSaveBubblePlace(UiStateFile, BubbleFormKey, LPlace);
+end;
+
+procedure TFmxHelpChatAI.ResetBubblePosition;
+var
+  LKey: string;
+  LHost: TCommonCustomForm;
+begin
+  LKey := BubbleFormKey;
+  if LKey = '' then
+  begin
+    // No bubble now (ShowBubble off, not active): forget it all the same.
+    LHost := ResolveHostForm;
+    if Assigned(LHost) then
+      LKey := LHost.ClassName;
+  end;
+  if LKey <> '' then
+    HelpChatForgetBubblePlace(UiStateFile, LKey);
+  PlaceBubble(THelpChatBubblePlace.Create(hbcBottomRight, HELPCHAT_FMX_MARGIN, HELPCHAT_FMX_MARGIN));
+end;
+
+procedure TFmxHelpChatAI.SetBubbleDraggable(const Value: Boolean);
+begin
+  FBubbleDraggable := Value;
+  FBubbleTracking := False;
 end;
 
 procedure TFmxHelpChatAI.EnsureView(const AContainer: TFmxObject);
@@ -1907,7 +2067,7 @@ end;
 
 procedure TFmxHelpChatAI.SavePanelBounds;
 var
-  LRoot, LPanel: TJSONObject;
+  LPanel: TJSONObject;
   LBounds: TRect;
 begin
   // Position memory belongs to the own window; an application container is
@@ -1918,22 +2078,13 @@ begin
   LBounds := FOwnForm.Bounds;
   if (LBounds.Width <= 0) or (LBounds.Height <= 0) then
     Exit;
-  LRoot := TJSONObject.Create;
-  try
-    LPanel := TJSONObject.Create;
-    LRoot.AddPair('panel', LPanel);
-    LPanel.AddPair('left', TJSONNumber.Create(LBounds.Left));
-    LPanel.AddPair('top', TJSONNumber.Create(LBounds.Top));
-    LPanel.AddPair('width', TJSONNumber.Create(LBounds.Width));
-    LPanel.AddPair('height', TJSONNumber.Create(LBounds.Height));
-    try
-      TFile.WriteAllText(UiStateFile, LRoot.ToJSON, TEncoding.UTF8);
-    except
-      // UI state is a convenience: never fail for it.
-    end;
-  finally
-    LRoot.Free;
-  end;
+  // Written next to what else the file remembers (the place of the bubble).
+  LPanel := TJSONObject.Create;
+  LPanel.AddPair('left', TJSONNumber.Create(LBounds.Left));
+  LPanel.AddPair('top', TJSONNumber.Create(LBounds.Top));
+  LPanel.AddPair('width', TJSONNumber.Create(LBounds.Width));
+  LPanel.AddPair('height', TJSONNumber.Create(LBounds.Height));
+  HelpChatUiStateWrite(UiStateFile, HELPCHAT_UI_STATE_PANEL, LPanel);
 end;
 
 function TFmxHelpChatAI.LoadPanelBounds(out ABounds: TRect): Boolean;

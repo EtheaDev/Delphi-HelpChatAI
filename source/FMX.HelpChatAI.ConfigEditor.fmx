@@ -910,7 +910,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
           Anchors = [akLeft, akTop, akRight]
           Position.X = 8
           Position.Y = 24
-          Size.Width = 700
+          Size.Width = 504
           Size.Height = 20
           Size.PlatformDefault = False
           TabOrder = 1
@@ -921,11 +921,11 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
           Anchors = [akLeft, akTop, akRight, akBottom]
           Position.X = 8
           Position.Y = 48
-          Size.Width = 700
+          Size.Width = 504
           Size.Height = 114
           Size.PlatformDefault = False
           TabOrder = 2
-          Viewport.Width = 696
+          Viewport.Width = 500
           Viewport.Height = 110
         end
         object SecretEdit: TEdit
@@ -935,14 +935,14 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
           Password = True
           Position.X = 8
           Position.Y = 48
-          Size.Width = 610
+          Size.Width = 414
           Size.Height = 24
           Size.PlatformDefault = False
           Visible = False
         end
         object ShowSecretCheck: TCheckBox
           Anchors = [akTop, akRight]
-          Position.X = 628
+          Position.X = 432
           Position.Y = 50
           Size.Width = 80
           Size.Height = 19
@@ -952,9 +952,80 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
           Visible = False
           OnChange = ShowSecretCheckChange
         end
+        object ValueEdit: TEdit
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Anchors = [akLeft, akTop, akRight]
+          TabOrder = 10
+          Position.X = 8
+          Position.Y = 48
+          Size.Width = 504
+          Size.Height = 24
+          Size.PlatformDefault = False
+          Visible = False
+        end
+        object ValueCombo: TComboBox
+          Position.X = 8
+          Position.Y = 48
+          Size.Width = 240
+          Size.Height = 24
+          Size.PlatformDefault = False
+          TabOrder = 11
+          Visible = False
+        end
+        object ChoiceCombo: TComboEdit
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          TabOrder = 12
+          ItemHeight = 19.000000000000000000
+          ItemIndex = -1
+          Position.X = 8
+          Position.Y = 48
+          Size.Width = 240
+          Size.Height = 24
+          Size.PlatformDefault = False
+          Visible = False
+        end
+        object ValueCheck: TCheckBox
+          Position.X = 8
+          Position.Y = 50
+          Size.Width = 240
+          Size.Height = 19
+          Size.PlatformDefault = False
+          TabOrder = 13
+          Text = 'Yes'
+          Visible = False
+        end
+        object NumberSpin: TSpinBox
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          TabOrder = 14
+          Cursor = crIBeam
+          Max = 10000000.000000000000000000
+          Position.X = 8
+          Position.Y = 48
+          Size.Width = 140
+          Size.Height = 24
+          Size.PlatformDefault = False
+          Visible = False
+        end
+        object ValueChecks: TListBox
+          Anchors = [akLeft, akTop, akBottom]
+          Position.X = 8
+          Position.Y = 48
+          Size.Width = 240
+          Size.Height = 114
+          Size.PlatformDefault = False
+          TabOrder = 15
+          ShowCheckboxes = True
+          DisableFocusEffect = True
+          DefaultItemStyles.ItemStyle = ''
+          DefaultItemStyles.GroupHeaderStyle = ''
+          DefaultItemStyles.GroupFooterStyle = ''
+          Viewport.Width = 236
+          Viewport.Height = 110
+          Visible = False
+        end
         object ToProfileButton: TButton
           Anchors = [akTop, akRight]
-          Position.X = 718
+          Position.X = 520
           Position.Y = 48
           Size.Width = 192
           Size.Height = 26
@@ -965,7 +1036,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
         end
         object ToRootButton: TButton
           Anchors = [akTop, akRight]
-          Position.X = 718
+          Position.X = 520
           Position.Y = 78
           Size.Width = 192
           Size.Height = 26
@@ -976,7 +1047,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
         end
         object ToComponentButton: TButton
           Anchors = [akTop, akRight]
-          Position.X = 718
+          Position.X = 520
           Position.Y = 108
           Size.Width = 192
           Size.Height = 26
@@ -988,24 +1059,35 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
         object RemoveProfileButton: TButton
           Anchors = [akTop, akRight]
           Position.X = 718
-          Position.Y = 138
-          Size.Width = 94
+          Position.Y = 48
+          Size.Width = 192
           Size.Height = 26
           Size.PlatformDefault = False
           TabOrder = 8
-          Text = 'Remove (prof.)'
+          Text = 'Remove from the profile'
           OnClick = RemoveProfileButtonClick
         end
         object RemoveRootButton: TButton
           Anchors = [akTop, akRight]
-          Position.X = 816
-          Position.Y = 138
-          Size.Width = 94
+          Position.X = 718
+          Position.Y = 78
+          Size.Width = 192
           Size.Height = 26
           Size.PlatformDefault = False
           TabOrder = 9
-          Text = 'Remove (root)'
+          Text = 'Remove from the root'
           OnClick = RemoveRootButtonClick
+        end
+        object RemoveComponentButton: TButton
+          Anchors = [akTop, akRight]
+          Position.X = 718
+          Position.Y = 108
+          Size.Width = 192
+          Size.Height = 26
+          Size.PlatformDefault = False
+          TabOrder = 16
+          Text = 'Remove from the component'
+          OnClick = RemoveComponentButtonClick
         end
       end
       object SettingsGrid: TStringGrid

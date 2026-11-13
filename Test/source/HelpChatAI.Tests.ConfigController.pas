@@ -66,6 +66,14 @@ type
     [Test]
     procedure Entries_TellWhereAValueComesFrom;
     [Test]
+    procedure InUse_IsNeverEmpty_AndSaysWhoSetIt;
+    [Test]
+    procedure AssistantName_OfTheComponent_IsInUse;
+    [Test]
+    procedure Kinds_NumbersSetsAndChoices;
+    [Test]
+    procedure ResetComponentValue_GivesTheLibraryValueBack;
+    [Test]
     procedure Secrets_AreMasked_AndNeverGoToTheFormFile;
     [Test]
     procedure Profiles_AddRenameDelete;
@@ -225,18 +233,151 @@ begin
   try
     LEntries := LController.Entries;
     Assert.AreEqual('', LController.LastError);
-    Assert.AreEqual('Help\from-the-dfm.json', EntryOf(LEntries, 'DocIndexFile').Effective);
+    Assert.AreEqual('Help\from-the-dfm.json', EntryOf(LEntries, 'DocIndexFile').InUse);
     Assert.AreEqual('Component', EntryOf(LEntries, 'DocIndexFile').Origin);
-    Assert.AreEqual('it', EntryOf(LEntries, 'Language').Effective);
+    Assert.AreEqual('it', EntryOf(LEntries, 'Language').InUse);
     Assert.EndsWith(', root', EntryOf(LEntries, 'Language').Origin);
-    Assert.AreEqual('Orders', EntryOf(LEntries, 'DocAreas').Effective);
+    Assert.AreEqual('Orders', EntryOf(LEntries, 'DocAreas').InUse);
     Assert.EndsWith('profile Orders', EntryOf(LEntries, 'DocAreas').Origin);
     Assert.IsTrue(EntryOf(LEntries, 'DocAreas').InProfile);
     Assert.IsFalse(EntryOf(LEntries, 'DocAreas').InRoot);
     Assert.AreEqual('Library default', EntryOf(LEntries, 'Greeting').Origin);
     // An unsaved change already counts: the editor shows what it will be.
     LController.SetValue('Greeting', ccsProfile, 'Ciao');
-    Assert.AreEqual('Ciao', EntryOf(LController.Entries, 'Greeting').Effective);
+    Assert.AreEqual('Ciao', EntryOf(LController.Entries, 'Greeting').InUse);
+  finally
+    LController.Free;
+  end;
+end;
+
+procedure TConfigControllerTests.InUse_IsNeverEmpty_AndSaysWhoSetIt;
+var
+  LController: THelpChatConfigController;
+  LEntries: TArray<THelpChatConfigEntry>;
+  LEntry: THelpChatConfigEntry;
+begin
+  LController := NewController('');
+  try
+    LEntries := LController.Entries;
+    for LEntry in LEntries do
+      Assert.AreNotEqual('', LEntry.InUse, LEntry.Path + ' has a value in use');
+    // An empty value says what takes its place.
+    Assert.AreEqual(THelpChatClaudeSettings.DefaultModel, EntryOf(LEntries, 'Claude.Model').InUse);
+    Assert.AreEqual('(the whole manual)', EntryOf(LEntries, 'DocAreas').InUse);
+    Assert.AreEqual(Ord(csrDefault), Ord(EntryOf(LEntries, 'Claude.Model').Source));
+    Assert.AreEqual(Ord(csrComponent), Ord(EntryOf(LEntries, 'DocIndexFile').Source));
+    Assert.AreEqual(Ord(csrFile), Ord(EntryOf(LEntries, 'Language').Source));
+  finally
+    LController.Free;
+  end;
+end;
+
+procedure TConfigControllerTests.AssistantName_OfTheComponent_IsInUse;
+var
+  LController: THelpChatConfigController;
+  LEntry: THelpChatConfigEntry;
+begin
+  // The default assistant: the file names nobody at its root.
+  LController := NewController('');
+  try
+    LController.ComponentAssistantName := 'Bob';
+    LEntry := EntryOf(LController.Entries, 'AssistantName');
+    Assert.AreEqual('Bob', LEntry.InUse);
+    Assert.AreEqual(Ord(csrComponent), Ord(LEntry.Source));
+    // Written from the editor: the controller knows it at once, and an empty
+    // one takes it away again.
+    LController.SetComponentValue('AssistantName', 'Anna');
+    Assert.AreEqual('Anna', LController.ComponentAssistantName);
+    Assert.AreEqual('Anna', EntryOf(LController.Entries, 'AssistantName').InUse);
+    LController.SetComponentValue('AssistantName', '');
+    Assert.AreEqual(Ord(csrDefault), Ord(EntryOf(LController.Entries, 'AssistantName').Source));
+  finally
+    LController.Free;
+  end;
+  // A name in the profile prevails, as at run time.
+  LController := NewController('Orders');
+  try
+    LController.ComponentAssistantName := 'Bob';
+    LEntry := EntryOf(LController.Entries, 'AssistantName');
+    Assert.AreEqual('Giulio', LEntry.InUse);
+    Assert.AreEqual(Ord(csrFile), Ord(LEntry.Source));
+  finally
+    LController.Free;
+  end;
+end;
+
+procedure TConfigControllerTests.Kinds_NumbersSetsAndChoices;
+var
+  LController: THelpChatConfigController;
+  LEntries: TArray<THelpChatConfigEntry>;
+  LEntry: THelpChatConfigEntry;
+  LDoc: TJSONValue;
+begin
+  LController := NewController('');
+  try
+    LController.ComponentAssistantName := 'Bob';
+    LEntries := LController.Entries;
+    // What a view puts in its control: the value in use, also when the file
+    // being edited does not say it - and never a key.
+    Assert.AreEqual('Bob', EntryOf(LEntries, 'AssistantName').Value);
+    Assert.AreEqual('Help\from-the-dfm.json', EntryOf(LEntries, 'DocIndexFile').Value);
+    Assert.AreEqual('', EntryOf(LEntries, 'Claude.ApiKey').Value);
+    LEntry := EntryOf(LEntries, 'Claude.MaxTokens');
+    Assert.AreEqual(Ord(cvkNumber), Ord(LEntry.Kind));
+    Assert.AreEqual(IntToStr(HELPCHAT_MODEL_DEF_MAXTOKENS), LEntry.Value);
+    LEntry := EntryOf(LEntries, 'Languages');
+    Assert.AreEqual(Ord(cvkLanguages), Ord(LEntry.Kind));
+    Assert.AreEqual(6, Length(LEntry.Choices), 'one tick per language');
+    LEntry := EntryOf(LEntries, 'Language');
+    Assert.AreEqual('auto', LEntry.Choices[0]);
+    Assert.AreEqual(7, Length(LEntry.Choices), 'auto and the six languages');
+    Assert.AreEqual(Ord(cvkChoice), Ord(EntryOf(LEntries, 'SelectedModel').Kind));
+    Assert.AreEqual('Claude', EntryOf(LEntries, 'SelectedModel').Choices[0],
+      'the models of the catalogue in force');
+    LController.SetValue('Claude.MaxTokens', ccsRoot, '2048');
+    LController.SetValue('Languages', ccsRoot, 'it, en');
+    LController.Save;
+  finally
+    LController.Free;
+  end;
+  LDoc := TJSONObject.ParseJSONValue(TFile.ReadAllText(FFile, TEncoding.UTF8));
+  try
+    Assert.IsTrue(LDoc.GetValue<TJSONValue>('Claude.MaxTokens') is TJSONNumber, 'a number');
+    Assert.AreEqual(2048, LDoc.GetValue<Integer>('Claude.MaxTokens'));
+    Assert.AreEqual('["it","en"]', LDoc.GetValue<TJSONValue>('Languages').ToJSON, 'an array');
+  finally
+    LDoc.Free;
+  end;
+end;
+
+procedure TConfigControllerTests.ResetComponentValue_GivesTheLibraryValueBack;
+var
+  LController: THelpChatConfigController;
+begin
+  LController := NewController('');
+  try
+    LController.ComponentAssistantName := 'Bob';
+    LController.SetComponentValue('Claude.MaxTokens', '4096');
+    Assert.IsTrue(EntryOf(LController.Entries, 'DocIndexFile').InComponent);
+    Assert.IsTrue(EntryOf(LController.Entries, 'Claude.MaxTokens').InComponent);
+    Assert.IsTrue(EntryOf(LController.Entries, 'AssistantName').InComponent);
+    // A file prevails, and the component still sets it: what the button
+    // offers to take away is the component's, whoever is in use.
+    Assert.IsTrue(EntryOf(LController.Entries, 'Language').InRoot);
+    Assert.IsFalse(EntryOf(LController.Entries, 'Language').InComponent);
+    LController.ResetComponentValue('DocIndexFile');
+    LController.ResetComponentValue('Claude.MaxTokens');
+    LController.ResetComponentValue('AssistantName');
+    Assert.AreEqual('', FComponent.DocIndexFile);
+    Assert.AreEqual(HELPCHAT_MODEL_DEF_MAXTOKENS, FComponent.Claude.MaxTokens);
+    Assert.AreEqual('', LController.ComponentAssistantName);
+    Assert.IsFalse(EntryOf(LController.Entries, 'DocIndexFile').InComponent);
+    Assert.AreEqual(Ord(csrDefault), Ord(EntryOf(LController.Entries, 'Claude.MaxTokens').Source));
+    Assert.WillRaise(
+      procedure
+      begin
+        LController.ResetComponentValue('Claude.ApiKey');
+      end, EHelpChatConfigError);
   finally
     LController.Free;
   end;
@@ -250,8 +391,8 @@ begin
   LController := NewController('');
   try
     LEntry := EntryOf(LController.Entries, 'Claude.ApiKey');
-    Assert.DoesNotContain(LEntry.Effective, 'sk-ant-0123', 'masked');
-    Assert.EndsWith('cdef (23 characters)', LEntry.Effective);
+    Assert.DoesNotContain(LEntry.InUse, 'sk-ant-0123', 'masked');
+    Assert.EndsWith('cdef (23 characters)', LEntry.InUse);
     Assert.DoesNotContain(LEntry.RootValue, 'sk-ant');
     Assert.WillRaise(
       procedure

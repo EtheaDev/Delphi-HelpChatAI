@@ -155,6 +155,18 @@ type
     // window is clipped by a region, as it always was, and only the drawing
     // inside it is antialiased.
     FLayered: Boolean;
+    FDraggable: Boolean;
+    FOnMoved: TNotifyEvent;
+    // A left button went down on the bubble and has not come up yet.
+    FTracking: Boolean;
+    // That press moved the bubble: the click it ends is not a click. Reset at
+    // the next press, so the order of Click and MouseUp does not matter.
+    FDragged: Boolean;
+    // Where the press started, on the screen (the bubble moves under the
+    // mouse, so its own coordinates would drift), and where the bubble was.
+    FDownPoint: TPoint;
+    FDownLeft: Integer;
+    FDownTop: Integer;
     /// <summary>Whether to ask Windows for a layered window at all: not in
     /// the designer, not before Windows 8.</summary>
     function WantsLayered: Boolean;
@@ -219,6 +231,11 @@ type
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    /// <summary>With <c>Draggable</c>, a press that moves farther than the
+    /// drag threshold of the system moves the bubble, inside its parent.</summary>
+    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
+    /// <summary>No click at the end of a drag.</summary>
+    procedure Click; override;
     /// <summary>The region fallback only: a layered window is never asked
     /// to paint.</summary>
     procedure Paint; override;
@@ -253,6 +270,10 @@ type
     property BubbleColor: TColor read FBubbleColor write SetBubbleColor default clNone;
     property Constraints;
     property Cursor default crHandPoint;
+    /// <summary>The user may move the bubble by dragging it inside its
+    /// parent; a press that does not move past the drag threshold of the
+    /// system is still a click. <c>OnMoved</c> says where it was left.</summary>
+    property Draggable: Boolean read FDraggable write FDraggable default False;
     property Enabled;
     property Font;
     property Hint;
@@ -273,6 +294,9 @@ type
     property OnMouseEnter;
     property OnMouseLeave;
     property OnMouseUp;
+    /// <summary>The user dropped the bubble somewhere else: fired once, when
+    /// the button comes up at the end of a drag.</summary>
+    property OnMoved: TNotifyEvent read FOnMoved write FOnMoved;
   end;
 
 /// <summary>
@@ -1179,20 +1203,66 @@ begin
   if Button = mbLeft then
   begin
     FPressed := True;
+    FTracking := True;
+    FDragged := False;
+    FDownPoint := ClientToScreen(Point(X, Y));
+    FDownLeft := Left;
+    FDownTop := Top;
     Invalidate;
   end;
   inherited MouseDown(Button, Shift, X, Y);
 end;
 
+procedure TVclHelpChatAIBubble.MouseMove(Shift: TShiftState; X, Y: Integer);
+var
+  LPoint: TPoint;
+  LLeft, LTop: Integer;
+begin
+  inherited MouseMove(Shift, X, Y);
+  if not FTracking or not FDraggable or not (ssLeft in Shift) or (Parent = nil) then
+    Exit;
+  // Screen coordinates: the bubble moves under the mouse, its own do not hold.
+  LPoint := ClientToScreen(Point(X, Y));
+  if not FDragged then
+  begin
+    if (Abs(LPoint.X - FDownPoint.X) < GetSystemMetrics(SM_CXDRAG)) and
+       (Abs(LPoint.Y - FDownPoint.Y) < GetSystemMetrics(SM_CYDRAG)) then
+      Exit;
+    FDragged := True;
+    Application.CancelHint;
+  end;
+  LLeft := Max(0, Min(FDownLeft + LPoint.X - FDownPoint.X, Parent.ClientWidth - Width));
+  LTop := Max(0, Min(FDownTop + LPoint.Y - FDownPoint.Y, Parent.ClientHeight - Height));
+  if (LLeft <> Left) or (LTop <> Top) then
+  begin
+    SetBounds(LLeft, LTop, Width, Height);
+    Parent.Update;               // what was under the bubble, painted at once
+  end;
+end;
+
 procedure TVclHelpChatAIBubble.MouseUp(Button: TMouseButton; Shift: TShiftState;
   X, Y: Integer);
+var
+  LMoved: Boolean;
 begin
+  LMoved := FTracking and FDragged and (Button = mbLeft);
+  if Button = mbLeft then
+    FTracking := False;
   if FPressed then
   begin
     FPressed := False;
     Invalidate;
   end;
   inherited MouseUp(Button, Shift, X, Y);
+  if LMoved and Assigned(FOnMoved) then
+    FOnMoved(Self);
+end;
+
+procedure TVclHelpChatAIBubble.Click;
+begin
+  if FDragged then
+    Exit;
+  inherited Click;
 end;
 
 procedure TVclHelpChatAIBubble.CMMouseEnter(var Message: TMessage);

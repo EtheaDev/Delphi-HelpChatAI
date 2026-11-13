@@ -76,11 +76,25 @@ type
     function ShortCaption: string;
   end;
 
-  /// <summary>How a value is edited: what the views show for it.</summary>
-  THelpChatConfigValueKind = (cvkText, cvkMemo, cvkBoolean, cvkList, cvkLanguage, cvkSecret);
+  /// <summary>How a value is edited, which is what decides the control a
+  /// view shows for it: <c>cvkText</c> a line, <c>cvkMemo</c> several (the
+  /// prompts), <c>cvkBoolean</c> a check box, <c>cvkList</c> a line of names
+  /// separated by commas (free: areas, actions), <c>cvkLanguage</c> a choice
+  /// among <c>Choices</c>, <c>cvkSecret</c> a masked line, <c>cvkLanguages</c>
+  /// a set - one tick per item of <c>Choices</c> -, <c>cvkNumber</c> a whole
+  /// number, <c>cvkChoice</c> a line with the usual values offered
+  /// (<c>Choices</c>) and any other accepted - a provider of the application,
+  /// a model of a file read later.</summary>
+  THelpChatConfigValueKind = (cvkText, cvkMemo, cvkBoolean, cvkList, cvkLanguage, cvkSecret,
+    cvkLanguages, cvkNumber, cvkChoice);
 
   /// <summary>Where in a file a value is written.</summary>
   THelpChatConfigScope = (ccsRoot, ccsProfile);
+
+  /// <summary>Who set the value in use, in three kinds: what a view shows at
+  /// a glance, the way the Object Inspector does - <c>Origin</c> says the
+  /// same in words.</summary>
+  THelpChatConfigSource = (csrDefault, csrComponent, csrFile);
 
   /// <summary>One setting as the editor lists it.</summary>
   THelpChatConfigEntry = record
@@ -89,17 +103,40 @@ type
     Caption: string;
     Hint: string;
     Kind: THelpChatConfigValueKind;
-    /// <summary>The value in force, as text (a secret masked).</summary>
-    Effective: string;
+    /// <summary>The value the component uses, as text, never empty: what is
+    /// configured, else what an empty value resolves to - the default model
+    /// of the provider, the localized greeting, the language of the OS - or,
+    /// where nothing takes its place, a word in parentheses that says so
+    /// ("(none)", "(the whole manual)"). A secret is masked.</summary>
+    InUse: string;
+    /// <summary>The value in use as it would be written - no masking, no
+    /// word in parentheses: empty when nothing is configured. What a view
+    /// puts in its edit control when the file being edited does not say the
+    /// value itself. Always empty for a secret: a key is shown only from the
+    /// file that holds it.</summary>
+    Value: string;
+    /// <summary>What a view offers for a <c>cvkLanguage</c>,
+    /// <c>cvkLanguages</c> or <c>cvkChoice</c>: the language codes (with
+    /// <c>auto</c> for a single language), the providers registered in this
+    /// process, the names of the models in force. Empty for the other
+    /// kinds.</summary>
+    Choices: TArray<string>;
     /// <summary>Who set it: "Library default", "Component", or the caption
     /// of a file with "root" or "profile X".</summary>
     Origin: string;
+    /// <summary><c>Origin</c> as one of three kinds.</summary>
+    Source: THelpChatConfigSource;
     /// <summary>In the file being edited, at its root.</summary>
     RootValue: string;
     InRoot: Boolean;
     /// <summary>In the file being edited, in the profile of the assistant.</summary>
     ProfileValue: string;
     InProfile: Boolean;
+    /// <summary>True when the component sets a value of its own, other than
+    /// the library's - what the form file stores, and what
+    /// <c>ResetComponentValue</c> takes away. A file may still prevail over
+    /// it, so this is not the same as <c>Source</c> = <c>csrComponent</c>.</summary>
+    InComponent: Boolean;
   end;
 
   /// <summary>One model of a catalogue.</summary>
@@ -136,7 +173,15 @@ type
     FModified: Boolean;
     FLastError: string;
     FLoadError: string;
+    FComponentAssistantName: string;
     procedure SetTargetIndex(const Value: Integer);
+    /// <summary>What <c>InUse</c> says for APath, given the settings with
+    /// every layer applied and ARaw, the value they hold as text.</summary>
+    function InUseText(const ASettings: THelpChatSettings; const APath, ARaw: string): string;
+    /// <summary>What <c>Choices</c> says for APath, given the settings with
+    /// every layer applied.</summary>
+    class function ChoicesOf(const ASettings: THelpChatSettings; const APath: string;
+      const AKind: THelpChatConfigValueKind): TArray<string>; static;
     procedure SetProfile(const Value: string);
     function ScopeObject(const AScope: THelpChatConfigScope; const ACreate: Boolean): TJSONObject;
     class function FindValue(const AObject: TJSONObject; const APath: string): TJSONValue; static;
@@ -207,8 +252,17 @@ type
     /// layer below decides again. An empty section is left behind.</summary>
     procedure RemoveValue(const APath: string; const AScope: THelpChatConfigScope);
     /// <summary>Writes AText into the component's settings - what goes into
-    /// the form file. Secrets are refused: a key belongs to a file.</summary>
+    /// the form file. Secrets are refused: a key belongs to a file.
+    /// <c>AssistantName</c> also becomes <see cref="ComponentAssistantName" />:
+    /// the settings do not publish it, so the caller moves it from them to
+    /// the property of the component.</summary>
     procedure SetComponentValue(const APath, AText: string);
+    /// <summary>Gives the setting at APath of the component the value of the
+    /// library back, like "Revert to inherited" in the Object Inspector:
+    /// the form file stops storing it. <c>AssistantName</c> empties
+    /// <see cref="ComponentAssistantName" />. Secrets are refused, as by
+    /// <c>SetComponentValue</c>.</summary>
+    procedure ResetComponentValue(const APath: string);
 
     /// <summary>The profiles of the file being edited.</summary>
     function Profiles: TArray<string>;
@@ -254,12 +308,18 @@ type
     property TargetIndex: Integer read FTargetIndex write SetTargetIndex;
     /// <summary>The profile of the assistant; empty = the default one.</summary>
     property Profile: string read FProfile write SetProfile;
-    /// <summary>True when the file being edited has changes <c>Save</c> has
-    /// not written yet.</summary>
+    /// <summary>The <c>AssistantName</c> of the component: a property of the
+    /// component, not of its settings, which is why the views pass it apart.
+    /// It is the component's layer of "Name of the assistant", under the
+    /// files, as at run time: a name in a file prevails.</summary>
+    property ComponentAssistantName: string read FComponentAssistantName
+      write FComponentAssistantName;
     /// <summary>Why the file being edited could not be read (it exists and is
     /// not a JSON object); empty when it was read, or is not there yet. While
     /// it is set the file is shown empty and <c>Save</c> refuses.</summary>
     property LoadError: string read FLoadError;
+    /// <summary>True when the file being edited has changes <c>Save</c> has
+    /// not written yet.</summary>
     property Modified: Boolean read FModified;
     /// <summary>Why the last <c>Reload</c>, <c>Save</c> or <c>Entries</c> did
     /// not go as asked; empty when it did.</summary>
@@ -270,7 +330,9 @@ implementation
 
 uses
   System.IOUtils,
-  HelpChatAI.Types;
+  HelpChatAI.Types,
+  HelpChatAI.Messages,
+  HelpChatAI.Provider;
 
 type
   TCatalogueItem = record
@@ -281,21 +343,22 @@ type
   end;
 
 const
-  CATALOGUE_ITEMS: array[0..26] of TCatalogueItem = (
+  CATALOGUE_ITEMS: array[0..34] of TCatalogueItem = (
     (Path: 'AssistantName'; Caption: 'Name of the assistant'; Kind: cvkText;
       Hint: 'What the panel calls it; prevails over the property of the component'),
     (Path: 'Instructions'; Caption: 'Instructions'; Kind: cvkMemo;
       Hint: 'What this assistant is: added to the system prompt after the built-in rules'),
     (Path: 'SystemPrompt'; Caption: 'System prompt'; Kind: cvkMemo;
       Hint: 'Replaces the built-in rules altogether: rarely what you want'),
-    (Path: 'Provider'; Caption: 'Provider'; Kind: cvkText;
+    (Path: 'Provider'; Caption: 'Provider'; Kind: cvkChoice;
       Hint: 'stub, docsearch, claude, openai, gemini or one of yours'),
-    (Path: 'SelectedModel'; Caption: 'Model in use at start'; Kind: cvkText;
+    (Path: 'SelectedModel'; Caption: 'Model in use at start'; Kind: cvkChoice;
       Hint: 'A name of the Models list'),
     (Path: 'Greeting'; Caption: 'Greeting'; Kind: cvkText; Hint: 'Empty = the localized one'),
     (Path: 'Language'; Caption: 'Language of the chat'; Kind: cvkLanguage;
       Hint: 'auto, en, it, es, fr, de, pt'),
-    (Path: 'Languages'; Caption: 'Languages offered'; Kind: cvkList; Hint: 'Codes, separated by commas'),
+    (Path: 'Languages'; Caption: 'Languages offered'; Kind: cvkLanguages;
+      Hint: 'What the flag of the panel offers; fewer than two = no flag'),
     (Path: 'DocLanguage'; Caption: 'Language of the manual'; Kind: cvkLanguage;
       Hint: 'auto = not stated'),
     (Path: 'DocIndexFile'; Caption: 'Documentation index'; Kind: cvkText;
@@ -309,19 +372,32 @@ const
     (Path: 'PersistConversation'; Caption: 'Save the conversation'; Kind: cvkBoolean; Hint: ''),
     (Path: 'Attachments.Enabled'; Caption: 'Attachments allowed'; Kind: cvkBoolean;
       Hint: 'What the user attaches leaves the machine'),
+    (Path: 'ConversationMaxAgeDays'; Caption: 'Days a saved conversation lasts'; Kind: cvkNumber;
+      Hint: 'An older one is discarded at load; 0 = never'),
+    (Path: 'MessageMaxLength'; Caption: 'Longest question'; Kind: cvkNumber;
+      Hint: 'In characters, longer ones are cut; 0 = no limit'),
+    (Path: 'HistoryMaxMessages'; Caption: 'Messages sent with a question'; Kind: cvkNumber;
+      Hint: 'The most recent ones of the conversation; 0 = all'),
+    (Path: 'MaxStoredMessages'; Caption: 'Messages kept'; Kind: cvkNumber;
+      Hint: 'Older ones are pruned; 0 = unlimited'),
+    (Path: 'PoolSize'; Caption: 'Replies at the same time'; Kind: cvkNumber;
+      Hint: 'Worker threads producing replies, 1 or more'),
     (Path: 'Claude.ApiKey'; Caption: 'Claude: API key'; Kind: cvkSecret;
       Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
     (Path: 'Claude.Model'; Caption: 'Claude: model'; Kind: cvkText; Hint: 'Empty = the default'),
     (Path: 'Claude.BaseUrl'; Caption: 'Claude: endpoint'; Kind: cvkText; Hint: 'Empty = the default'),
+    (Path: 'Claude.MaxTokens'; Caption: 'Claude: longest reply'; Kind: cvkNumber; Hint: 'In tokens'),
     (Path: 'OpenAI.ApiKey'; Caption: 'OpenAI: API key'; Kind: cvkSecret;
       Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
     (Path: 'OpenAI.Model'; Caption: 'OpenAI: model'; Kind: cvkText; Hint: 'Empty = the default'),
     (Path: 'OpenAI.BaseUrl'; Caption: 'OpenAI: endpoint'; Kind: cvkText;
       Hint: 'Ollama, LM Studio, Azure, Groq...'),
+    (Path: 'OpenAI.MaxTokens'; Caption: 'OpenAI: longest reply'; Kind: cvkNumber; Hint: 'In tokens'),
     (Path: 'Gemini.ApiKey'; Caption: 'Gemini: API key'; Kind: cvkSecret;
       Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
     (Path: 'Gemini.Model'; Caption: 'Gemini: model'; Kind: cvkText; Hint: 'Empty = the default'),
     (Path: 'Gemini.BaseUrl'; Caption: 'Gemini: endpoint'; Kind: cvkText; Hint: 'Empty = the default'),
+    (Path: 'Gemini.MaxTokens'; Caption: 'Gemini: longest reply'; Kind: cvkNumber; Hint: 'In tokens'),
     (Path: 'Remote.BaseUrl'; Caption: 'Remote server'; Kind: cvkText;
       Hint: 'Empty = the engine runs in the application'),
     (Path: 'Remote.AppKey'; Caption: 'Remote: application key'; Kind: cvkSecret; Hint: ''));
@@ -799,7 +875,9 @@ begin
   case KindOf(APath) of
     cvkBoolean:
       Result := TJSONBool.Create(SameText(Trim(AText), 'true') or (Trim(AText) = '1'));
-    cvkList:
+    cvkNumber:
+      Result := TJSONNumber.Create(StrToIntDef(Trim(AText), 0));
+    cvkList, cvkLanguages:
       begin
         LArray := TJSONArray.Create;
         for LItem in AText.Split([',', ';']) do
@@ -919,9 +997,136 @@ begin
     LProfile := FComponentSettings.Profile;
     FComponentSettings.LoadFromJSON(LRoot.ToJSON);
     FComponentSettings.Profile := LProfile;
+    // LoadFromJSON leaves the name alone when the text is empty, and the
+    // caller moves it to the component and empties the settings: what the
+    // component holds from now on is this.
+    if SameText(APath, 'AssistantName') then
+    begin
+      FComponentAssistantName := Trim(AText);
+      FComponentSettings.AssistantName := FComponentAssistantName;
+    end;
   finally
     LRoot.Free;
   end;
+end;
+
+class function THelpChatConfigController.ChoicesOf(const ASettings: THelpChatSettings;
+  const APath: string; const AKind: THelpChatConfigValueKind): TArray<string>;
+var
+  LLanguage: THelpChatLanguage;
+  LModel: THelpChatModelInfo;
+begin
+  Result := nil;
+  case AKind of
+    cvkLanguage, cvkLanguages:
+      begin
+        if AKind = cvkLanguage then
+          Result := ['auto'];
+        for LLanguage in HelpChatLanguageList(HELPCHAT_ALL_LANGUAGES) do
+          Result := Result + [HelpChatLanguageCode(LLanguage)];
+      end;
+    cvkChoice:
+      if SameText(APath, 'Provider') then
+        Result := THelpChatProviderRegistry.ProviderNames
+      else if SameText(APath, 'SelectedModel') then
+        for LModel in ASettings.ResolveModels do
+          Result := Result + [LModel.Name];
+  end;
+end;
+
+procedure THelpChatConfigController.ResetComponentValue(const APath: string);
+var
+  LDefaults: THelpChatSettings;
+  LFlat: TDictionary<string, string>;
+  LText: string;
+begin
+  // The default as text, read from settings nobody touched, and written the
+  // way any other value is: the same path, the same conversions.
+  LDefaults := THelpChatSettings.Create;
+  try
+    LFlat := Flatten(LDefaults);
+    try
+      if not LFlat.TryGetValue(APath, LText) then
+        LText := '';
+    finally
+      LFlat.Free;
+    end;
+  finally
+    LDefaults.Free;
+  end;
+  SetComponentValue(APath, LText);
+end;
+
+function THelpChatConfigController.InUseText(const ASettings: THelpChatSettings;
+  const APath, ARaw: string): string;
+var
+  LSection: THelpChatModelSettings;
+  LPrefix, LName, LVariable: string;
+begin
+  LPrefix := '';
+  LName := APath;
+  if APath.Contains('.') then
+  begin
+    LPrefix := APath.Substring(0, APath.IndexOf('.'));
+    LName := APath.Substring(APath.IndexOf('.') + 1);
+  end;
+  LSection := nil;
+  if LPrefix <> '' then
+    LSection := ASettings.ModelFor(LPrefix);
+  // A language says the concrete one even when it is configured as auto.
+  if SameText(APath, 'Language') then
+  begin
+    if SameText(ARaw, 'auto') or (ARaw = '') then
+      Exit(HelpChatLanguageCode(ASettings.ResolveLanguage) + ' (auto)');
+    Exit(ARaw);
+  end;
+  if SameText(APath, 'DocLanguage') and (SameText(ARaw, 'auto') or (ARaw = '')) then
+    Exit('auto (not stated)');
+  if KindOf(APath) = cvkSecret then
+  begin
+    if ARaw <> '' then
+      Exit(MaskSecret(ARaw));
+    if Assigned(LSection) and LSection.HasConfiguredApiKey then
+      Exit('(ApiKeyEncrypted: decrypted by the application)');
+    if Assigned(LSection) then
+    begin
+      LVariable := LSection.ApiKeyEnvVar;
+      if (LVariable <> '') and (GetEnvironmentVariable(LVariable) <> '') then
+        Exit('(environment variable ' + LVariable + ')');
+    end;
+    Exit('(none)');
+  end;
+  if ARaw <> '' then
+    Exit(ARaw);
+  // Empty: what takes its place, or a word that says nothing does.
+  if Assigned(LSection) and SameText(LName, 'Model') then
+    Result := LSection.ResolveModel
+  else if Assigned(LSection) and SameText(LName, 'BaseUrl') then
+    Result := LSection.NormalizedBaseUrl
+  else if SameText(APath, 'AssistantName') then
+    Result := HelpChatMsg(hcmUiTitle, ASettings.ResolveLanguage) + ' (localized)'
+  else if SameText(APath, 'Greeting') then
+    Result := ASettings.ResolveGreeting
+  else if SameText(APath, 'Provider') then
+    Result := 'stub'
+  else if SameText(APath, 'SelectedModel') then
+    Result := ASettings.ActiveModelName
+  else if SameText(APath, 'SystemPrompt') then
+    Result := '(the built-in rules)'
+  else if SameText(APath, 'DocIndexFile') then
+    Result := HELPCHAT_DEF_DOCINDEX_FILENAME
+  else if SameText(APath, 'DocFolder') then
+    Result := '(none: links keep their URL)'
+  else if SameText(APath, 'DocAreas') then
+    Result := '(the whole manual)'
+  else if SameText(APath, 'AllowedActions') then
+    Result := '(all of them)'
+  else if SameText(APath, 'Remote.BaseUrl') then
+    Result := '(none: the engine runs in the application)'
+  else
+    Result := '(none)';
+  if Result = '' then
+    Result := '(none)';
 end;
 
 function THelpChatConfigController.Entries: TArray<THelpChatConfigEntry>;
@@ -929,6 +1134,7 @@ var
   LSettings: THelpChatSettings;
   LBefore, LAfter: TDictionary<string, string>;
   LOrigins: TDictionary<string, string>;
+  LOwn: TList<string>;
   LDoc: TJSONObject;
   LProfiles: TJSONPair;
   LProfile: TJSONValue;
@@ -964,6 +1170,7 @@ begin
   // Not emptied: a file that could not be read is the first thing to say.
   FLastError := FLoadError;
   LOrigins := TDictionary<string, string>.Create;
+  LOwn := TList<string>.Create;
   LSettings := THelpChatSettings.Create;
   LBefore := nil;
   try
@@ -975,7 +1182,16 @@ begin
       LOrigins.AddOrSetValue(LKey, ORIGIN_DEFAULT);
     LSettings.Assign(FComponentSettings);
     LSettings.Profile := '';
+    // The name of the assistant is a property of the component, not of its
+    // settings: without this it was never credited to the component, and
+    // never shown in use once written there.
+    if LSettings.AssistantName = '' then
+      LSettings.AssistantName := FComponentAssistantName;
     Layer(ORIGIN_COMPONENT);
+    // What the component sets, before any file has a say over it.
+    for LKey in LOrigins.Keys do
+      if LOrigins[LKey] = ORIGIN_COMPONENT then
+        LOwn.Add(LKey);
     for I := 0 to High(FFiles) do
     begin
       LDoc := DocumentOf(I);
@@ -1012,15 +1228,21 @@ begin
     end;
     for I := 0 to High(Result) do
     begin
-      if LBefore.TryGetValue(Result[I].Path, LValue) then
-      begin
-        if Result[I].Kind = cvkSecret then
-          Result[I].Effective := MaskSecret(LValue)
-        else
-          Result[I].Effective := LValue;
-      end;
+      if not LBefore.TryGetValue(Result[I].Path, LValue) then
+        LValue := '';
+      Result[I].InUse := InUseText(LSettings, Result[I].Path, LValue);
+      if Result[I].Kind <> cvkSecret then
+        Result[I].Value := LValue;
+      Result[I].Choices := ChoicesOf(LSettings, Result[I].Path, Result[I].Kind);
       if not LOrigins.TryGetValue(Result[I].Path, Result[I].Origin) then
         Result[I].Origin := ORIGIN_DEFAULT;
+      if Result[I].Origin = ORIGIN_DEFAULT then
+        Result[I].Source := csrDefault
+      else if Result[I].Origin = ORIGIN_COMPONENT then
+        Result[I].Source := csrComponent
+      else
+        Result[I].Source := csrFile;
+      Result[I].InComponent := LOwn.Contains(Result[I].Path);
       Result[I].InRoot := GetValue(Result[I].Path, ccsRoot, Result[I].RootValue);
       Result[I].InProfile := GetValue(Result[I].Path, ccsProfile, Result[I].ProfileValue);
       if Result[I].Kind = cvkSecret then
@@ -1032,6 +1254,7 @@ begin
   finally
     LBefore.Free;
     LSettings.Free;
+    LOwn.Free;
     LOrigins.Free;
   end;
 end;

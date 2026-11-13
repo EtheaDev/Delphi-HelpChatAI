@@ -406,19 +406,20 @@ begin
     0:
       if Assigned(LChat) then
         TFmxHelpChatConfigEditor.Execute(TFmxHelpChatAI(LChat).Settings,
-          TFmxHelpChatAI(LChat).Profile, DesignExeFile,
-          TFmxHelpChatAI(LChat).ConfigFileName,
+          TFmxHelpChatAI(LChat).Profile, TFmxHelpChatAI(LChat).AssistantName,
+          DesignExeFile, TFmxHelpChatAI(LChat).ConfigFileName,
           procedure(AProfile: string)
           begin
             TFmxHelpChatAI(LChat).Profile := AProfile;
             Designer.Modified;
           end,
-          procedure
+          procedure(APath: string)
           begin
             // "To component" writes into Settings, and the name of the
             // assistant is not a published property there: it lives on the
-            // component, which is what the form file stores.
-            if TFmxHelpChatAI(LChat).Settings.AssistantName <> '' then
+            // component, which is what the form file stores. Moved even when
+            // empty, which is how the name is taken away again.
+            if SameText(APath, 'AssistantName') then
             begin
               TFmxHelpChatAI(LChat).AssistantName := TFmxHelpChatAI(LChat).Settings.AssistantName;
               TFmxHelpChatAI(LChat).Settings.AssistantName := '';

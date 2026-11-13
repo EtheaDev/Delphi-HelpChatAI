@@ -63,6 +63,7 @@ contains
   HelpChatAI.Types in '..\..\source\HelpChatAI.Types.pas',
   HelpChatAI.Messages in '..\..\source\HelpChatAI.Messages.pas',
   HelpChatAI.Assistant in '..\..\source\HelpChatAI.Assistant.pas',
+  HelpChatAI.UiState in '..\..\source\HelpChatAI.UiState.pas',
   HelpChatAI.Icons in '..\..\source\HelpChatAI.Icons.pas',
   HelpChatAI.Commands in '..\..\source\HelpChatAI.Commands.pas',
   HelpChatAI.Settings in '..\..\source\HelpChatAI.Settings.pas',

@@ -493,7 +493,18 @@ the edit on every version, not on the one that happens to be open.
   adds a child or is resized (`CM_CONTROLLISTCHANGE`, `WM_PARENTNOTIFY`, `WM_SIZE`). The hook
   is one per parent, shared by its bubbles (see the coordinator rule), and is restored only
   while the chain is still ours. FMX needs none of this: there everything is
-  drawn, so a control cannot hide another.
+  drawn, so a control cannot hide another. **The user may drag it** (`BubbleDraggable`; the
+  control's own `Draggable`/`OnMoved` in the VCL, mouse events on the `TCircle` with
+  `AutoCapture` in FMX): a press is a click until it moves past the drag threshold, and the
+  click that ends a drag is swallowed (the flag is reset at the next press, so the order of
+  `Click` and `MouseUp` does not matter). Dropped, it is anchored to the nearest corner -
+  bounds first, anchors after, since both frameworks take the anchor rules from where the
+  control is - and remembered with `RememberPanelPosition` per class of host form.
+  `HelpChatAI.UiState` (RTL, engine) holds that geometry (`THelpChatBubblePlace`: corner and
+  distances at 96 DPI, kept inside a smaller form) and the file of the UI state, written one
+  key at a time (`HelpChatUiStateWrite`): `"panel"` and `"bubbles"` live in the same
+  `helpchatai-ui[-Profile].json`, and the old writer that replaced the whole file would have
+  made each forget the other.
 - **The icon follows the Delphi contract, and ships its own fallback.** `Images`, `ImageIndex`
   and `ImageName` live on the bubble and are mirrored by `TVclHelpChatAI`: an image list of the
   application wins. With none, the bubble builds a `TVirtualImageList` over
@@ -707,7 +718,22 @@ the edit on every version, not on the one that happens to be open.
   everything), a Help button on `HELPCHAT_CONFIG_EDITOR_HELP_URL` (the `Component-Editor` page),
   and the provenance of every value - defaults, component, then each file's root and profile,
   applied one at a time and diffed through `SaveToJSON`, plus the keys a layer writes even with
-  the value already in force. `Vcl.HelpChatAI.ConfigEditor` (dclHelpChatAIVcl, a DFM) and
+  the value already in force. Each entry carries `InUse` (never empty: an empty value says what
+  replaces it), `Value` (what a view puts in its control when the file says nothing; never a
+  key), `Source` (default, component, file: plain, bold blue, bold in the list, as in the
+  Object Inspector), `InComponent` (what `ResetComponentValue` takes away) and `Choices`; the
+  `Kind` decides the control of a view. `AssistantName` is a property of the component, not
+  of its settings, so the views pass it apart (`ComponentAssistantName`) - without that, a name
+  written into the component never showed. In the VCL view, with `seFont` the IDE theme
+  repaints the text of the list with its own colour and the blue never shows; with
+  `StyleElements := []` the list went white on a dark theme. So only `seFont` goes, in the
+  custom draw handlers (taken away in `FormCreate`, the theme put it back), and the colours
+  it gave are set by hand: the VCL resets the canvas to the control's font and `Color`
+  before every cell, so `PrepareCell` sets brush and font to the theme's in both
+  `OnCustomDrawItem` (the first column is the caption, which the sub-item handler never
+  sees) and `OnCustomDrawSubItem`, and the column headers, which the style hook paints with
+  the control's `Font` once `seFont` is off, need `SettingsList.Font.Color` too.
+  `Vcl.HelpChatAI.ConfigEditor` (dclHelpChatAIVcl, a DFM) and
   `FMX.HelpChatAI.ConfigEditor` (dclHelpChatAIFmx, an FMX form, FireMonkey controls) are
   clones that show and forward, with the same `Execute` contract; neither design package
   requires the other. It is verb 0, so a double click opens it. The VCL one follows the light

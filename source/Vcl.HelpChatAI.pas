@@ -90,7 +90,8 @@ uses
   HelpChatAI.Engine,
   HelpChatAI.Html,
   HelpChatAI.Pdf,
-  HelpChatAI.Transport;
+  HelpChatAI.Transport,
+  HelpChatAI.UiState;
 
 const
   HELPCHAT_VCL_DEF_PANEL_WIDTH = 400;
@@ -100,8 +101,9 @@ const
   /// <summary>The same question within this interval (key auto-repeat, F1 routed
   /// twice) is shown but not sent again.</summary>
   HELPCHAT_VCL_ASK_DEBOUNCE_MS = 1500;
-  /// <summary>Per-application UI state (panel position and size).</summary>
-  HELPCHAT_VCL_UI_STATE_FILENAME = 'helpchatai-ui.json';
+  /// <summary>Per-application UI state (panel position and size, place of
+  /// the bubble): see <c>HelpChatAI.UiState</c>.</summary>
+  HELPCHAT_VCL_UI_STATE_FILENAME = HELPCHAT_UI_STATE_FILENAME;
 
 type
   TVclHelpChatAI = class;
@@ -179,6 +181,7 @@ type
     FHandleF1: Boolean;
     FRegisterHelpViewer: Boolean;
     FShowBubble: Boolean;
+    FBubbleDraggable: Boolean;
     FConfigFileName: TFileName;
     FPdfStyleSheet: TFileName;
     FPanelStyleSheet: TFileName;
@@ -239,6 +242,7 @@ type
     /// loading only the flag is kept.</summary>
     procedure SetActive(const Value: Boolean);
     procedure SetShowBubble(const Value: Boolean);
+    procedure SetBubbleDraggable(const Value: Boolean);
     procedure SetImages(const Value: TCustomImageList);
     procedure SetImageIndex(const Value: TImageIndex);
     procedure SetImageName(const Value: TImageName);
@@ -270,6 +274,15 @@ type
     procedure EnsureBubble;
     procedure DestroyBubble;
     procedure BubbleClick(Sender: TObject);
+    /// <summary>The user dropped the bubble: anchored to the corner it is
+    /// nearest to, and remembered with RememberPanelPosition.</summary>
+    procedure BubbleMoved(Sender: TObject);
+    /// <summary>Puts the bubble at a place of its form and anchors it to
+    /// that corner, so that it keeps its distance when the form is resized.</summary>
+    procedure PlaceBubble(const APlace: THelpChatBubblePlace);
+    /// <summary>The key of the host form in the UI state: its class, so that
+    /// every instance of one form shares the place.</summary>
+    function BubbleFormKey: string;
     /// <summary>Creates the browser control, hidden and with no parent yet:
     /// <c>OpenWithContext</c> decides where it goes.</summary>
     procedure EnsureView;
@@ -437,6 +450,9 @@ type
     /// <summary>Opens the panel when it is hidden, hides it when it is shown:
     /// what the bubble does.</summary>
     procedure Toggle;
+    /// <summary>Takes the bubble back to the bottom-right corner of its form
+    /// and forgets the place the user dragged it to.</summary>
+    procedure ResetBubblePosition;
     /// <summary>True when the chat is shown, in the own window or in a
     /// container.</summary>
     function IsPanelVisible: Boolean;
@@ -540,6 +556,11 @@ type
       default HELPCHAT_DEF_COMMANDS;
     /// <summary>Round "?" button in the bottom-right corner of the host form.</summary>
     property ShowBubble: Boolean read FShowBubble write SetShowBubble default True;
+    /// <summary>The user may drag the bubble to another place of its form:
+    /// it keeps its distance from the corner it is nearest to, and with
+    /// RememberPanelPosition it is found there again, per form.
+    /// ResetBubblePosition takes it back.</summary>
+    property BubbleDraggable: Boolean read FBubbleDraggable write SetBubbleDraggable default True;
     /// <summary>Image list holding the bubble icon; nil uses the icons
     /// compiled into the component (HELPCHAT_ICON_* names). The same icon is
     /// drawn in the header of the chat panel, left of AssistantName.</summary>
@@ -635,7 +656,8 @@ type
     /// <summary>Colour the panel after the active VCL style (and follow style
     /// changes at runtime). Off = the page's own light/dark defaults.</summary>
     property FollowVclStyle: Boolean read FFollowVclStyle write FFollowVclStyle default True;
-    /// <summary>Reopen the panel where the user left it (per application, per user).</summary>
+    /// <summary>Reopen the panel where the user left it, and show the bubble
+    /// where it was dragged to (per application, per user).</summary>
     property RememberPanelPosition: Boolean read FRememberPanelPosition write FRememberPanelPosition default True;
     /// <summary>Where the chat is embedded (a side panel, a page...). nil = the
     /// component's own tool window. OnBeforeShowHelp can still change it.
@@ -1111,6 +1133,7 @@ begin
   FEnabledCommands := HELPCHAT_DEF_COMMANDS;
   FRegisterHelpViewer := True;
   FShowBubble := True;
+  FBubbleDraggable := True;
   FVoiceEngine := hveSystemDictation;
   FFollowVclStyle := True;
   FRememberPanelPosition := True;
@@ -1454,6 +1477,7 @@ procedure TVclHelpChatAI.EnsureBubble;
 var
   LHost: TCustomForm;
   LSize: Integer;
+  LPlace: THelpChatBubblePlace;
 begin
   if Assigned(FBubble) or not FShowBubble or not FActive then
     Exit;
@@ -1469,13 +1493,17 @@ begin
   FBubble.FreeNotification(Self);
   FBubble.Name := '';
   FBubble.Parent := LHost;
-  FBubble.SetBounds(LHost.ClientWidth - LSize - LHost.ScaleValue(HELPCHAT_VCL_MARGIN),
-    LHost.ClientHeight - LSize - LHost.ScaleValue(HELPCHAT_VCL_MARGIN), LSize, LSize);
-  FBubble.Anchors := [akRight, akBottom];
+  FBubble.SetBounds(FBubble.Left, FBubble.Top, LSize, LSize);
+  if not FRememberPanelPosition or
+     not HelpChatLoadBubblePlace(UiStateFile, BubbleFormKey, LPlace) then
+    LPlace := THelpChatBubblePlace.Create(hbcBottomRight, HELPCHAT_VCL_MARGIN, HELPCHAT_VCL_MARGIN);
+  PlaceBubble(LPlace);
   FBubble.Font.Name := 'Segoe UI';
   FBubble.Hint := HelpChatMsg(hcmUiHelp, ActiveLanguage) + ' (F1)';
   FBubble.ShowHint := True;
   FBubble.OnClick := BubbleClick;
+  FBubble.Draggable := FBubbleDraggable;
+  FBubble.OnMoved := BubbleMoved;
   ApplyBubbleIcon;
   FBubble.BringToTop;
 end;
@@ -1625,6 +1653,79 @@ begin
     DestroyBubble;
 end;
 
+function TVclHelpChatAI.BubbleFormKey: string;
+begin
+  if Assigned(FBubble) and (FBubble.Parent <> nil) then
+    Result := FBubble.Parent.ClassName
+  else
+    Result := '';
+end;
+
+procedure TVclHelpChatAI.PlaceBubble(const APlace: THelpChatBubblePlace);
+var
+  LParent: TWinControl;
+  LScale, LLeft, LTop: Single;
+  LAnchors: TAnchors;
+begin
+  if not Assigned(FBubble) or (FBubble.Parent = nil) then
+    Exit;
+  LParent := FBubble.Parent;
+  // The place is at 96 DPI; the form is at the DPI of its monitor.
+  LScale := FBubble.CurrentPPI / 96;
+  APlace.ToPosition(FBubble.Width, LParent.ClientWidth, LParent.ClientHeight,
+    LScale, LLeft, LTop);
+  if APlace.IsLeft then
+    LAnchors := [akLeft]
+  else
+    LAnchors := [akRight];
+  if APlace.IsTop then
+    Include(LAnchors, akTop)
+  else
+    Include(LAnchors, akBottom);
+  // Bounds first, anchors after: the VCL takes the distances to keep from
+  // where the control is when the anchors are set.
+  FBubble.SetBounds(Round(LLeft), Round(LTop), FBubble.Width, FBubble.Height);
+  FBubble.Anchors := LAnchors;
+end;
+
+procedure TVclHelpChatAI.BubbleMoved(Sender: TObject);
+var
+  LPlace: THelpChatBubblePlace;
+begin
+  if not Assigned(FBubble) or (FBubble.Parent = nil) then
+    Exit;
+  LPlace := THelpChatBubblePlace.FromBounds(FBubble.Left, FBubble.Top, FBubble.Width,
+    FBubble.Parent.ClientWidth, FBubble.Parent.ClientHeight, FBubble.CurrentPPI / 96);
+  PlaceBubble(LPlace);
+  if FRememberPanelPosition then
+    HelpChatSaveBubblePlace(UiStateFile, BubbleFormKey, LPlace);
+end;
+
+procedure TVclHelpChatAI.ResetBubblePosition;
+var
+  LKey: string;
+  LHost: TCustomForm;
+begin
+  LKey := BubbleFormKey;
+  if LKey = '' then
+  begin
+    // No bubble now (ShowBubble off, not active): forget it all the same.
+    LHost := ResolveHostForm;
+    if Assigned(LHost) then
+      LKey := LHost.ClassName;
+  end;
+  if LKey <> '' then
+    HelpChatForgetBubblePlace(UiStateFile, LKey);
+  PlaceBubble(THelpChatBubblePlace.Create(hbcBottomRight, HELPCHAT_VCL_MARGIN, HELPCHAT_VCL_MARGIN));
+end;
+
+procedure TVclHelpChatAI.SetBubbleDraggable(const Value: Boolean);
+begin
+  FBubbleDraggable := Value;
+  if Assigned(FBubble) then
+    FBubble.Draggable := Value;
+end;
+
 procedure TVclHelpChatAI.BubbleClick(Sender: TObject);
 begin
   Toggle;
@@ -1667,7 +1768,7 @@ end;
 
 procedure TVclHelpChatAI.SavePanelBounds;
 var
-  LRoot, LPanel: TJSONObject;
+  LPanel: TJSONObject;
   LBounds: TRect;
 begin
   // Position memory belongs to the own window; an application container is
@@ -1678,23 +1779,14 @@ begin
   LBounds := FOwnForm.BoundsRect;
   if (LBounds.Width <= 0) or (LBounds.Height <= 0) then
     Exit;
-  LRoot := TJSONObject.Create;
-  try
-    LPanel := TJSONObject.Create;
-    LRoot.AddPair('panel', LPanel);
-    LPanel.AddPair('left', TJSONNumber.Create(LBounds.Left));
-    LPanel.AddPair('top', TJSONNumber.Create(LBounds.Top));
-    LPanel.AddPair('width', TJSONNumber.Create(LBounds.Width));
-    LPanel.AddPair('height', TJSONNumber.Create(LBounds.Height));
-    LPanel.AddPair('ppi', TJSONNumber.Create(FOwnForm.CurrentPPI));
-    try
-      TFile.WriteAllText(UiStateFile, LRoot.ToJSON, TEncoding.UTF8);
-    except
-      // UI state is a convenience: never fail for it.
-    end;
-  finally
-    LRoot.Free;
-  end;
+  // Written next to what else the file remembers (the place of the bubble).
+  LPanel := TJSONObject.Create;
+  LPanel.AddPair('left', TJSONNumber.Create(LBounds.Left));
+  LPanel.AddPair('top', TJSONNumber.Create(LBounds.Top));
+  LPanel.AddPair('width', TJSONNumber.Create(LBounds.Width));
+  LPanel.AddPair('height', TJSONNumber.Create(LBounds.Height));
+  LPanel.AddPair('ppi', TJSONNumber.Create(FOwnForm.CurrentPPI));
+  HelpChatUiStateWrite(UiStateFile, HELPCHAT_UI_STATE_PANEL, LPanel);
 end;
 
 function TVclHelpChatAI.LoadPanelBounds(out ABounds: TRect; out APPI: Integer): Boolean;

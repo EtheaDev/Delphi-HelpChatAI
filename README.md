@@ -276,6 +276,11 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 
 ## Release Notes ##
 
+13 Nov 2026: ver. 1.9.0
+- Configuration editor reviewed: the *In use* column always shows the value in force, styled as in the Object Inspector; a control per kind of setting; **Remove from the component**
+- The bubble can be dragged anywhere on its form and is found there again (`BubbleDraggable`, `ResetBubblePosition`)
+- 475 tests
+
 13 Nov 2026: ver. 1.8.0
 - `OnModelChanged` on both components: the user switched model in the panel (the badge, or `/use`), or code did with `SelectModel`. The local server raises the UI command `model` (`HELPCHAT_UI_MODEL`) for it, the way it raises `language`
 - `RunSettings` is public on both components: the settings in force, with the model the user picked applied - what to read to know which model, provider and key the assistant is using now

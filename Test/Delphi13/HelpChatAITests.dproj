@@ -104,6 +104,7 @@
         <DCCReference Include="..\source\HelpChatAI.Tests.ActionScope.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.SecretNodes.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.ConfigController.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.UiState.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

@@ -40,13 +40,17 @@ uses
   System.Classes,
   System.UITypes,
   System.Rtti,
+  System.Types,
   FMX.Types,
+  FMX.Graphics,
   FMX.Controls,
   FMX.Forms,
   FMX.StdCtrls,
   FMX.Layouts,
   FMX.Objects,
   FMX.Edit,
+  FMX.EditBox,
+  FMX.SpinBox,
   FMX.ComboEdit,
   FMX.ListBox,
   FMX.Memo,
@@ -63,7 +67,7 @@ type
   /// <summary>
   ///  The editor as a FireMonkey form, shown modally inside the IDE by the
   ///  component editor of <c>TFmxHelpChatAI</c>. Three pages: the settings
-  ///  with the value in force and where it comes from, the catalogue of
+  ///  with the value in use and where it comes from, the catalogue of
   ///  models with what the profile offers of it, and the profiles of the
   ///  file. One file is edited at a time; nothing is written until Save.
   ///
@@ -106,11 +110,23 @@ type
     ValueMemo: TMemo;
     SecretEdit: TEdit;
     ShowSecretCheck: TCheckBox;
+    /// <summary>The value controls, one per kind of setting, only one
+    /// visible at a time: a line, the memo for the prompts, the password
+    /// box for a key, a check box, a spin box, a combo for a language, an
+    /// editable combo for a provider or a model, a list with check boxes for
+    /// a set.</summary>
+    ValueEdit: TEdit;
+    ValueCombo: TComboBox;
+    ChoiceCombo: TComboEdit;
+    ValueCheck: TCheckBox;
+    NumberSpin: TSpinBox;
+    ValueChecks: TListBox;
     ToProfileButton: TButton;
     ToRootButton: TButton;
     ToComponentButton: TButton;
     RemoveProfileButton: TButton;
     RemoveRootButton: TButton;
+    RemoveComponentButton: TButton;
     SettingsGrid: TStringGrid;
     ProfileModelsLayout: TLayout;
     ProfileModelsLabel: TLabel;
@@ -146,12 +162,20 @@ type
     procedure SaveButtonClick(Sender: TObject);
     procedure ProfileComboChange(Sender: TObject);
     procedure SettingsGridSelChanged(Sender: TObject);
+    /// <summary>The "In use" column drawn the way the Object Inspector
+    /// draws a value: bold for one of a configuration file, bold and blue
+    /// for one of the form file, plain for the library's. Assigned in
+    /// <c>FormCreate</c>, with the default drawing of the grid off.</summary>
+    procedure SettingsGridDrawColumnCell(Sender: TObject; const Canvas: TCanvas;
+      const Column: TColumn; const Bounds: TRectF; const Row: Integer;
+      const Value: TValue; const State: TGridDrawStates);
     procedure ShowSecretCheckChange(Sender: TObject);
     procedure ToProfileButtonClick(Sender: TObject);
     procedure ToRootButtonClick(Sender: TObject);
     procedure ToComponentButtonClick(Sender: TObject);
     procedure RemoveProfileButtonClick(Sender: TObject);
     procedure RemoveRootButtonClick(Sender: TObject);
+    procedure RemoveComponentButtonClick(Sender: TObject);
     procedure ModelsGridSelChanged(Sender: TObject);
     procedure ModelAddButtonClick(Sender: TObject);
     procedure ModelUpdateButtonClick(Sender: TObject);
@@ -167,7 +191,7 @@ type
     FEntries: TArray<THelpChatConfigEntry>;
     FModels: TArray<THelpChatConfigModel>;
     FOnProfileChanged: TProc<string>;
-    FOnComponentChanged: TProc;
+    FOnComponentChanged: TProc<string>;
     FOnTest: TProc;
     FRefreshing: Boolean;
     /// <summary>Gives a grid its read-only columns and row selection. In
@@ -200,8 +224,10 @@ type
     /// of the buttons make sense.</summary>
     procedure ShowSelected;
     function SelectedEntry(out AEntry: THelpChatConfigEntry): Boolean;
-    /// <summary>What the user typed for the selected setting, trimmed: from
-    /// the password box for a secret, from the memo otherwise.</summary>
+    /// <summary>What the user set for the selected setting, as text the
+    /// controller reads: from the control of its kind, trimmed; "true" or
+    /// "false" for a check box, the ticked items separated by commas for a
+    /// set.</summary>
     function EditedValue: string;
     function ModelFromEdits: THelpChatConfigModel;
     /// <summary>A question that waits for its answer. The synchronous
@@ -220,14 +246,18 @@ type
     /// the executable of the project being designed - never the IDE's -
     /// where the application file lives and what names the per-user folder;
     /// AConfigFileName the one of the component, which named is the only
-    /// file. AOnProfileChanged gives the component its new Profile,
-    /// AOnComponentChanged tells the designer the form file changed, AOnTest
+    /// file. AAssistantName is the AssistantName of the component, a
+    /// property of the component and not of its settings.
+    /// AOnProfileChanged gives the component its new Profile,
+    /// AOnComponentChanged receives the path of a value written into the
+    /// settings and tells the designer the form file changed (for
+    /// AssistantName the caller moves the name to the component), AOnTest
     /// would open a preview and is nil here. The same contract as
     /// <c>TVclHelpChatConfigEditor.Execute</c>, so that the two design
     /// packages call their editor alike.</summary>
     class procedure Execute(const ASettings: THelpChatSettings;
-      const AProfile, AExeFile, AConfigFileName: string;
-      const AOnProfileChanged: TProc<string>; const AOnComponentChanged, AOnTest: TProc);
+      const AProfile, AAssistantName, AExeFile, AConfigFileName: string;
+      const AOnProfileChanged, AOnComponentChanged: TProc<string>; const AOnTest: TProc);
   end;
 
 implementation
@@ -242,8 +272,8 @@ uses
   FMX.DialogService.Sync;
 
 class procedure TFmxHelpChatConfigEditor.Execute(const ASettings: THelpChatSettings;
-  const AProfile, AExeFile, AConfigFileName: string;
-  const AOnProfileChanged: TProc<string>; const AOnComponentChanged, AOnTest: TProc);
+  const AProfile, AAssistantName, AExeFile, AConfigFileName: string;
+  const AOnProfileChanged, AOnComponentChanged: TProc<string>; const AOnTest: TProc);
 var
   LForm: TFmxHelpChatConfigEditor;
 begin
@@ -253,6 +283,7 @@ begin
     // nothing is shown before RefreshAll below.
     LForm.FController := THelpChatConfigController.Create(ASettings, AProfile, AExeFile,
       AConfigFileName);
+    LForm.FController.ComponentAssistantName := AAssistantName;
     LForm.FOnProfileChanged := AOnProfileChanged;
     LForm.FOnComponentChanged := AOnComponentChanged;
     LForm.FOnTest := AOnTest;
@@ -285,8 +316,10 @@ end;
 procedure TFmxHelpChatConfigEditor.FormCreate(Sender: TObject);
 begin
   TabControl.ActiveTab := SettingsTab;
-  AddColumns(SettingsGrid, ['Setting', 'In force', 'From', 'This file, root', 'This file, profile'],
+  AddColumns(SettingsGrid, ['Setting', 'In use', 'From', 'This file, root', 'This file, profile'],
     [180, 220, 200, 125, 125]);
+  SettingsGrid.DefaultDrawing := False;
+  SettingsGrid.OnDrawColumnCell := SettingsGridDrawColumnCell;
   AddColumns(ModelsGrid, ['Name', 'Provider', 'Model', 'Endpoint', 'Icon', 'Key'],
     [140, 80, 140, 170, 60, 40]);
   ModelProviderCombo.Items.CommaText := 'claude,openai,gemini,docsearch,stub';
@@ -382,7 +415,7 @@ begin
     for I := 0 to High(FEntries) do
     begin
       SettingsGrid.Cells[0, I] := FEntries[I].Caption;
-      SettingsGrid.Cells[1, I] := FEntries[I].Effective;
+      SettingsGrid.Cells[1, I] := FEntries[I].InUse;
       SettingsGrid.Cells[2, I] := FEntries[I].Origin;
       SettingsGrid.Cells[3, I] := FEntries[I].RootValue;
       SettingsGrid.Cells[4, I] := FEntries[I].ProfileValue;
@@ -416,15 +449,25 @@ procedure TFmxHelpChatConfigEditor.ShowSelected;
 var
   LEntry: THelpChatConfigEntry;
   LSecret, LHasProfile: Boolean;
-  LText: string;
+  LText, LChoice, LTick: string;
+  LTicked: TArray<string>;
+  LItem: TListBoxItem;
 begin
   LHasProfile := FController.Profile <> '';
+  // One control per kind: all hidden first, the one of the setting shown.
+  ValueMemo.Visible := False;
+  ValueEdit.Visible := False;
+  SecretEdit.Visible := False;
+  ShowSecretCheck.Visible := False;
+  ValueCheck.Visible := False;
+  NumberSpin.Visible := False;
+  ValueCombo.Visible := False;
+  ChoiceCombo.Visible := False;
+  ValueChecks.Visible := False;
   if not SelectedEntry(LEntry) then
   begin
     SettingLabel.Text := 'Select a setting';
     HintLabel.Text := '';
-    ValueMemo.Lines.Clear;
-    SecretEdit.Text := '';
     EditLayout.Enabled := False;
     Exit;
   end;
@@ -432,38 +475,111 @@ begin
   SettingLabel.Text := LEntry.Caption + '  (' + LEntry.Path + ')';
   HintLabel.Text := LEntry.Hint;
   LSecret := LEntry.Kind = cvkSecret;
-  ValueMemo.Visible := not LSecret;
-  SecretEdit.Visible := LSecret;
-  ShowSecretCheck.Visible := LSecret;
-  // What the file says where the user would write it: the profile first.
-  // For a secret this is the clear node as the file has it, not the mask
-  // the grid shows - so what is written back is always a real value.
+  // What the file says where the user would write it, the profile first;
+  // when it says nothing, the value in use - the one of the component or of
+  // another file. A key only from the file being edited, in clear and never
+  // the mask of the grid, so what is written back is always a real value.
   if not (LHasProfile and FController.GetValue(LEntry.Path, ccsProfile, LText)) then
     if not FController.GetValue(LEntry.Path, ccsRoot, LText) then
-      LText := '';
-  if LSecret then
-  begin
-    SecretEdit.Text := LText;
-    ShowSecretCheck.IsChecked := False;
-    SecretEdit.Password := True;
-  end
+      LText := LEntry.Value;
+  case LEntry.Kind of
+    cvkMemo:
+      begin
+        ValueMemo.Text := LText;
+        ValueMemo.Visible := True;
+      end;
+    cvkSecret:
+      begin
+        SecretEdit.Text := LText;
+        ShowSecretCheck.IsChecked := False;
+        SecretEdit.Password := True;
+        SecretEdit.Visible := True;
+        ShowSecretCheck.Visible := True;
+      end;
+    cvkBoolean:
+      begin
+        ValueCheck.IsChecked := SameText(LText, 'true') or (LText = '1');
+        ValueCheck.Visible := True;
+      end;
+    cvkNumber:
+      begin
+        NumberSpin.Value := StrToIntDef(LText, 0);
+        NumberSpin.Visible := True;
+      end;
+    cvkLanguage:
+      begin
+        ValueCombo.Items.Clear;
+        for LChoice in LEntry.Choices do
+          ValueCombo.Items.Add(LChoice);
+        ValueCombo.ItemIndex := ValueCombo.Items.IndexOf(LText);
+        ValueCombo.Visible := True;
+      end;
+    cvkChoice:
+      begin
+        // A provider or a model the list does not know (registered by the
+        // application, named by a file read later) is typed.
+        ChoiceCombo.Items.Clear;
+        for LChoice in LEntry.Choices do
+          ChoiceCombo.Items.Add(LChoice);
+        ChoiceCombo.Text := LText;
+        ChoiceCombo.Visible := True;
+      end;
+    cvkLanguages:
+      begin
+        LTicked := LText.Split([',', ';']);
+        ValueChecks.Clear;
+        for LChoice in LEntry.Choices do
+        begin
+          LItem := TListBoxItem.Create(ValueChecks);
+          LItem.Text := LChoice;
+          for LTick in LTicked do
+            if SameText(Trim(LTick), LChoice) then
+              LItem.IsChecked := True;
+          ValueChecks.AddObject(LItem);
+        end;
+        ValueChecks.Visible := True;
+      end;
   else
-    ValueMemo.Text := LText;
+    // Text and the free lists (areas, actions): one line.
+    ValueEdit.Text := LText;
+    ValueEdit.Visible := True;
+  end;
   ToProfileButton.Enabled := LHasProfile;
   RemoveProfileButton.Enabled := LHasProfile and LEntry.InProfile;
   RemoveRootButton.Enabled := LEntry.InRoot;
   // A key belongs to a file, never to the form file.
   ToComponentButton.Enabled := not LSecret;
+  RemoveComponentButton.Enabled := LEntry.InComponent and not LSecret;
 end;
 
 function TFmxHelpChatConfigEditor.EditedValue: string;
 var
   LEntry: THelpChatConfigEntry;
+  I: Integer;
 begin
-  if SelectedEntry(LEntry) and (LEntry.Kind = cvkSecret) then
-    Result := Trim(SecretEdit.Text)
+  Result := '';
+  if not SelectedEntry(LEntry) then
+    Exit;
+  case LEntry.Kind of
+    cvkMemo: Result := Trim(ValueMemo.Text);
+    cvkSecret: Result := Trim(SecretEdit.Text);
+    cvkBoolean: Result := LowerCase(BoolToStr(ValueCheck.IsChecked, True));
+    cvkNumber: Result := IntToStr(Round(NumberSpin.Value));
+    cvkLanguage:
+      if ValueCombo.ItemIndex >= 0 then
+        Result := ValueCombo.Items[ValueCombo.ItemIndex];
+    cvkChoice: Result := Trim(ChoiceCombo.Text);
+    cvkLanguages:
+      for I := 0 to ValueChecks.Count - 1 do
+        if ValueChecks.ListItems[I].IsChecked then
+        begin
+          if Result <> '' then
+            Result := Result + ', ';
+          Result := Result + ValueChecks.ListItems[I].Text;
+        end;
   else
-    Result := Trim(ValueMemo.Text);
+    Result := Trim(ValueEdit.Text);
+  end;
 end;
 
 procedure TFmxHelpChatConfigEditor.FileComboChange(Sender: TObject);
@@ -512,6 +628,36 @@ begin
   RefreshModels;
 end;
 
+procedure TFmxHelpChatConfigEditor.SettingsGridDrawColumnCell(Sender: TObject;
+  const Canvas: TCanvas; const Column: TColumn; const Bounds: TRectF; const Row: Integer;
+  const Value: TValue; const State: TGridDrawStates);
+var
+  LRect: TRectF;
+begin
+  if (Column.Index <> 1) or (Row > High(FEntries)) then
+  begin
+    Column.DefaultDrawCell(Canvas, Bounds, Row, Value, State);
+    Exit;
+  end;
+  Canvas.Font.Family := SettingsGrid.TextSettings.Font.Family;
+  Canvas.Font.Size := SettingsGrid.TextSettings.Font.Size;
+  Canvas.Font.Style := [];
+  Canvas.Fill.Kind := TBrushKind.Solid;
+  Canvas.Fill.Color := TAlphaColors.Black;
+  case FEntries[Row].Source of
+    csrFile:
+      Canvas.Font.Style := [TFontStyle.fsBold];
+    csrComponent:
+      begin
+        Canvas.Font.Style := [TFontStyle.fsBold];
+        Canvas.Fill.Color := TAlphaColors.Blue;
+      end;
+  end;
+  LRect := Bounds;
+  LRect.Left := LRect.Left + 2;
+  Canvas.FillText(LRect, Value.AsString, False, 1, [], TTextAlign.Leading, TTextAlign.Center);
+end;
+
 procedure TFmxHelpChatConfigEditor.SettingsGridSelChanged(Sender: TObject);
 begin
   ShowSelected;
@@ -552,7 +698,7 @@ begin
     Exit;
   FController.SetComponentValue(LEntry.Path, EditedValue);
   if Assigned(FOnComponentChanged) then
-    FOnComponentChanged();
+    FOnComponentChanged(LEntry.Path);
   RefreshEntries;
 end;
 
@@ -576,6 +722,20 @@ begin
     FController.RemoveValue(LEntry.Path, ccsRoot);
     RefreshEntries;
   end;
+end;
+
+procedure TFmxHelpChatConfigEditor.RemoveComponentButtonClick(Sender: TObject);
+var
+  LEntry: THelpChatConfigEntry;
+begin
+  if not SelectedEntry(LEntry) then
+    Exit;
+  // The library's value back into the settings of the component, now, like
+  // "Write to the component": the form file stops storing it.
+  FController.ResetComponentValue(LEntry.Path);
+  if Assigned(FOnComponentChanged) then
+    FOnComponentChanged(LEntry.Path);
+  RefreshEntries;
 end;
 
 procedure TFmxHelpChatConfigEditor.RefreshModels;
