@@ -1,3 +1,7 @@
+---
+areas: [Sales]
+---
+
 # Leads
 
 The board where the work happens: four columns, one per status, and a lead moves from left to

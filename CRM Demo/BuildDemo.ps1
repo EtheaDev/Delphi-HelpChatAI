@@ -4,9 +4,13 @@
 
 .DESCRIPTION
     Configures the RAD Studio environment via rsvars.bat and invokes MSBuild on
-    "CRM Demo\<Framework>\project\<Framework>_CRMDemo.dproj". Both executables
-    go to "CRM Demo\bin\<Platform>", next to the one WebView2Loader.dll they
-    share; the DCUs are kept apart, in "CRM Demo\dcu\<Framework>".
+    "CRM Demo\<Framework>\project\<Framework>_CRMDemo.dproj", or the
+    multi-assistant edition <Framework>_CRMDemo_MultiAgent.dproj (the same
+    sources with MULTIAGENT defined). Every executable goes to
+    "CRM Demo\bin\<Platform>", next to the one WebView2Loader.dll they share;
+    the DCUs are kept apart, in "CRM Demo\dcu\<Framework>" and
+    "CRM Demo\dcu\<Framework>-MultiAgent", since the same unit compiles
+    differently in the two editions.
 
     The demo compiles the library from source, so no package has to be installed
     first; the resources of the panel are built if they are missing.
@@ -14,6 +18,10 @@
 .PARAMETER Framework
     VCL or FMX (default: VCL). The FireMonkey demo needs Delphi 12 or later:
     TFmxHelpChatAI does not exist before that.
+
+.PARAMETER Edition
+    Single (default): one assistant, the demo to start from. MultiAgent: two
+    assistants, an area of the manual each, and an action only one may use.
 
 .PARAMETER DelphiVersion
     Delphi version: D10.4, D11, D12 or D13 (default: D13).
@@ -36,11 +44,17 @@
 
 .EXAMPLE
     .\BuildDemo.ps1 -Framework FMX -Config Debug
+
+.EXAMPLE
+    .\BuildDemo.ps1 -Edition MultiAgent
 #>
 
 param(
     [ValidateSet("VCL", "FMX")]
     [string]$Framework = "VCL",
+
+    [ValidateSet("Single", "MultiAgent")]
+    [string]$Edition = "Single",
 
     [ValidateSet("D10.4", "D11", "D12", "D13")]
     [string]$DelphiVersion = "D13",
@@ -72,7 +86,9 @@ if (($Framework -eq "FMX") -and ($DelphiVersion -in @("D10.4", "D11"))) {
     exit 1
 }
 
-$Project = "$Framework\project\${Framework}_CRMDemo.dproj"
+$ProjectName = "${Framework}_CRMDemo"
+if ($Edition -eq "MultiAgent") { $ProjectName += "_MultiAgent" }
+$Project = "$Framework\project\$ProjectName.dproj"
 
 $bdsVersion = $bdsVersionMap[$DelphiVersion]
 $bdsPath = Join-Path $BDSRoot $bdsVersion
@@ -104,6 +120,7 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host " HelpChatAI CRM Demo Build" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host " Framework:$Framework" -ForegroundColor White
+Write-Host " Edition:  $Edition" -ForegroundColor White
 Write-Host " Delphi:   $DelphiVersion (BDS $bdsVersion)" -ForegroundColor White
 Write-Host " Platform: $Platform" -ForegroundColor White
 Write-Host " Config:   $Config" -ForegroundColor White

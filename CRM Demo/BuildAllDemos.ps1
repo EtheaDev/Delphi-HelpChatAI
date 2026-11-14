@@ -4,13 +4,17 @@
 
 .DESCRIPTION
     Wrapper around BuildDemo.ps1 that builds the CRM demos for each requested
-    framework, Delphi version and platform, and prints a summary table. A Delphi
+    framework, edition, Delphi version and platform, and prints a summary table. A Delphi
     version that is not installed under BDSRoot is reported as SKIP; the FMX
     demo on Delphi 10.4 and 11 is reported as N/A, because TFmxHelpChatAI starts
     at Delphi 12.
 
 .PARAMETER Framework
     VCL, FMX or Both (default: Both).
+
+.PARAMETER Edition
+    Single, MultiAgent or Both (default: Both): the demo with one assistant,
+    the one with several, or both.
 
 .PARAMETER DelphiVersion
     One or more versions (D10.4, D11, D12, D13), or "All" (default) for all of
@@ -38,6 +42,9 @@
 param(
     [ValidateSet("VCL", "FMX", "Both")]
     [string]$Framework = "Both",
+
+    [ValidateSet("Single", "MultiAgent", "Both")]
+    [string]$Edition = "Both",
 
     [string[]]$DelphiVersion = @("All"),
 
@@ -68,6 +75,7 @@ $DelphiVersion = @($DelphiVersion | ForEach-Object { $_ -split "," } | Where-Obj
 if ($DelphiVersion -contains "All") { $Versions = $AllVersions } else { $Versions = $DelphiVersion }
 if ($Platform -eq "Both") { $Platforms = @("Win32", "Win64") } else { $Platforms = @($Platform) }
 if ($Framework -eq "Both") { $Frameworks = @("VCL", "FMX") } else { $Frameworks = @($Framework) }
+if ($Edition -eq "Both") { $Editions = @("Single", "MultiAgent") } else { $Editions = @($Edition) }
 
 # The FireMonkey component of the library starts at Delphi 12.
 $FmxVersions = @("D12", "D13")
@@ -78,28 +86,30 @@ $Failed = 0
 $StartTime = Get-Date
 
 foreach ($fw in $Frameworks) {
+  foreach ($ed in $Editions) {
     foreach ($ver in $Versions) {
         foreach ($plat in $Platforms) {
             if (($fw -eq "FMX") -and ($ver -notin $FmxVersions)) {
-                $Results += [pscustomobject]@{ Framework = $fw; Delphi = $ver; Platform = $plat; Status = "N/A"; Seconds = 0 }
+                $Results += [pscustomobject]@{ Framework = $fw; Edition = $ed; Delphi = $ver; Platform = $plat; Status = "N/A"; Seconds = 0 }
                 continue
             }
             $installed = Test-Path (Join-Path (Join-Path $BDSRoot $bdsVersionMap[$ver]) "bin\rsvars.bat")
             if (-not $installed) {
-                $Results += [pscustomobject]@{ Framework = $fw; Delphi = $ver; Platform = $plat; Status = "SKIP"; Seconds = 0 }
+                $Results += [pscustomobject]@{ Framework = $fw; Edition = $ed; Delphi = $ver; Platform = $plat; Status = "SKIP"; Seconds = 0 }
                 continue
             }
 
             Write-Host ""
             Write-Host "############################################" -ForegroundColor Magenta
-            Write-Host "  CRM Demo / $fw / $ver / $plat / $Config" -ForegroundColor Magenta
+            Write-Host "  CRM Demo / $fw / $ed / $ver / $plat / $Config" -ForegroundColor Magenta
             Write-Host "############################################" -ForegroundColor Magenta
 
             $stepStart = Get-Date
-            & $BuildScript -Framework $fw -DelphiVersion $ver -BDSRoot $BDSRoot -Platform $plat -Config $Config -Target $Target
+            & $BuildScript -Framework $fw -Edition $ed -DelphiVersion $ver -BDSRoot $BDSRoot -Platform $plat -Config $Config -Target $Target
             $exitCode = $LASTEXITCODE
             $Results += [pscustomobject]@{
                 Framework = $fw
+                Edition   = $ed
                 Delphi    = $ver
                 Platform  = $plat
                 Status    = if ($exitCode -eq 0) { "OK" } else { "FAIL" }
@@ -108,6 +118,7 @@ foreach ($fw in $Frameworks) {
             if ($exitCode -ne 0) { $Failed++ }
         }
     }
+  }
 }
 
 Write-Host ""

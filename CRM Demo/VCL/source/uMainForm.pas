@@ -292,7 +292,12 @@ uses
   // initialization. Senza questa riga Settings.Provider = 'docsearch'
   // trova soltanto lo stub e la chat risponde che il provider non c'e'.
   HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude,
-  HelpChatAI.Provider.OpenAI, HelpChatAI.Provider.Gemini;
+  HelpChatAI.Provider.OpenAI, HelpChatAI.Provider.Gemini
+  {$IFDEF MULTIAGENT}
+  // L'edizione con piu' assistenti (VCL_CRMDemo_MultiAgent.dproj): tutto
+  // quello che aggiunge sta in questa unit.
+  , uMultiAgent
+  {$ENDIF};
 
 procedure ScaleBoundGridColumns(AForm: TCustomForm);
 var
@@ -401,7 +406,19 @@ begin
 end;
 
 procedure TMainForm.RegisterHelpActions;
+var
+  LProposalActions: THelpChatActionBroker;
 begin
+  // Con un assistente solo, la proposta e' un'azione sua come le altre. Con
+  // piu' assistenti e' un'azione condivisa: registrata una volta per tutti, e
+  // a decidere chi la usa e' la configurazione (AllowedActions, in
+  // uMultiAgent), non questo codice.
+  {$IFDEF MULTIAGENT}
+  LProposalActions := HelpChatSharedActions;
+  {$ELSE}
+  LProposalActions := HelpChat.Actions;
+  {$ENDIF}
+
   HelpChat.Actions.Add('open_screen',
     'Brings one of the application screens to the front. Only when the user asks to ' +
     'go to a screen: never to show where something is while answering a question.',
@@ -493,7 +510,7 @@ begin
         [AArgs.AsString('name'), LDataSet.FieldByName('LeadId').AsInteger]);
     end, True);
 
-  HelpChat.Actions.Add('draft_proposal',
+  LProposalActions.Add('draft_proposal',
     'Opens the proposal draft for a lead with the address and the line items ' +
     'already filled in. It does not save it: the user presses Preview and Save Proposal.',
     [THelpChatActionParam.Create('lead', 'Name of the lead, or of its company'),
@@ -1123,7 +1140,15 @@ begin
     // chat sulla pagina della schermata attiva (HelpKeyword delle schede e
     // delle finestre) e la bolla in basso a destra la apre senza contesto.
     RegisterHelpActions;
+    {$IFDEF MULTIAGENT}
+    ConfigureGeneralAssistant(HelpChat);
+    {$ENDIF}
     HelpChat.Active := True;
+    {$IFDEF MULTIAGENT}
+    // Il secondo assistente, sulla finestra del lead: dopo il primo, di cui
+    // copia provider, modelli, manuale e gestore della chiave.
+    CreateSalesAssistant(HelpChat, LeadsForm);
+    {$ENDIF}
     AskForApiKeyIfMissing;
 
     DashboardButton.SetFocus;

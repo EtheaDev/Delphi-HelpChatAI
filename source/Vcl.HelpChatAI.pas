@@ -169,6 +169,7 @@ type
     FActiveContainer: TWinControl;
     FBubble: TVclHelpChatAIBubble;
     FImages: TCustomImageList;
+    FImageChangeLink: TChangeLink;
     FVoice: THelpChatVoiceInput;
     FVoiceConsentAsked: Boolean;
     FVoiceEngine: THelpChatVoiceEngine;
@@ -246,6 +247,12 @@ type
     procedure SetImages(const Value: TCustomImageList);
     procedure SetImageIndex(const Value: TImageIndex);
     procedure SetImageName(const Value: TImageName);
+    /// <summary>Puts ImageIndex and ImageName in step (see
+    /// <c>HelpChatSyncIconIndex</c>): from the index when it was just set,
+    /// else the name wins. Nothing while the form file is being read.</summary>
+    procedure SyncImageIndexAndName(const AFromIndex: Boolean);
+    /// <summary>The image list changed: names may now point elsewhere.</summary>
+    procedure ImageListChange(Sender: TObject);
     procedure SetCaption(const Value: string);
     procedure SetAssistantName(const Value: string);
     procedure SetProfile(const Value: string);
@@ -565,8 +572,10 @@ type
     /// compiled into the component (HELPCHAT_ICON_* names). The same icon is
     /// drawn in the header of the chat panel, left of AssistantName.</summary>
     property Images: TCustomImageList read FImages write SetImages;
-    /// <summary>Bubble icon by index, used when ImageName finds nothing.</summary>
-    property ImageIndex: TImageIndex read FImageIndex write SetImageIndex default -1;
+    /// <summary>Bubble icon by index, kept in step with ImageName (which wins
+    /// when both are set). 0 by default: the first built-in icon, the default
+    /// assistant (AIAssistant_Male).</summary>
+    property ImageIndex: TImageIndex read FImageIndex write SetImageIndex default 0;
     /// <summary>Bubble icon by name: with the built-in icons, one of
     /// AIAssistant_Male, AIAssistant_Female, Assistant_Male, Assistant_Female.</summary>
     property ImageName: TImageName read FImageName write SetImageName;
@@ -1139,6 +1148,11 @@ begin
   FRememberPanelPosition := True;
   FPanelWidth := HELPCHAT_VCL_DEF_PANEL_WIDTH;
   FPanelHeight := HELPCHAT_VCL_DEF_PANEL_HEIGHT;
+  // The first built-in icon is the default assistant (HELPCHAT_ICON_DEFAULT),
+  // so 0 is the image a new component shows, and the default it declares.
+  FImageIndex := 0;
+  FImageChangeLink := TChangeLink.Create;
+  FImageChangeLink.OnChange := ImageListChange;
 end;
 
 destructor TVclHelpChatAI.Destroy;
@@ -1151,6 +1165,9 @@ begin
   FActions := nil;
   FActionsRef := nil; // freed here, unless a queued call still holds it
   FSettings.Free;
+  if Assigned(FImages) then
+    FImages.UnRegisterChanges(FImageChangeLink);
+  FreeAndNil(FImageChangeLink);
   inherited;
 end;
 
@@ -1162,6 +1179,9 @@ end;
 procedure TVclHelpChatAI.Loaded;
 begin
   inherited Loaded;
+  // The setters wait for the whole form file - the image list may be read
+  // after the index and the name: now the two are put in step once.
+  SyncImageIndexAndName(False);
   if FStreamedActive and not (csDesigning in ComponentState) then
     SetActive(True);
 end;
@@ -1608,10 +1628,17 @@ begin
   if FImages = Value then
     Exit;
   if Assigned(FImages) then
+  begin
+    FImages.UnRegisterChanges(FImageChangeLink);
     FImages.RemoveFreeNotification(Self);
+  end;
   FImages := Value;
   if Assigned(FImages) then
+  begin
+    FImages.RegisterChanges(FImageChangeLink);
     FImages.FreeNotification(Self);
+  end;
+  SyncImageIndexAndName(False);
   ApplyBubbleIcon;
 end;
 
@@ -1620,6 +1647,7 @@ begin
   if FImageIndex = Value then
     Exit;
   FImageIndex := Value;
+  SyncImageIndexAndName(True);
   ApplyBubbleIcon;
 end;
 
@@ -1628,6 +1656,23 @@ begin
   if FImageName = Value then
     Exit;
   FImageName := Value;
+  SyncImageIndexAndName(False);
+  ApplyBubbleIcon;
+end;
+
+procedure TVclHelpChatAI.SyncImageIndexAndName(const AFromIndex: Boolean);
+begin
+  // While the form file is read the values arrive one at a time, the image
+  // list maybe last: Loaded does it once they are all there.
+  if csLoading in ComponentState then
+    Exit;
+  HelpChatSyncIconIndex(FImages, FImageIndex, FImageName, AFromIndex);
+end;
+
+procedure TVclHelpChatAI.ImageListChange(Sender: TObject);
+begin
+  // Images added, removed or renamed: the name wins, the index follows.
+  SyncImageIndexAndName(False);
   ApplyBubbleIcon;
 end;
 

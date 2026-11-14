@@ -279,8 +279,9 @@ type
     property Hint;
     /// <summary>Image list holding the icon; nil uses the built-in icons.</summary>
     property Images: TCustomImageList read FImages write SetImages;
-    /// <summary>Icon by index, used when ImageName finds nothing.</summary>
-    property ImageIndex: TImageIndex read FImageIndex write SetImageIndex default -1;
+    /// <summary>Icon by index, kept in step with ImageName (which wins). 0 =
+    /// the first built-in icon, the default assistant.</summary>
+    property ImageIndex: TImageIndex read FImageIndex write SetImageIndex default 0;
     /// <summary>Icon by name: with the built-in icons, one of HELPCHAT_ICON_*.</summary>
     property ImageName: TImageName read FImageName write SetImageName stored IsImageNameStored;
     property ParentFont;
@@ -317,6 +318,18 @@ function HelpChatAssistantIcons: TImageCollection;
 /// </summary>
 function HelpChatIconIndex(const AList: TCustomImageList; const ABuiltIn: Boolean;
   const AImageIndex: TImageIndex; const AImageName: TImageName): Integer;
+
+/// <summary>
+///  Keeps <c>ImageIndex</c> and <c>ImageName</c> in step, the way the controls
+///  of the VCL do (and StyledComponents after them): <c>AFromIndex</c> when the
+///  index was just set, so the name becomes the one of that image (empty for
+///  none); otherwise <c>TCustomImageList.CheckIndexAndName</c>, where the name
+///  wins and the index follows it, and an empty one is filled from the other.
+///  <c>AImages</c> nil means the icons compiled into the component, by the
+///  same rule. A list with no names changes nothing.
+/// </summary>
+procedure HelpChatSyncIconIndex(const AImages: TCustomImageList;
+  var AImageIndex: TImageIndex; var AImageName: TImageName; const AFromIndex: Boolean);
 
 /// <summary>
 ///  The icon the bubble would draw, as a <c>data:image/png;base64,</c> URI for
@@ -515,6 +528,45 @@ begin
     Result := AImageIndex;
   if (Result < 0) or (Result >= AList.Count) then
     Result := -1;
+end;
+
+procedure HelpChatSyncIconIndex(const AImages: TCustomImageList;
+  var AImageIndex: TImageIndex; var AImageName: TImageName; const AFromIndex: Boolean);
+var
+  LIcons: TImageCollection;
+begin
+  if Assigned(AImages) then
+  begin
+    if not AImages.IsImageNameAvailable then
+      Exit;
+    if AFromIndex then
+    begin
+      if (AImageIndex >= 0) and (AImageIndex < AImages.Count) then
+        AImageName := AImages.GetNameByIndex(AImageIndex)
+      else
+        AImageName := '';
+    end
+    else
+      AImages.CheckIndexAndName(AImageIndex, AImageName);
+    Exit;
+  end;
+  // The built-in icons, by the rule of CheckIndexAndName.
+  LIcons := HelpChatAssistantIcons;
+  if AFromIndex then
+  begin
+    if LIcons.IsIndexAvailable(AImageIndex) then
+      AImageName := LIcons.GetNameByIndex(AImageIndex)
+    else
+      AImageName := '';
+  end
+  else if AImageName <> '' then
+  begin
+    if not (LIcons.IsIndexAvailable(AImageIndex) and
+       SameText(LIcons.GetNameByIndex(AImageIndex), AImageName)) then
+      AImageIndex := LIcons.GetIndexByName(AImageName);
+  end
+  else if LIcons.IsIndexAvailable(AImageIndex) then
+    AImageName := LIcons.GetNameByIndex(AImageIndex);
 end;
 
 /// <summary>
@@ -760,7 +812,7 @@ begin
   DoubleBuffered := True;
   Cursor := crHandPoint;
   FBubbleColor := clNone;
-  FImageIndex := -1;
+  FImageIndex := 0;              // the first built-in icon: the default assistant
   FImageChangeLink := TChangeLink.Create;
   FImageChangeLink.OnChange := ImageListChange;
   Width := HELPCHAT_BUBBLE_DEF_SIZE;
@@ -837,6 +889,7 @@ begin
   end
   else
     UpdateGlyphSize;             // back to the built-in list: size it again
+  HelpChatSyncIconIndex(FImages, FImageIndex, FImageName, False);
   Invalidate;
 end;
 
@@ -845,6 +898,7 @@ begin
   if FImageIndex = Value then
     Exit;
   FImageIndex := Value;
+  HelpChatSyncIconIndex(FImages, FImageIndex, FImageName, True);
   Invalidate;
 end;
 
@@ -853,11 +907,14 @@ begin
   if FImageName = Value then
     Exit;
   FImageName := Value;
+  HelpChatSyncIconIndex(FImages, FImageIndex, FImageName, False);
   Invalidate;
 end;
 
 procedure TVclHelpChatAIBubble.ImageListChange(Sender: TObject);
 begin
+  // Images added, removed or renamed: the name wins, the index follows.
+  HelpChatSyncIconIndex(FImages, FImageIndex, FImageName, False);
   Invalidate;
 end;
 

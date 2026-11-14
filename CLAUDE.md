@@ -77,15 +77,19 @@ Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
                          uProposalFmx, uDraftProposalFmx, uLicenseActivationFmx).
                          Delphi 12 and 13 only, because
                          TFmxHelpChatAI starts there
+"CRM Demo"/*/project/*_MultiAgent.dproj   the multi-assistant edition of each demo: the
+                         same sources with MULTIAGENT defined, plus uMultiAgent(Fmx).pas,
+                         its own exe and dcu\<Framework>-MultiAgent
 "CRM Demo"/bin/<Platform>    both executables, next to the one WebView2Loader.dll they share
 "CRM Demo"/dcu/<Framework>/<Platform>   svn-ignored build output, one tree per framework so
                          the two projects cannot pick up each other's units. No Delphi
                          version in the path - so after opening a demo with a different
                          Delphi, Build and not Compile
-"CRM Demo"/Build*.ps1    BuildDemo.ps1 (one framework, one version), BuildAllDemos.ps1 (the
-                         matrix of 12, with a summary table) and the four per-version
-                         wrappers, same shape as StyledComponents/Demos. -Framework VCL|FMX
-                         everywhere; FMX on 10.4 and 11 is reported N/A, not SKIP
+"CRM Demo"/Build*.ps1    BuildDemo.ps1 (one framework, one version, -Edition Single|MultiAgent),
+                         BuildAllDemos.ps1 (the matrix, both editions by default, with a
+                         summary table) and the four per-version wrappers, same shape as
+                         StyledComponents/Demos. -Framework VCL|FMX everywhere; FMX on 10.4
+                         and 11 is reported N/A, not SKIP
 Server/source, Server/Delphi13                HelpChatAIServerApp: the console HelpChatAI server
                          (Server/Bin, Server/Dcu and helpchatai-server.json are svn-ignored;
                          helpchatai-server.json.sample is the versioned starting point)
@@ -238,10 +242,17 @@ the edit on every version, not on the one that happens to be open.
   is kept apart from the list (`FCatalogue`: the list of the last root that had one, else the
   component's own): a profile narrows `Models` to what it offers, and the profile of the
   file read next must still be able to name another model of the same catalogue - with the
-  list as the catalogue, that raised "not a model of the configuration". `Instructions`
-  (what the expert is) and `SystemPrompt` (replaces the built-in rules) live at the root, not in
-  a provider section: switching model must not change the expert, so `ResolveSystemPrompt` is
-  on the settings. The conversation, state and window files carry the profile in their name
+  list as the catalogue, that raised "not a model of the configuration". `Expertise` (the
+  field it knows beyond the manual), `Instructions` (what it does) and `SystemPrompt`
+  (replaces the built-in rules) live at the root, not in a provider section: switching model
+  must not change the expert, so `ResolveSystemPrompt` is on the settings. **`Expertise` is
+  not a kind of `Instructions`**: it goes first, before the rules, and brings
+  `HELPCHAT_MODEL_DEF_EXPERTISE_RULE` (explain concepts as general practice, procedures only
+  from the excerpts, decline outside the field) - measured in `Test\LLMBench`
+  (`--suite=expertise`, results `llm-bench-expertise-v1/v2.md`): a field declared without
+  that rule changed nothing, because "answer ONLY from the excerpts" wins; with it the
+  capable models answered 3-5 more of 12 questions the manual does not cover, inventing no
+  more. Order: field, rules, rule, `Instructions`. The conversation, state and window files carry the profile in their name
   (`ProfileFileName`), the default assistant keeping today's. The keys of 1.6 (`Assistants`,
   `Assistant`, `<Provider>.SystemPrompt`) raise `EHelpChatConfigError` instead of being ignored:
   a drop-down empty for no visible reason is worse than an error that names the new key.
@@ -513,6 +524,16 @@ the edit on every version, not on the one that happens to be open.
   the size it needs. Adding an icon = the PNGs in `Images\`, an entry in
   `resources/HelpChatAI.Assistant.rc`, `Tools\BuildResources.cmd`, a name in
   `HelpChatAssistantIcons`. The image lists come from `vclwinx`, which the VCL package requires.
+  **`ImageIndex` and `ImageName` are kept in step** as the VCL controls do it
+  (StyledComponents' `TStyledButtonRender` is the model): setting the index takes the name of
+  that image, setting the name goes through `TCustomImageList.CheckIndexAndName` (the name
+  wins, the index follows), and the same happens when `Images` is assigned, when the list
+  changes (a `TChangeLink`, on the component too) and once in `Loaded` - never while the
+  form file is read, since the list may come after the index. With no list of the
+  application the built-in collection plays the list. One routine, `HelpChatSyncIconIndex`
+  in `Vcl.HelpChatAI.Bubble`, for the component and the bubble. `ImageIndex` is `default 0`:
+  the first built-in icon is the default assistant, and the field already started at 0
+  while the property declared -1, so a 0 went into form files for nothing.
 - **A modal form owns the chat while it is up.** Windows keeps a modal window above every
   window that shares its owner, and `ShowModal` calls `DisableTaskWindows`: a chat window
   owned by the host form ends up *behind* the modal one and disabled with it, which is not
@@ -705,7 +726,23 @@ the edit on every version, not on the one that happens to be open.
   project, then `$(HELPCHATAIDIR)\Redist\WebView2\<arch>`), because nothing ships it next to
   `bds.exe` and the RTL only ever asks for the bare name — once the module is in the process,
   that bare name finds it. The About box and the splash are registered by the VCL design
-  package alone: one library, one entry.
+  package alone: one library, one entry. **FireMonkey has its twin**,
+  `FMX.HelpChatAI.DesignPreview` (in `dclHelpChatAIFmx`): a FireMonkey form built in code
+  with the `TFmxHelpChatAIPanel` of the component, native `TWebBrowser` included, the form
+  being both `HostForm` and `Container` of the copy. It was left out for a long time on the
+  fear that a native browser in an FMX form inside `bds.exe` would not behave; it does. The
+  loader code is duplicated there for the reason the design glue is (no package requires
+  the other). **The sizes of the VCL window are converted to the DPI of the monitor it
+  opens on** (`MulDiv` from 96, centred by hand on that monitor): a form built with
+  `CreateNew` is never rescaled, so `ScaleValue` multiplies by 1 and on a 200% screen the
+  window came out at half its size; FireMonkey works in logical units and needs none of it.
+  **Each project has its own preview conversation**: inside the IDE the executable is
+  `bds.exe`, so the default conversation file was one for every preview of every project,
+  and a new project opened with - and would have sent to the model - the history of the
+  last one tested. `HelpChatUsePreviewConversation` (`HelpChatAI.Diagnostics`) points it at
+  `%APPDATA%\HelpChatAI\Preview\<Project>-<hash of the exe path>\`, profile in the name, the
+  state file next to it: never into the project's folders, never into the conversation of
+  the application itself.
 - **The configuration editor is two views over one controller.** `HelpChatAI.ConfigController`
   (engine package, RTL) holds every rule: the files a component reads (`FilesFor`: shared,
   application, per-user of the project's executable - never of bds.exe - or the one
@@ -906,6 +943,18 @@ the edit on every version, not on the one that happens to be open.
   actions live in the client: the definitions and the calls do not travel yet. The broker queue
   is shaped for it (`TakePending`/`Complete` over HTTP, the host channel already exists), but
   until that is built, registering actions with a remote engine does nothing.
+- **The plain demo is where a beginner starts, so several assistants live in a twin.**
+  `*_CRMDemo_MultiAgent.dproj` compiles the same sources with `MULTIAGENT`: one unit
+  (`uMultiAgent`, `uMultiAgentFmx`) holds everything it adds - the general assistant's
+  `AllowedActions` and a Sales assistant created on the lead window (profile, Expertise,
+  `DocAreas`, `AllowedActions`) - and the main form changes in two `{$IFDEF}`s:
+  `draft_proposal` goes to `HelpChatSharedActions` instead of the component, and the two
+  calls around `Active`. The point it makes is that **the configuration decides who uses an
+  action**, not the handler. A DFM cannot hold a directive, which is why the second assistant
+  is created in code. Its DCUs go to `dcu\<Framework>-MultiAgent`: sharing the folder, one
+  edition would link the other's units. The areas are in the front matter of the manual
+  (`Sales`, `General`, the rest of none), so one index serves both editions - and a page of
+  no area is everybody's, so the pages the Sales assistant must not see needed an area too.
 - **The sample application is the integration, and it is where the mistakes show up.**
   `CRM Demo` is the Windows 10 CRM of Embarcadero with the component on the main form,
   `claude`, one manual in `Help/*.md` for both demos, and the actions. The **VCL** one
@@ -1016,10 +1065,16 @@ the edit on every version, not on the one that happens to be open.
   that is refused, through a hidden selection and `execCommand`, which puts both there too.
   Nothing of it reaches the engine or the host, which is why it works with a remote engine,
   where saving a file does not.
-- **The model has no calendar.** The system prompt carries today's date
-  (`HELPCHAT_MODEL_DEF_DATE_RULE`, written out with `TFormatSettings.Invariant` so the month
-  is November and the model translates it): without it a document it writes is dated
-  "today", which is what it did.
+- **The model has no calendar and no clock, and does not know its name.** The system prompt
+  opens with `HELPCHAT_MODEL_DEF_IDENTITY_RULE`: the name of the assistant and now - date,
+  time and UTC offset, written out with `TFormatSettings.Invariant` so the month is November
+  and the model translates it (`HelpChatNowText` in `HelpChatAI.Provider`). Without the date a
+  document it writes is dated "today"; without the time "can I call New York now?" was
+  answered by no model of the benchmark, with it by most. The name is the one of the panel
+  that asked: an engine is the profile's while the name may be the component's, so the
+  server passes `GetAssistantName` of the session to `Engine.Send`, and the runner writes it
+  into the snapshot (empty = `Settings.AssistantName`, else `hcmUiTitle` in the language of
+  the chat). `HELPCHAT_MODEL_DEF_DATE_RULE` is kept as a constant only.
 - **The library never decrypts a secret: it asks - and only for the encrypted node.** Every
   secret has two nodes (1.7): `ApiKey` in clear, which the developer writes and the IDE
   reads, and `ApiKeyEncrypted`, which the application writes with its own cipher; the same
@@ -1072,6 +1127,15 @@ the edit on every version, not on the one that happens to be open.
   load/save as JSON (`helpchatai.json`: app file next to the exe, then per-user file in
   `%APPDATA%\<Exe>`); a new property must be added to `Assign`, `LoadFromJSON`, `SaveToJSON`
   and the round-trip test. **Never commit a `helpchatai.json` containing a key** (it is svn-ignored).
+  **A published string the constructor fills needs a `stored` function**: a string has no
+  `default` directive, so Delphi writes every non-empty one - a component just dropped on a
+  form wrote `Provider = 'stub'`, the Claude model, endpoint and version, the Azure version
+  and an empty `Models = <>`, freezing today's defaults into the form. `IsProviderStored`,
+  `IsModelsStored` (a collection is written even empty), `IsModelStored`/`IsBaseUrlStored`
+  (against `DefaultModel`/`DefaultBaseUrl` of the section), `IsApiVersionStored`,
+  `IsAzureApiVersionStored`; the fields keep their values, so code reading `Claude.Model`
+  sees the same string. `FormFile_KeepsOnlyWhatDiffersFromTheDefaults` streams it as the
+  IDE does.
 - Localized strings: add the id to `THelpChatMsgId`, to the six `resourcestring` tables of
   `HelpChatAI.Messages` and to the six case functions (a test fails if one language is
   missing a string, another if a translation loses or adds a `%s`). A new language: a member

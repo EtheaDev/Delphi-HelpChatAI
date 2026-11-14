@@ -1,3 +1,7 @@
+---
+areas: [General]
+---
+
 # Marketing
 
 The mailing list: the e-mail address and the name of every lead of the active user that is

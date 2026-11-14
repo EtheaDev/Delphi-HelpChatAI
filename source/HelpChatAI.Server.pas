@@ -992,7 +992,8 @@ begin
     LValue := FormField(LBody, 'helpKeyword');
     if LValue <> '' then
       LContext.HelpKeyword := LValue;
-    LResult := LEngine.Send(LKey, LMessage, LContext, ASession.GetActions);
+    LResult := LEngine.Send(LKey, LMessage, LContext, ASession.GetActions,
+      ASession.GetAssistantName);
     if LResult.Sent then
       WriteHtml(AResponseInfo, HelpChatRenderBubble(LResult.UserMessage) +
         HelpChatRenderBubble(LResult.AssistantMessage))

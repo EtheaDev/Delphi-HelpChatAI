@@ -6466,6 +6466,9 @@ object MainForm: TMainForm
   object HelpChat: TVclHelpChatAI
     EnabledCommands = [hccHelp, hccWho, hccUse, hccLang, hccRetry, hccSearch, hccDoc, hccPages, hccContext, hccActions, hccCheck, hccStats, hccClear, hccPdf, hccCopy, hccAttach, hccPrompt, hccRun]
     Settings.Provider = 'claude'
+    Settings.Expertise = 
+      'B2B sales and customer relationship management: leads and the sa' +
+      'les pipeline, accounts, proposals and invoicing, follow-up'
     Settings.Models = <
       item
         Name = 'Claude'

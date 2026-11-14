@@ -113,10 +113,35 @@ const
     'buttons, fields and options exactly as the documentation spells them, in %0:s, so that ' +
     'the user finds them on the screen; when it helps, add a translation in brackets the ' +
     'first time a name appears.';
-  /// <summary>Appended to the system prompt with the date of today,
-  /// written out in English: a model has no calendar, and one asked for a
-  /// document dates it "today" unless it is told what today is.</summary>
+  /// <summary>The date of today, as the system prompt said it before 1.9.
+  /// Kept for code that used it: the prompt now opens with
+  /// <see cref="HELPCHAT_MODEL_DEF_IDENTITY_RULE" />.</summary>
   HELPCHAT_MODEL_DEF_DATE_RULE = 'Today is %s.';
+  /// <summary>The first sentence of the system prompt: the name of the
+  /// assistant (%0:s) and now (%1:s: "Saturday, 14 November 2026, 15:40
+  /// (UTC+01:00)", written out in English). A model has no calendar and no
+  /// clock: without them a document is dated "today", and "can I call New
+  /// York now?" has no answer. Measured in Test\LLMBench (expertise suite):
+  /// with the time, the models that answered that question went from none to
+  /// six out of seven.</summary>
+  HELPCHAT_MODEL_DEF_IDENTITY_RULE = 'Your name is %0:s. Now it is %1:s.';
+  /// <summary>What the field of the assistant (%s, its <c>Expertise</c>)
+  /// becomes in the system prompt: right after its name, before the rules.</summary>
+  HELPCHAT_MODEL_DEF_EXPERTISE = 'Your field of expertise is %s.';
+  /// <summary>Added after the built-in rules when the assistant has an
+  /// <c>Expertise</c>. The rules say to answer only from the excerpts, and
+  /// they win: a field declared without this sentence changed nothing in the
+  /// benchmark. With it the models explain what the manual takes for granted
+  /// (VAT, a pipeline, a forecast) and still invent no feature of the
+  /// application.</summary>
+  HELPCHAT_MODEL_DEF_EXPERTISE_RULE =
+    'Use your expertise to understand what the user means and to explain the general ' +
+    'concepts and good practice of your field, saying that it is general practice and not ' +
+    'something of this application. How to do something in THIS application comes only ' +
+    'from the documentation excerpts: never invent a screen, field, button, report, ' +
+    'automatic feature or behaviour they do not describe. When the application lacks what ' +
+    'the user needs, say so and offer the closest thing it does have. A question outside ' +
+    'your field and this application: decline it in one sentence.';
   /// <summary>Added to the system prompt when the application registered
   /// actions: the model has to know that the tools change the application the
   /// user is looking at, not some sandbox.</summary>
@@ -312,6 +337,14 @@ type
     procedure ClearOverrides;
     /// <summary>MaxToolRounds, never below one.</summary>
     function ResolveMaxToolRounds: Integer;
+    /// <summary>Form files keep <c>Model</c> only when it is not the default
+    /// of this provider: a string has no <c>default</c> directive, and a
+    /// default written into the form would freeze it there when the library
+    /// moves on.</summary>
+    function IsModelStored: Boolean;
+    /// <summary>The same for <c>BaseUrl</c>: stored when it is not the
+    /// default endpoint of this provider.</summary>
+    function IsBaseUrlStored: Boolean;
     /// <summary>Reads the keys present in AObject; missing keys keep their value.</summary>
     procedure LoadFromJSONObject(const AObject: TJSONObject); virtual;
     /// <summary>Adds every setting to AObject.</summary>
@@ -328,7 +361,7 @@ type
     property ApiKeyEncrypted: string read FApiKeyEncrypted write FApiKeyEncrypted;
   published
     /// <summary>Empty = the default model of this provider.</summary>
-    property Model: string read FModel write FModel;
+    property Model: string read FModel write FModel stored IsModelStored;
     property MaxTokens: Integer read FMaxTokens write FMaxTokens default HELPCHAT_MODEL_DEF_MAXTOKENS;
     /// <summary>Documentation pages injected into the system prompt (0 = off).</summary>
     property GroundingMaxPages: Integer read FGroundingMaxPages write FGroundingMaxPages default HELPCHAT_MODEL_DEF_GROUNDING;
@@ -337,7 +370,7 @@ type
     property GroundingMaxChars: Integer read FGroundingMaxChars write FGroundingMaxChars default HELPCHAT_MODEL_DEF_GROUNDING_CHARS;
     /// <summary>Empty = the default endpoint of this provider. This is the one
     /// setting that points a provider at another service altogether.</summary>
-    property BaseUrl: string read FBaseUrl write FBaseUrl;
+    property BaseUrl: string read FBaseUrl write FBaseUrl stored IsBaseUrlStored;
     property ConnectTimeoutMs: Integer read FConnectTimeoutMs write FConnectTimeoutMs default HELPCHAT_MODEL_DEF_CONNECTTIMEOUTMS;
     property ResponseTimeoutMs: Integer read FResponseTimeoutMs write FResponseTimeoutMs default HELPCHAT_MODEL_DEF_RESPONSETIMEOUTMS;
     /// <summary>How many times the model may ask for actions and be called
@@ -360,9 +393,12 @@ type
     class function SectionName: string; override;
     procedure LoadFromJSONObject(const AObject: TJSONObject); override;
     procedure SaveToJSONObject(const AObject: TJSONObject); override;
+    /// <summary>Stored in a form file only when it is not
+    /// <c>HELPCHAT_CLAUDE_DEF_VERSION</c>.</summary>
+    function IsApiVersionStored: Boolean;
   published
     /// <summary>Value of the anthropic-version header.</summary>
-    property ApiVersion: string read FApiVersion write FApiVersion;
+    property ApiVersion: string read FApiVersion write FApiVersion stored IsApiVersionStored;
   end;
 
   /// <summary>
@@ -395,6 +431,9 @@ type
     function UsesResponses: Boolean;
     procedure LoadFromJSONObject(const AObject: TJSONObject); override;
     procedure SaveToJSONObject(const AObject: TJSONObject); override;
+    /// <summary>Stored in a form file only when it is not
+    /// <c>HELPCHAT_OPENAI_DEF_AZURE_APIVERSION</c>.</summary>
+    function IsAzureApiVersionStored: Boolean;
   published
     /// <summary>OpenAI-Organization header; empty = not sent.</summary>
     property Organization: string read FOrganization write FOrganization;
@@ -403,7 +442,8 @@ type
     /// travels in the api-key header instead of Authorization.</summary>
     property AzureDeployment: string read FAzureDeployment write FAzureDeployment;
     /// <summary>api-version query parameter of Azure OpenAI.</summary>
-    property AzureApiVersion: string read FAzureApiVersion write FAzureApiVersion;
+    property AzureApiVersion: string read FAzureApiVersion write FAzureApiVersion
+      stored IsAzureApiVersionStored;
     /// <summary>Which API the requests use: <c>responses</c>, <c>chat</c>
     /// (Chat Completions), or empty for the one that fits the endpoint -
     /// Responses on api.openai.com, where a reasoning model (the GPT-6
@@ -646,6 +686,7 @@ type
     FProfile: string;
     FAssistantName: string;
     FSystemPrompt: string;
+    FExpertise: string;
     FInstructions: string;
     FProvider: string;
     // The provider as the configuration has it, kept while the model in use
@@ -734,6 +775,12 @@ type
     /// own runs on, and what <c>SaveToJSON</c> writes. A switch of model is
     /// an override, never a change of the configuration.</summary>
     function ConfiguredProvider: string;
+    /// <summary>Form files keep <c>Provider</c> only when it is not
+    /// <c>HELPCHAT_DEF_PROVIDER</c>.</summary>
+    function IsProviderStored: Boolean;
+    /// <summary>Form files keep <c>Models</c> only when it has entries: a
+    /// collection is otherwise written even empty, as <c>&lt;&gt;</c>.</summary>
+    function IsModelsStored: Boolean;
 
     /// <summary>Installs the handler that turns a stored secret into the value
     /// to use, and the object the handler will see as <c>Sender</c> (the
@@ -763,10 +810,13 @@ type
     function ResolveDocAreas: TArray<string>;
     /// <summary><c>AllowedActions</c> as a list, trimmed, without empty items.</summary>
     function ResolveAllowedActions: TArray<string>;
-    /// <summary>What the model is told it is: <c>SystemPrompt</c> when set,
-    /// else <see cref="HELPCHAT_MODEL_DEF_SYSTEMPROMPT" />, followed by the
+    /// <summary>What the model is told it is: the field of the assistant
+    /// (<c>Expertise</c>), then <c>SystemPrompt</c> when set, else
+    /// <see cref="HELPCHAT_MODEL_DEF_SYSTEMPROMPT" />, then the rule that
+    /// governs the expertise (when there is one), then the
     /// <c>Instructions</c> of this assistant. The same whichever provider
-    /// answers: switching model must not change the expert.</summary>
+    /// answers: switching model must not change the expert. The name and the
+    /// time that open the prompt are added by the provider, per request.</summary>
     function ResolveSystemPrompt: string;
     /// <summary>The file of the choices the user made in the panel (model,
     /// language), next to the conversation and named after the profile.</summary>
@@ -870,16 +920,25 @@ type
     /// gemini (or a custom one). While a model of <c>Models</c> that names a
     /// provider is in use, this reads as that provider - it is what the
     /// engine calls; writing it sets the configured one again.</summary>
-    property Provider: string read FProvider write SetProvider;
+    property Provider: string read FProvider write SetProvider stored IsProviderStored;
     /// <summary>Replaces the built-in system prompt
     /// (<see cref="HELPCHAT_MODEL_DEF_SYSTEMPROMPT" />) when not empty. Rarely
     /// what you want: the built-in one carries the rules about the excerpts
     /// and the citations. To say what this assistant is expert in, write
     /// <c>Instructions</c> instead.</summary>
     property SystemPrompt: string read FSystemPrompt write FSystemPrompt;
-    /// <summary>What this assistant is: its field, its tone, what it must not
-    /// do. Added to the system prompt after the built-in rules, whatever
-    /// provider or model answers.</summary>
+    /// <summary>The field this assistant is an expert of ("general
+    /// accounting", "warehouse management"): what it knows beyond the manual,
+    /// to understand what the user means and explain the concepts the manual
+    /// takes for granted. It opens the system prompt, after the name, and
+    /// brings the rule that the procedures of the application still come
+    /// from the manual alone (<see cref="HELPCHAT_MODEL_DEF_EXPERTISE_RULE" />).
+    /// Empty = the assistant explains the application and nothing else.</summary>
+    property Expertise: string read FExpertise write FExpertise;
+    /// <summary>What this assistant does in detail: its tasks, its tone, what
+    /// it must not do. Added to the system prompt after the built-in rules,
+    /// whatever provider or model answers. The field it is an expert of is
+    /// <c>Expertise</c>.</summary>
     property Instructions: string read FInstructions write FInstructions;
     /// <summary>Name of the model in use among <c>Models</c>; empty = the
     /// first of the list. Changed at run time by the panel.</summary>
@@ -889,7 +948,7 @@ type
     /// replaces it whole). In a profile an entry may be just a name: the
     /// model of that name already loaded (the catalogue at the root). Empty =
     /// <c>Provider</c> alone, no choice.</summary>
-    property Models: THelpChatModelEntries read FModels write SetModels;
+    property Models: THelpChatModelEntries read FModels write SetModels stored IsModelsStored;
     /// <summary>Worker threads producing replies (1..n).</summary>
     property PoolSize: Integer read FPoolSize write FPoolSize default HELPCHAT_DEF_POOLSIZE;
     /// <summary>User messages are truncated to this length (0 = no limit).</summary>
@@ -1161,6 +1220,17 @@ end;
 
 { THelpChatModelSettings }
 
+function THelpChatModelSettings.IsModelStored: Boolean;
+begin
+  // Empty means the default too: neither needs a line in the form file.
+  Result := (FModel <> '') and (FModel <> DefaultModel);
+end;
+
+function THelpChatModelSettings.IsBaseUrlStored: Boolean;
+begin
+  Result := (FBaseUrl <> '') and (FBaseUrl <> DefaultBaseUrl);
+end;
+
 constructor THelpChatModelSettings.Create;
 begin
   inherited Create;
@@ -1373,6 +1443,11 @@ begin
   Result := 'Claude';
 end;
 
+function THelpChatClaudeSettings.IsApiVersionStored: Boolean;
+begin
+  Result := FApiVersion <> HELPCHAT_CLAUDE_DEF_VERSION;
+end;
+
 constructor THelpChatClaudeSettings.Create;
 begin
   inherited Create;
@@ -1425,6 +1500,11 @@ end;
 class function THelpChatOpenAISettings.SectionName: string;
 begin
   Result := 'OpenAI';
+end;
+
+function THelpChatOpenAISettings.IsAzureApiVersionStored: Boolean;
+begin
+  Result := FAzureApiVersion <> HELPCHAT_OPENAI_DEF_AZURE_APIVERSION;
 end;
 
 constructor THelpChatOpenAISettings.Create;
@@ -1995,6 +2075,17 @@ begin
   FConfiguredProvider := '';
 end;
 
+function THelpChatSettings.IsProviderStored: Boolean;
+begin
+  // What the writer reads is the getter, so the same field is compared.
+  Result := FProvider <> HELPCHAT_DEF_PROVIDER;
+end;
+
+function THelpChatSettings.IsModelsStored: Boolean;
+begin
+  Result := FModels.Count > 0;
+end;
+
 function THelpChatSettings.ConfiguredProvider: string;
 begin
   if FProviderFromModel then
@@ -2130,6 +2221,7 @@ begin
       FProfile := LSource.FProfile;
       FAssistantName := LSource.FAssistantName;
       FSystemPrompt := LSource.FSystemPrompt;
+      FExpertise := LSource.FExpertise;
       FInstructions := LSource.FInstructions;
       FProvider := LSource.FProvider;
       FConfiguredProvider := LSource.FConfiguredProvider;
@@ -2282,10 +2374,20 @@ begin
 end;
 
 function THelpChatSettings.ResolveSystemPrompt: string;
+var
+  LExpertise, LRules: string;
 begin
-  Result := Trim(FSystemPrompt);
-  if Result = '' then
-    Result := HELPCHAT_MODEL_DEF_SYSTEMPROMPT;
+  LExpertise := Trim(FExpertise);
+  LRules := Trim(FSystemPrompt);
+  if LRules = '' then
+    LRules := HELPCHAT_MODEL_DEF_SYSTEMPROMPT;
+  // The field first, then the rules, then the rule that governs the field:
+  // in that order, and with that rule, or the expertise changes nothing.
+  if LExpertise <> '' then
+    Result := Format(HELPCHAT_MODEL_DEF_EXPERTISE, [LExpertise]) + ' ' + LRules + ' ' +
+      HELPCHAT_MODEL_DEF_EXPERTISE_RULE
+  else
+    Result := LRules;
   if Trim(FInstructions) <> '' then
     Result := Result + ' ' + Trim(FInstructions);
 end;
@@ -2354,6 +2456,7 @@ begin
       'is now "SelectedModel"');
   FAssistantName := JsonStr(AObject, 'AssistantName', FAssistantName);
   FSystemPrompt := JsonStr(AObject, 'SystemPrompt', FSystemPrompt);
+  FExpertise := JsonStr(AObject, 'Expertise', FExpertise);
   FInstructions := JsonStr(AObject, 'Instructions', FInstructions);
   // Through the setter, and only when the key is there: a configuration
   // that names the provider resets the one a model in use had put on top.
@@ -2400,6 +2503,7 @@ begin
     if FAssistantName <> '' then
       LRoot.AddPair('AssistantName', FAssistantName);
     LRoot.AddPair('SystemPrompt', FSystemPrompt);
+    LRoot.AddPair('Expertise', FExpertise);
     LRoot.AddPair('Instructions', FInstructions);
     // The configured provider: what the model in use put on top is an
     // override, and an override is never saved.

@@ -276,6 +276,17 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 
 ## Release Notes ##
 
+14 Nov 2026: ver. 1.10.0
+- `Expertise` at the root and in each profile: the field the assistant knows beyond the manual ("general accounting", "warehouse management"). It opens the system prompt with a rule that keeps the procedures of the application to the manual alone, so the assistant explains what the manual takes for granted without inventing features; `Instructions` stays for what it does in detail
+- The system prompt opens with the name of the assistant and now - date, time and time zone
+- CRM demos: an `Expertise` of their own, and a multi-assistant edition built from the same sources (`VCL_CRMDemo_MultiAgent`, `FMX_CRMDemo_MultiAgent`, with `MULTIAGENT` defined): a general assistant and a Sales one on the lead window, an area of the manual each, and `draft_proposal` registered once among the shared actions and allowed only to the Sales assistant
+- **Test HelpChat...** on the FireMonkey component too: the live chat in a FireMonkey form, with the panel the application runs, from the verb and from the Test button of the configuration editor
+- The preview keeps a conversation per project and profile (`%APPDATA%\HelpChatAI\Preview`): inside the IDE every preview of every project used to share one, so a new project opened with the history of the last one tested
+- The VCL preview window is sized for the DPI of its monitor: on a high-DPI screen it opened at half its size
+- VCL: `ImageIndex` and `ImageName` kept in step, the way the controls of the VCL do (the name wins when both are set); `ImageIndex` defaults to 0, the first built-in icon - the default assistant
+- A component just dropped on a form writes no setting into the form file: `Provider`, `Models`, `Model`, `BaseUrl` and the API versions are stored only when they differ from their defaults, so a form follows the defaults of the library when they change
+- 478 tests
+
 13 Nov 2026: ver. 1.9.0
 - Configuration editor reviewed: the *In use* column always shows the value in force, styled as in the Object Inspector; a control per kind of setting; **Remove from the component**
 - The bubble can be dragged anywhere on its form and is found there again (`BubbleDraggable`, `ResetBubblePosition`)

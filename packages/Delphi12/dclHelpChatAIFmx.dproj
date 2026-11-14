@@ -180,6 +180,7 @@
             <FormType>fmx</FormType>
         </DCCReference>
         <DCCReference Include="..\..\source\FMX.HelpChatAI.Register.pas"/>
+        <DCCReference Include="..\..\source\FMX.HelpChatAI.DesignPreview.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

@@ -64,6 +64,8 @@ type
     [Test]
     procedure SystemPrompt_ReplacesTheBuiltInOne;
     [Test]
+    procedure SystemPrompt_ExpertiseOpensIt_WithItsRule;
+    [Test]
     procedure Files_AreNamedAfterTheProfile;
     [Test]
     procedure AssistantName_ComesFromTheProfile;
@@ -274,6 +276,35 @@ begin
     LSettings.SystemPrompt := 'You are Bob.';
     LSettings.Instructions := 'Be brief.';
     Assert.AreEqual('You are Bob. Be brief.', LSettings.ResolveSystemPrompt);
+  finally
+    LSettings.Free;
+  end;
+end;
+
+procedure TProfileTests.SystemPrompt_ExpertiseOpensIt_WithItsRule;
+var
+  LSettings: THelpChatSettings;
+  LPrompt: string;
+begin
+  LSettings := NewSettings('Accounting');
+  try
+    LSettings.LoadFromJSON('{"Instructions": "General.", "Profiles": {"Accounting": ' +
+      '{"Expertise": "general accounting", "Instructions": "Close the month with the user."}}}');
+    Assert.AreEqual('general accounting', LSettings.Expertise, 'from the profile');
+    LPrompt := LSettings.ResolveSystemPrompt;
+    // The field first, the rules, the rule that governs the field, then the
+    // instructions: without that rule a field declared changed nothing.
+    Assert.StartsWith('Your field of expertise is general accounting. ' +
+      HELPCHAT_MODEL_DEF_SYSTEMPROMPT, LPrompt);
+    Assert.Contains(LPrompt, HELPCHAT_MODEL_DEF_EXPERTISE_RULE);
+    Assert.IsTrue(Pos(HELPCHAT_MODEL_DEF_EXPERTISE_RULE, LPrompt) <
+      Pos('Close the month with the user.', LPrompt), 'the instructions come last');
+    Assert.EndsWith('Close the month with the user.', LPrompt);
+    // No field: the prompt of before, and no rule about a field.
+    LSettings.Expertise := '';
+    LPrompt := LSettings.ResolveSystemPrompt;
+    Assert.StartsWith(HELPCHAT_MODEL_DEF_SYSTEMPROMPT, LPrompt);
+    Assert.DoesNotContain(LPrompt, HELPCHAT_MODEL_DEF_EXPERTISE_RULE);
   finally
     LSettings.Free;
   end;

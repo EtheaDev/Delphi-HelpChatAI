@@ -162,8 +162,12 @@ type
     /// <summary>Same, with the actions of the assistant that asks: an engine
     /// shared by the assistants of one profile runs, for each question, the
     /// actions of the panel it came from. nil = <c>Actions</c>.</summary>
+    /// <c>AAssistantName</c> is the name the panel that asked shows (the
+    /// server passes the one of its session): the model is told it is its
+    /// name. Empty = <c>Settings.AssistantName</c>, else the localized default.
     function Send(const AKey, AText: string; const AContext: THelpChatContext;
-      const AActions: IHelpChatActionInvoker): THelpChatSendResult; overload;
+      const AActions: IHelpChatActionInvoker;
+      const AAssistantName: string = ''): THelpChatSendResult; overload;
     /// <summary>Copy of the message AId, if it exists in this conversation.</summary>
     function TryGetMessage(const AId: string; out AMessage: THelpChatMessage): Boolean; overload;
     /// <summary>The same, in the conversation AKey (a server with many).</summary>
@@ -489,7 +493,7 @@ begin
 end;
 
 function THelpChatEngine.Send(const AKey, AText: string; const AContext: THelpChatContext;
-  const AActions: IHelpChatActionInvoker): THelpChatSendResult;
+  const AActions: IHelpChatActionInvoker; const AAssistantName: string): THelpChatSendResult;
 var
   LActions: IHelpChatActionInvoker;
   LText, LAssistantId: string;
@@ -514,7 +518,7 @@ begin
   // it makes, so name, endpoint and key are always of the same model.
   FRunner.Submit(AKey, LAssistantId, '', AContext,
     FSettings.HistoryMaxMessages, FSettings, LActions,
-    FAttachments.ItemsOf(AKey));
+    FAttachments.ItemsOf(AKey), AAssistantName);
 end;
 
 function THelpChatEngine.TryGetMessage(const AId: string; out AMessage: THelpChatMessage): Boolean;

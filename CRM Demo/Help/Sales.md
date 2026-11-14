@@ -1,3 +1,7 @@
+---
+areas: [Sales]
+---
+
 # Sales
 
 Every proposal of the active user, in one list.

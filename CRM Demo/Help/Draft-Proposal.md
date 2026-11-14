@@ -1,3 +1,7 @@
+---
+areas: [Sales]
+---
+
 # Draft a proposal
 
 The proposal is an invoice: a header with the customer's address, a list of line items, a

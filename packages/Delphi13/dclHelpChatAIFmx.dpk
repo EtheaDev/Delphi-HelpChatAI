@@ -55,6 +55,7 @@ requires
 
 contains
   FMX.HelpChatAI.ConfigEditor in '..\..\source\FMX.HelpChatAI.ConfigEditor.pas' {FmxHelpChatConfigEditor},
-  FMX.HelpChatAI.Register in '..\..\source\FMX.HelpChatAI.Register.pas';
+  FMX.HelpChatAI.Register in '..\..\source\FMX.HelpChatAI.Register.pas',
+  FMX.HelpChatAI.DesignPreview in '..\..\source\FMX.HelpChatAI.DesignPreview.pas';
 
 end.

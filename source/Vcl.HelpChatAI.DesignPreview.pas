@@ -358,29 +358,64 @@ end;
 
 constructor THelpChatPreviewForm.CreatePreview(const ACaption: string;
   const AIssues: THelpChatIssues; const AWidth, AHeight: Integer);
+var
+  LMonitor: Vcl.Forms.TMonitor;
+  LPPI: Integer;
+  LArea: TRect;
+  LWidth, LHeight: Integer;
+
+  // The sizes are written at 96 DPI, like PanelWidth and PanelHeight; the
+  // window is in pixels of the monitor it opens on. ScaleValue cannot do it:
+  // it multiplies by the factor of the last rescaling, and nobody rescaled a
+  // form built with CreateNew - on a 200% screen everything came out half.
+  function Px(const AValue: Integer): Integer;
+  begin
+    Result := MulDiv(AValue, LPPI, 96);
+  end;
+
 begin
   inherited CreateNew(nil);
+  // The monitor of the IDE window the developer is working in.
+  if Assigned(Screen.ActiveCustomForm) then
+    LMonitor := Screen.ActiveCustomForm.Monitor
+  else
+    LMonitor := Screen.MonitorFromPoint(Mouse.CursorPos);
+  if Assigned(LMonitor) then
+  begin
+    LPPI := LMonitor.PixelsPerInch;
+    LArea := LMonitor.WorkareaRect;
+  end
+  else
+  begin
+    LPPI := Screen.PixelsPerInch;
+    LArea := Screen.WorkAreaRect;
+  end;
+
   Caption := ACaption;
-  Position := poScreenCenter;
   BorderStyle := bsSizeable;
-  Width := AWidth;
-  Height := AHeight;
-  Constraints.MinWidth := HELPCHAT_DESIGN_MIN_WIDTH;
-  Constraints.MinHeight := HELPCHAT_DESIGN_MIN_HEIGHT;
+  // Centered by hand on that monitor: poScreenCenter would pick the primary
+  // one, which may have another DPI than the sizes were computed for.
+  Position := poDesigned;
+  LWidth := Min(Px(AWidth), LArea.Width);
+  LHeight := Min(Px(AHeight), LArea.Height);
+  SetBounds(LArea.Left + (LArea.Width - LWidth) div 2,
+    LArea.Top + (LArea.Height - LHeight) div 2, LWidth, LHeight);
+  Constraints.MinWidth := Min(Px(HELPCHAT_DESIGN_MIN_WIDTH), LArea.Width);
+  Constraints.MinHeight := Min(Px(HELPCHAT_DESIGN_MIN_HEIGHT), LArea.Height);
   KeyPreview := True;
   OnKeyDown := KeyDownHandler;
 
   FFooter := TPanel.Create(Self);
   FFooter.Parent := Self;
   FFooter.Align := alBottom;
-  FFooter.Height := HELPCHAT_DESIGN_LOG_HEIGHT;
+  FFooter.Height := Px(HELPCHAT_DESIGN_LOG_HEIGHT);
   FFooter.BevelOuter := bvNone;
-  FFooter.Padding.SetBounds(6, 6, 6, 6);
+  FFooter.Padding.SetBounds(Px(6), Px(6), Px(6), Px(6));
 
   FCloseButton := TButton.Create(Self);
   FCloseButton.Parent := FFooter;
   FCloseButton.Align := alRight;
-  FCloseButton.Width := 90;
+  FCloseButton.Width := Px(90);
   FCloseButton.Caption := 'Close';
   FCloseButton.Cancel := True;
   FCloseButton.OnClick := CloseClick;
@@ -389,7 +424,7 @@ begin
   FLog.Parent := FFooter;
   FLog.Align := alClient;
   FLog.AlignWithMargins := True;
-  FLog.Margins.SetBounds(0, 0, 6, 0);
+  FLog.Margins.SetBounds(0, 0, Px(6), 0);
   FLog.ReadOnly := True;
   FLog.ScrollBars := ssVertical;
   FLog.WordWrap := True;
@@ -595,6 +630,9 @@ begin
 
   LBaseFolder := HelpChatDesignBaseFolder;
   LSettings := DesignSettings(AChat, LBaseFolder, LConfigFiles);
+  // A conversation of this project, not the one of bds.exe that every
+  // preview of every project would share.
+  HelpChatUsePreviewConversation(LSettings, HelpChatDesignExeFile);
   LContext := nil;
   LClone := nil;
   LForm := nil;

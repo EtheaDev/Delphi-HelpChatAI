@@ -503,6 +503,18 @@ document - the last two of which write a real PDF with the WebView2 runtime of t
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>14 Nov 2026: ver. 1.10.0</p>
+<ul>
+<li><code>Expertise</code> at the root and in each profile: the field the assistant knows beyond the manual (“general accounting”, “warehouse management”). It opens the system prompt with a rule that keeps the procedures of the application to the manual alone, so the assistant explains what the manual takes for granted without inventing features; <code>Instructions</code> stays for what it does in detail</li>
+<li>The system prompt opens with the name of the assistant and now - date, time and time zone</li>
+<li>CRM demos: an <code>Expertise</code> of their own, and a multi-assistant edition built from the same sources (<code>VCL_CRMDemo_MultiAgent</code>, <code>FMX_CRMDemo_MultiAgent</code>, with <code>MULTIAGENT</code> defined): a general assistant and a Sales one on the lead window, an area of the manual each, and <code>draft_proposal</code> registered once among the shared actions and allowed only to the Sales assistant</li>
+<li><strong>Test HelpChat…</strong> on the FireMonkey component too: the live chat in a FireMonkey form, with the panel the application runs, from the verb and from the Test button of the configuration editor</li>
+<li>The preview keeps a conversation per project and profile (<code>%APPDATA%\HelpChatAI\Preview</code>): inside the IDE every preview of every project used to share one, so a new project opened with the history of the last one tested</li>
+<li>The VCL preview window is sized for the DPI of its monitor: on a high-DPI screen it opened at half its size</li>
+<li>VCL: <code>ImageIndex</code> and <code>ImageName</code> kept in step, the way the controls of the VCL do (the name wins when both are set); <code>ImageIndex</code> defaults to 0, the first built-in icon - the default assistant</li>
+<li>A component just dropped on a form writes no setting into the form file: <code>Provider</code>, <code>Models</code>, <code>Model</code>, <code>BaseUrl</code> and the API versions are stored only when they differ from their defaults, so a form follows the defaults of the library when they change</li>
+<li>478 tests</li>
+</ul>
 <p>13 Nov 2026: ver. 1.9.0</p>
 <ul>
 <li>Configuration editor reviewed: the <em>In use</em> column always shows the value in force, styled as in the Object Inspector; a control per kind of setting; <strong>Remove from the component</strong></li>

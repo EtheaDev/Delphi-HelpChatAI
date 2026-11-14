@@ -47,18 +47,89 @@ type
     [Test] procedure Secret_Handler_ReachesEverySecret;
     [Test] procedure Secret_Handler_SurvivesAssign;
     [Test] procedure Secret_Handler_AlsoReadsTheEnvironmentVariable;
+    [Test] procedure FormFile_KeepsOnlyWhatDiffersFromTheDefaults;
   end;
 
 implementation
 
 uses
   System.SysUtils,
+  System.Classes,
   System.IOUtils,
   System.StrUtils,
   Winapi.Windows,
   HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Tests.Helpers;
+
+type
+  /// <summary>What a component does with its settings, and nothing else: a
+  /// published <c>Settings</c>, so that streaming it is what the IDE writes
+  /// into a form file.</summary>
+  TSettingsHolder = class(TComponent)
+  private
+    FSettings: THelpChatSettings;
+    procedure SetSettings(const Value: THelpChatSettings);
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+  published
+    property Settings: THelpChatSettings read FSettings write SetSettings;
+  end;
+
+constructor TSettingsHolder.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FSettings := THelpChatSettings.Create;
+end;
+
+destructor TSettingsHolder.Destroy;
+begin
+  FSettings.Free;
+  inherited;
+end;
+
+procedure TSettingsHolder.SetSettings(const Value: THelpChatSettings);
+begin
+  FSettings.Assign(Value);
+end;
+
+/// <summary>The component as the text of a form file.</summary>
+function FormText(const AComponent: TComponent): string;
+var
+  LBinary: TMemoryStream;
+  LText: TStringStream;
+begin
+  LBinary := TMemoryStream.Create;
+  LText := TStringStream.Create('', TEncoding.UTF8);
+  try
+    LBinary.WriteComponent(AComponent);
+    LBinary.Position := 0;
+    ObjectBinaryToText(LBinary, LText);
+    Result := LText.DataString;
+  finally
+    LText.Free;
+    LBinary.Free;
+  end;
+end;
+
+/// <summary>Reads AText (a form file) back into AComponent.</summary>
+procedure ReadFormText(const AText: string; const AComponent: TComponent);
+var
+  LBinary: TMemoryStream;
+  LText: TStringStream;
+begin
+  LBinary := TMemoryStream.Create;
+  LText := TStringStream.Create(AText, TEncoding.UTF8);
+  try
+    ObjectTextToBinary(LText, LBinary);
+    LBinary.Position := 0;
+    LBinary.ReadComponent(AComponent);
+  finally
+    LText.Free;
+    LBinary.Free;
+  end;
+end;
 
 { TSecretHandlerSpy }
 
@@ -248,6 +319,7 @@ begin
     LSource.Claude.GroundingMaxPages := 1;
     LSource.Claude.GroundingMaxChars := 1234;
     LSource.SystemPrompt := 'Sei Bob.';
+    LSource.Expertise := 'Contabilità generale';
     LSource.Instructions := 'Esperto di ordini.';
     LSource.Profile := 'Orders';
     LSource.AssistantName := 'Giulio';
@@ -301,6 +373,7 @@ begin
     Assert.AreEqual(1, LCopy.Claude.GroundingMaxPages);
     Assert.AreEqual(1234, LCopy.Claude.GroundingMaxChars);
     Assert.AreEqual('Sei Bob.', LCopy.SystemPrompt);
+    Assert.AreEqual('Contabilità generale', LCopy.Expertise);
     Assert.AreEqual('Esperto di ordini.', LCopy.Instructions);
     Assert.AreEqual('', LCopy.Profile, 'the component names its profile: a file never does');
     Assert.AreEqual('Giulio', LCopy.AssistantName);
@@ -712,6 +785,59 @@ begin
       SetEnvironmentVariable(PChar(HELPCHAT_CLAUDE_APIKEY_ENVVAR), nil)
     else
       SetEnvironmentVariable(PChar(HELPCHAT_CLAUDE_APIKEY_ENVVAR), PChar(LSaved));
+  end;
+end;
+
+
+procedure TSettingsTests.FormFile_KeepsOnlyWhatDiffersFromTheDefaults;
+var
+  LHolder, LCopy: TSettingsHolder;
+  LText: string;
+begin
+  // A component just dropped on a form: the constructor wrote the defaults
+  // of Provider, Claude and Azure into the fields, and none of them may reach
+  // the form file - a string has no default directive, so only a stored
+  // function keeps it out, and a default written there is frozen there.
+  LHolder := TSettingsHolder.Create(nil);
+  LCopy := TSettingsHolder.Create(nil);
+  try
+    LText := FormText(LHolder);
+    Assert.IsFalse(ContainsText(LText, 'Provider'), LText);
+    Assert.IsFalse(ContainsText(LText, 'Models'), LText);
+    Assert.IsFalse(ContainsText(LText, 'Model ='), LText);
+    Assert.IsFalse(ContainsText(LText, 'BaseUrl'), LText);
+    Assert.IsFalse(ContainsText(LText, 'ApiVersion'), LText);
+    // Read back, the fields are what the constructor gives: unchanged for
+    // whoever reads Claude.Model from code.
+    ReadFormText(LText, LCopy);
+    Assert.AreEqual(HELPCHAT_DEF_PROVIDER, LCopy.Settings.Provider);
+    Assert.AreEqual(HELPCHAT_CLAUDE_DEF_MODEL, LCopy.Settings.Claude.Model);
+    Assert.AreEqual(HELPCHAT_CLAUDE_DEF_BASEURL, LCopy.Settings.Claude.BaseUrl);
+    Assert.AreEqual(HELPCHAT_CLAUDE_DEF_VERSION, LCopy.Settings.Claude.ApiVersion);
+
+    // What the developer changed is written, and comes back.
+    LHolder.Settings.Provider := 'claude';
+    LHolder.Settings.Claude.Model := 'claude-opus-5-5';
+    LHolder.Settings.Claude.ApiVersion := '2099-01-01';
+    LHolder.Settings.OpenAI.BaseUrl := 'http://localhost:11434/v1';
+    LHolder.Settings.OpenAI.AzureApiVersion := '2099-02-02';
+    LHolder.Settings.Gemini.Model := 'gemini-pro-latest';
+    LHolder.Settings.Models.Add.Name := 'Local';
+    LText := FormText(LHolder);
+    Assert.IsTrue(ContainsText(LText, 'Settings.Provider = ''claude'''), LText);
+    Assert.IsTrue(ContainsText(LText, 'Settings.Models = <'), LText);
+    ReadFormText(LText, LCopy);
+    Assert.AreEqual('claude', LCopy.Settings.Provider);
+    Assert.AreEqual('claude-opus-5-5', LCopy.Settings.Claude.Model);
+    Assert.AreEqual('2099-01-01', LCopy.Settings.Claude.ApiVersion);
+    Assert.AreEqual('http://localhost:11434/v1', LCopy.Settings.OpenAI.BaseUrl);
+    Assert.AreEqual('2099-02-02', LCopy.Settings.OpenAI.AzureApiVersion);
+    Assert.AreEqual('gemini-pro-latest', LCopy.Settings.Gemini.Model);
+    Assert.AreEqual(1, LCopy.Settings.Models.Count);
+    Assert.AreEqual('Local', LCopy.Settings.Models[0].Name);
+  finally
+    LCopy.Free;
+    LHolder.Free;
   end;
 end;
 

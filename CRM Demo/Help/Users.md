@@ -1,3 +1,7 @@
+---
+areas: [General]
+---
+
 # Users
 
 The names records can belong to. The sample database has one, **CRMUser**, and everything in

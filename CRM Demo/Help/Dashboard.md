@@ -1,3 +1,7 @@
+---
+areas: [General]
+---
+
 # Dashboard
 
 The opening screen counts the leads of the active user, one tile per status.

@@ -49,6 +49,18 @@ uses
   HelpChatAI.Provider,
   HelpChatAI.Tests.Helpers;
 
+/// <summary>The prompt after its first sentence, "Your name is ... Now it is
+/// ... (UTC+01:00).": what the assertions written before 1.9 started from.</summary>
+function AfterIdentity(const APrompt: string): string;
+var
+  I: Integer;
+begin
+  I := Pos('). ', APrompt);
+  if I = 0 then
+    Exit(APrompt);
+  Result := Copy(APrompt, I + 3, MaxInt);
+end;
+
 procedure TClaudeTests.Setup;
 begin
   FTokens := TList<string>.Create;
@@ -180,7 +192,7 @@ begin
     LContext.ScreenType := 'TOrdersForm';
 
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, LContext, LSettings, LRetriever);
-    Assert.StartsWith(HELPCHAT_CLAUDE_DEF_SYSTEMPROMPT, LPrompt);
+    Assert.StartsWith(HELPCHAT_CLAUDE_DEF_SYSTEMPROMPT, AfterIdentity(LPrompt));
     Assert.Contains(LPrompt, 'The user is currently on the "Orders" screen (type: TOrdersForm).');
     Assert.Contains(LPrompt, HelpChatMsg(hcmRelevantDocs, hclEnglish));
     Assert.Contains(LPrompt, '## Exporting the grid');
@@ -194,7 +206,7 @@ begin
     Assert.Contains(LPrompt, 'Reply in English,');
     LSettings.Language := hclItalian;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
-    Assert.StartsWith(HELPCHAT_CLAUDE_DEF_SYSTEMPROMPT, LPrompt);
+    Assert.StartsWith(HELPCHAT_CLAUDE_DEF_SYSTEMPROMPT, AfterIdentity(LPrompt));
     Assert.Contains(LPrompt, 'The language of this chat is Italian. Reply in Italian,');
     Assert.DoesNotContain(LPrompt, 'The documentation excerpts and the application itself are in',
       'DocLanguage not stated: no rule about the names');
@@ -210,10 +222,17 @@ begin
     LSettings.Language := hclItalian;
     LSettings.DocLanguage := hclAuto;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
-    // A model has no calendar: a document it writes would be dated "today".
-    Assert.Contains(LPrompt, Format('Today is %s.',
-      [FormatDateTime('dddd, d mmmm yyyy', Date, TFormatSettings.Invariant)]),
-      'the date of today, in English, whatever the language of the reply');
+    // A model has no calendar and no clock: a document it writes would be
+    // dated "today", and "can I call New York now?" would have no answer.
+    // Nobody named the assistant: the name the panel shows, in Italian.
+    Assert.StartsWith(Format('Your name is %s. Now it is %s, ', [HelpChatMsg(hcmUiTitle, hclItalian),
+      FormatDateTime('dddd, d mmmm yyyy', Date, TFormatSettings.Invariant)]), LPrompt,
+      'the name and now first, the date in English whatever the language of the reply');
+    Assert.Contains(LPrompt, '(UTC', 'the time zone, or the time means nothing');
+    LSettings.AssistantName := 'Giulio';
+    LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
+    Assert.StartsWith('Your name is Giulio. Now it is ', LPrompt);
+    LSettings.AssistantName := '';
     Assert.Contains(LPrompt, 'ONLY on the documentation excerpts', 'the default prompt forbids generic answers');
     Assert.DoesNotContain(LPrompt, HelpChatMsg(hcmRelevantDocs, hclItalian));
   finally
@@ -241,11 +260,11 @@ begin
     LSettings.SystemPrompt := 'You are Bob.';
     LSettings.Claude.GroundingMaxPages := 0;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, LRetriever);
-    Assert.StartsWith('You are Bob. The language of this chat is ', LPrompt,
+    Assert.StartsWith('You are Bob. The language of this chat is ', AfterIdentity(LPrompt),
       'override used, language rule kept, grounding off, no context');
     LSettings.Claude.GroundingMaxPages := 1;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, LRetriever);
-    Assert.StartsWith('You are Bob.', LPrompt);
+    Assert.StartsWith('You are Bob.', AfterIdentity(LPrompt));
     Assert.Contains(LPrompt, '## Exporting the grid');
     Assert.DoesNotContain(LPrompt, '## Filtering a list', 'only one page requested');
   finally

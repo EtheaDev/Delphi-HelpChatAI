@@ -26,6 +26,19 @@ know rather than invent. **Read more** opens the whole page inside the assistant
 The conversation stays as you move around the application, and the ↻ button at the top
 clears it.
 
+## What it knows beyond this manual
+
+The assistant is also an expert of the work this application is for: B2B sales, the pipeline of
+leads, accounts, proposals and invoicing, following a customer up. So it can explain what the
+manual takes for granted - whether a proposal needs VAT, how to weigh a pipeline, when to
+follow up a proposal nobody answered - and it says when an answer is general practice rather
+than something of this application.
+
+How to do something *here* still comes from these pages only: it does not invent a field, a
+report or a reminder the application does not have, and when something is missing it says so
+and offers the closest thing there is. It also knows today's date and the time, so *"until when
+is a proposal valid for 30 days?"* or *"is it too late to call New York?"* get an answer.
+
 ## Choosing the assistant
 
 Next to the name in the header there may be a small icon: it is the model that is answering,

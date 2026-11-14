@@ -110,13 +110,16 @@ type
     /// <summary>Enqueues a request and returns its cancellation token. Never
     /// blocks. <c>ASettings</c> is copied, and the copy is given its concrete
     /// language (never <c>hclAuto</c>). An empty <c>AProviderName</c> means
-    /// the provider of that copy, which is what the engine passes. Raises
-    /// when shutting down.</summary>
+    /// the provider of that copy, which is what the engine passes. A
+    /// non-empty <c>AAssistantName</c> becomes the <c>AssistantName</c> of
+    /// the copy: the name the model is told it has. Raises when shutting
+    /// down.</summary>
     function Submit(const AKey, AAssistantId, AProviderName: string;
       const AContext: THelpChatContext; const AMaxHistory: Integer;
       const ASettings: THelpChatSettings;
       const AActions: IHelpChatActionInvoker = nil;
-      const AAttachments: TArray<THelpChatAttachment> = nil): IHelpChatCancelToken;
+      const AAttachments: TArray<THelpChatAttachment> = nil;
+      const AAssistantName: string = ''): IHelpChatCancelToken;
     /// <summary>Cancels the request producing <c>AAssistantId</c>; True if it was active.</summary>
     function Cancel(const AAssistantId: string): Boolean;
     /// <summary>Cancels every queued or running request.</summary>
@@ -555,7 +558,8 @@ function THelpChatRunner.Submit(const AKey, AAssistantId, AProviderName: string;
   const AContext: THelpChatContext; const AMaxHistory: Integer;
   const ASettings: THelpChatSettings;
   const AActions: IHelpChatActionInvoker;
-  const AAttachments: TArray<THelpChatAttachment>): IHelpChatCancelToken;
+  const AAttachments: TArray<THelpChatAttachment>;
+  const AAssistantName: string): IHelpChatCancelToken;
 var
   LShared: IHelpChatRunnerShared;
   LRequest: THelpChatRequest;
@@ -587,6 +591,10 @@ begin
       // two assistants in two languages mixed them.
       LRequest.Settings.Language := LRequest.Settings.ResolveLanguage;
     end;
+    // The name the panel of the asking session shows: the engine is the
+    // profile's, the name may be of the component.
+    if Trim(AAssistantName) <> '' then
+      LRequest.Settings.AssistantName := Trim(AAssistantName);
     LRequest.Actions := AActions;
     LRequest.Attachments := AAttachments;
     LRequest.Cancel := THelpChatCancelToken.Create;

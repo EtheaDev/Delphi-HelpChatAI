@@ -343,11 +343,13 @@ type
   end;
 
 const
-  CATALOGUE_ITEMS: array[0..34] of TCatalogueItem = (
+  CATALOGUE_ITEMS: array[0..35] of TCatalogueItem = (
     (Path: 'AssistantName'; Caption: 'Name of the assistant'; Kind: cvkText;
       Hint: 'What the panel calls it; prevails over the property of the component'),
+    (Path: 'Expertise'; Caption: 'Field of expertise'; Kind: cvkMemo;
+      Hint: 'What it knows beyond the manual ("general accounting"): opens the system prompt'),
     (Path: 'Instructions'; Caption: 'Instructions'; Kind: cvkMemo;
-      Hint: 'What this assistant is: added to the system prompt after the built-in rules'),
+      Hint: 'What this assistant does in detail: added after the built-in rules'),
     (Path: 'SystemPrompt'; Caption: 'System prompt'; Kind: cvkMemo;
       Hint: 'Replaces the built-in rules altogether: rarely what you want'),
     (Path: 'Provider'; Caption: 'Provider'; Kind: cvkChoice;

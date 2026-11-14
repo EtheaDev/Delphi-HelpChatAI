@@ -30,10 +30,9 @@
 ///  application: the same check the VCL editor runs, over the settings read
 ///  the way the built application would read them.
 ///
-///  There is no live preview here. The VCL panel is a <c>TEdgeBrowser</c>,
-///  which the IDE can host; the FMX one is a native <c>TWebBrowser</c> window
-///  inside an FMX form, and an FMX form created by a design package inside
-///  the VCL IDE is not a place to find out whether that works.
+///  The live preview is <c>FMX.HelpChatAI.DesignPreview</c>: a FireMonkey
+///  form with the panel of the component, so what is tested is what the
+///  application runs, native <c>TWebBrowser</c> included.
 ///
 ///  The splash screen and the About box belong to <c>Vcl.HelpChatAI.Register</c>:
 ///  one library, one entry, whichever packages are installed.
@@ -83,12 +82,11 @@ type
   end;
 
   /// <summary>Verbs of the component, in this order: the configuration
-  /// editor (verb 0, so a double click on the component opens it), the
-  /// configuration check, the rebuild of the documentation index, and the
-  /// version line that opens the documentation on the web. One verb fewer
-  /// than the VCL editor: there is no design-time preview in FireMonkey.
-  /// Everything is resolved against the active project of the IDE, never
-  /// against bds.exe.</summary>
+  /// editor (verb 0, so a double click on the component opens it), the live
+  /// preview, the configuration check, the rebuild of the documentation
+  /// index, and the version line that opens the documentation on the web -
+  /// the verbs of the VCL editor. Everything is resolved against the active
+  /// project of the IDE, never against bds.exe.</summary>
   TFmxHelpChatComponentEditor = class(TComponentEditor)
   strict private
     /// <summary>The component being edited, nil when it is not a
@@ -139,7 +137,8 @@ uses
   HelpChatAI.Provider.OpenAI,
   HelpChatAI.Provider.Gemini,
   FMX.HelpChatAI,
-  FMX.HelpChatAI.ConfigEditor;
+  FMX.HelpChatAI.ConfigEditor,
+  FMX.HelpChatAI.DesignPreview;
 
 const
   HELPCHAT_PALETTE_PAGE = 'Ethea HelpChat';
@@ -147,6 +146,7 @@ const
 
 resourcestring
   SHelpChatVerbConfig = 'C&onfiguration...';
+  SHelpChatVerbTest = '&Test HelpChat...';
   SHelpChatVerbCheck = '&Check configuration...';
   SHelpChatVerbIndex = '&Rebuild documentation index...';
   SHelpChatVerbAbout = 'Ver. %s - (c) Ethea S.r.l. - Open Web Help...';
@@ -370,6 +370,50 @@ begin
   RunAndReport(LPlan);
 end;
 
+/// <summary>"Test HelpChat...": offers the index when it is missing, runs the
+/// check plus what only the preview needs (the WebView2 loader), and opens
+/// the live chat unless something is an error.</summary>
+procedure DesignPreview(const AChat: TFmxHelpChatAI);
+var
+  LIssues: THelpChatIssues;
+  LSettings: THelpChatSettings;
+  LConfigFiles: TArray<string>;
+  LBaseFolder, LLoadedFrom: string;
+begin
+  OfferIndexBeforeCheck(AChat);
+  LIssues := DesignCheck(AChat);
+  LBaseFolder := DesignBaseFolder;
+  if LBaseFolder <> '' then
+  begin
+    if FmxHelpChatEnsureWebView2Loader(LBaseFolder, LLoadedFrom) then
+    begin
+      if not SameText(LLoadedFrom, 'WebView2Loader.dll') then
+        LIssues := LIssues + [THelpChatIssue.Create(hikInfo, 'WebView2 loader', LLoadedFrom)];
+    end
+    else
+      LIssues := LIssues + [THelpChatIssue.Create(hikError, 'WebView2 loader',
+        Format('WebView2Loader.dll was not found. Copy the one of Redist\WebView2 ' +
+          '(%s inside the IDE) into the output folder of the project, where the ' +
+          'application needs it anyway.', [{$IFDEF WIN64}'x64'{$ELSE}'x86'{$ENDIF}]))];
+  end;
+  if HelpChatHasErrors(LIssues) then
+  begin
+    MessageDlg('HelpChat cannot run with this configuration:' + sLineBreak +
+      sLineBreak + HelpChatIssuesToText(LIssues), mtError, [mbOK], 0);
+    Exit;
+  end;
+  LSettings := HelpChatSettingsForFolder(AChat.Settings, LBaseFolder,
+    AChat.ConfigFileName, LConfigFiles, DesignExeFile);
+  try
+    // A conversation of this project, not the one of bds.exe that every
+    // preview of every project would share.
+    HelpChatUsePreviewConversation(LSettings, DesignExeFile);
+    FmxHelpChatDesignPreview(AChat, LSettings, LIssues);
+  finally
+    LSettings.Free;
+  end;
+end;
+
 { TFmxHelpChatComponentEditor }
 
 function TFmxHelpChatComponentEditor.GetChat: TComponent;
@@ -381,16 +425,17 @@ end;
 
 function TFmxHelpChatComponentEditor.GetVerbCount: Integer;
 begin
-  Result := 4;
+  Result := 5;
 end;
 
 function TFmxHelpChatComponentEditor.GetVerb(Index: Integer): string;
 begin
   case Index of
     0: Result := SHelpChatVerbConfig;
-    1: Result := SHelpChatVerbCheck;
-    2: Result := SHelpChatVerbIndex;
-    3: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
+    1: Result := SHelpChatVerbTest;
+    2: Result := SHelpChatVerbCheck;
+    3: Result := SHelpChatVerbIndex;
+    4: Result := Format(SHelpChatVerbAbout, [HELPCHAT_VERSION]);
   else
     Result := '';
   end;
@@ -426,9 +471,14 @@ begin
             end;
             Designer.Modified;
           end,
-          // No design-time preview in FireMonkey: the Test button stays off.
-          nil);
+          procedure
+          begin
+            DesignPreview(TFmxHelpChatAI(LChat));
+          end);
     1:
+      if Assigned(LChat) then
+        DesignPreview(TFmxHelpChatAI(LChat));
+    2:
       if Assigned(LChat) then
       begin
         // An index that is missing is worth offering to build before
@@ -442,10 +492,10 @@ begin
           MessageDlg(SHelpChatCheckOk + sLineBreak + sLineBreak +
             HelpChatIssuesToText(LIssues), mtInformation, [mbOK], 0);
       end;
-    2:
+    3:
       if Assigned(LChat) then
         DesignRebuildIndex(TFmxHelpChatAI(LChat));
-    3:
+    4:
       ShellExecute(0, 'open', PChar(HELPCHAT_DOCS_URL), nil, nil, SW_SHOWNORMAL);
   end;
 end;

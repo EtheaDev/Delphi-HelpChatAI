@@ -257,7 +257,12 @@ uses
   // A provider exists only if its unit is linked: it registers itself in
   // the initialization. Same rule as in the VCL demo.
   HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude,
-  HelpChatAI.Provider.OpenAI, HelpChatAI.Provider.Gemini;
+  HelpChatAI.Provider.OpenAI, HelpChatAI.Provider.Gemini
+  {$IFDEF MULTIAGENT}
+  // The multi-assistant edition (FMX_CRMDemo_MultiAgent.dproj): everything it
+  // adds is in this unit.
+  , uMultiAgentFmx
+  {$ENDIF};
 
 procedure TMainFormFmx.ApplyDarkStyle;
 var
@@ -340,7 +345,15 @@ begin
   // reads: both executables live in CRM Demo\bin\<Platform>, and the
   // path in the form is relative to the executable.
   RegisterHelpActions;
+  {$IFDEF MULTIAGENT}
+  ConfigureGeneralAssistant(HelpChat);
+  {$ENDIF}
   HelpChat.Active := True;
+  {$IFDEF MULTIAGENT}
+  // The second assistant, on the lead window: after the first, whose
+  // provider, models, manual and key handler it copies.
+  CreateSalesAssistant(HelpChat, LeadsFormFmx);
+  {$ENDIF}
   AskForApiKeyIfMissing;
 end;
 
@@ -577,7 +590,19 @@ begin
 end;
 
 procedure TMainFormFmx.RegisterHelpActions;
+var
+  LProposalActions: THelpChatActionBroker;
 begin
+  // With one assistant the proposal is one of its actions like the others.
+  // With several it is a shared action: registered once for all of them, and
+  // who uses it is the configuration's to decide (AllowedActions, in
+  // uMultiAgentFmx), not this code's.
+  {$IFDEF MULTIAGENT}
+  LProposalActions := HelpChatSharedActions;
+  {$ELSE}
+  LProposalActions := HelpChat.Actions;
+  {$ENDIF}
+
   HelpChat.Actions.Add('open_screen',
     'Brings one of the application screens to the front. Only when the user asks to ' +
     'go to a screen: never to show where something is while answering a question.',
@@ -669,7 +694,7 @@ begin
         [AArgs.AsString('name'), LDataSet.FieldByName('LeadId').AsInteger]);
     end, True);
 
-  HelpChat.Actions.Add('draft_proposal',
+  LProposalActions.Add('draft_proposal',
     'Opens the proposal draft for a lead with the address and the line items ' +
     'already filled in. It does not save it: the user presses Preview and Save Proposal.',
     [THelpChatActionParam.Create('lead', 'Name of the lead, or of its company'),

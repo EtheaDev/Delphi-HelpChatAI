@@ -1,3 +1,7 @@
+---
+areas: [General]
+---
+
 # Calendar
 
 A month at a time, with today highlighted.

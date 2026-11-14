@@ -78,8 +78,8 @@ type
   ///  Where it differs from the VCL twin, it is the controls: string grids
   ///  for the two list views, a list box with check boxes for the check
   ///  list, <c>TDialogServiceSync</c> for the questions, and no theme of the
-  ///  IDE - it wears the default FireMonkey style. The Test button is always
-  ///  off: FireMonkey has no design-time preview.
+  ///  IDE - it wears the default FireMonkey style. The Test button saves
+  ///  first and opens the preview of <c>FMX.HelpChatAI.DesignPreview</c>.
   /// </summary>
   TFmxHelpChatConfigEditor = class(TForm)
     /// <summary>The female assistant, the face of the FireMonkey component:

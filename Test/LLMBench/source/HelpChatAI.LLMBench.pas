@@ -35,6 +35,12 @@ type
     Model: string;      // empty = the default of the provider
     BaseUrl: string;    // empty = the default of the provider
     ResponseTimeoutMs: Integer;
+    /// <summary>The assistant the target runs as, in the expertise suite:
+    /// 0 = the library as it is (the classic suite), 1 = named, no
+    /// Expertise, 2 = named, with the Expertise of the CRM demo. (The first
+    /// run of the suite, results/llm-bench-expertise-v1.md, measured three
+    /// prompts written by hand; the library now composes the third.)</summary>
+    Variant: Integer;
   end;
 
   /// <summary>One question with what a correct answer must contain.</summary>
@@ -46,6 +52,8 @@ type
     Facts: TArray<string>;         // substrings (case-insensitive) a correct answer contains
     ExpectedAction: string;        // '' = no action must be called
     ExpectedArg: string;           // substring the action arguments must contain
+    AnyCitation: Boolean;          // citing a page or none are both fine
+    Rubric: string;                // expertise suite: what the judge looks for
   end;
 
   TBenchActionCall = record
@@ -69,6 +77,11 @@ type
     Actions: TArray<TBenchActionCall>;
     ActionOk: Boolean;
     WrongActions: Integer;
+    // Expertise suite: the verdict of the judge.
+    Judged: Boolean;
+    Useful: Integer;       // 0 wrong or no answer, 1 partial, 2 what an expert would say
+    Invented: Boolean;     // claims something of the application the manual does not have
+    JudgeNote: string;
   end;
 
   TBenchRunner = class
@@ -80,6 +93,8 @@ type
     FCalls: TList<TBenchActionCall>;
     FFirstTokenTicks: Int64;
     FStartTicks: Int64;
+    // The manual of the CRM demo, every page, for the judge.
+    FManual: string;
     function MakeSettings(const ATarget: TBenchTarget): THelpChatSettings;
     function MakeBroker: THelpChatActionBroker;
     procedure RecordCall(const AName, AArgsJson: string);
@@ -92,11 +107,30 @@ type
       const AQuestion: TBenchQuestion; const ATimeoutMs: Integer): TBenchResult;
     procedure Score(const AQuestion: TBenchQuestion; var AResult: TBenchResult);
     procedure Log(const AText: string);
+    function JudgeOne(const AEngine: THelpChatEngine; const AQuestion: TBenchQuestion;
+      var AResult: TBenchResult): Boolean;
+    function FindQuestion(const AId: string; out AQuestion: TBenchQuestion): Boolean;
+    function ReportExpertise: string;
   public
     constructor Create(const ARepoRoot: string);
     destructor Destroy; override;
     procedure AddDefaultTargets;
     procedure AddDefaultQuestions;
+    /// <summary>The expertise suite: questions an expert of the field of the
+    /// CRM demo answers and its manual does not - concepts it takes for
+    /// granted, an expert reading of a procedure, traps where expertise
+    /// tempts a model to invent, and questions that need the date and time.</summary>
+    procedure AddExpertiseQuestions;
+    /// <summary>Every target twice, without and with Expertise (see
+    /// TBenchTarget.Variant): "claude/v1", "claude/v2".</summary>
+    procedure ExpandVariants;
+    /// <summary>Asks AJudgeModel (a Claude model) to grade every answer of
+    /// the expertise suite against the rubric of its question.</summary>
+    procedure Judge(const AJudgeModel: string);
+    /// <summary>Reads the targets and the answers back from a report of the
+    /// expertise suite, so that they can be graded again without asking the
+    /// models a second time.</summary>
+    procedure LoadAnswers(const AReportFile: string);
     /// <summary>Keeps only the targets whose name contains one of AFilters.</summary>
     procedure FilterTargets(const AFilters: TArray<string>);
     procedure Run;
@@ -129,6 +163,8 @@ uses
   System.Diagnostics,
   System.RegularExpressions,
   System.JSON,
+  System.DateUtils,
+  System.TimeSpan,
   HelpChatAI.DocIndex,
   HelpChatAI.Messages,
   HelpChatAI.Provider,
@@ -224,6 +260,38 @@ begin
     LOut.Free;
     LInput.Free;
   end;
+end;
+
+const
+  /// <summary>Who the assistant of the CRM demo is in variants 2 and 3.</summary>
+  EXPERT_NAME = 'Giulio';
+  EXPERT_FIELD = 'B2B sales and customer relationship management: leads and the ' +
+    'sales pipeline, accounts, proposals and invoicing, follow-up, sales reporting';
+
+  JUDGE_PROMPT =
+    'You grade the answers of the in-app help assistant of a CRM application. You get the ' +
+    'whole manual of the application (below), then in each message the question of the ' +
+    'user, a rubric written by the developers, and the answer. The manual is the complete truth about the application: what ' +
+    'it does not describe does not exist. Grade two things. "useful": 2 when the answer ' +
+    'gives what a competent expert of the field would, correct and to the point; 1 when it is ' +
+    'partial, vague or only says it does not know where it could have helped; 0 when it is ' +
+    'wrong, harmful or off-topic. "invented": true only when the answer claims a screen, field, ' +
+    'button, report, setting, automatic feature or behaviour of the application that the manual ' +
+    'contradicts or does not contain; something left out is not an invention, and general ' +
+    'knowledge of the field presented as such is not one either. Reply with one line of JSON ' +
+    'and nothing else: ' +
+    '{"useful": 0, "invented": false, "note": "one short sentence"}';
+
+/// <summary>True when AText contains one of the alternatives of AFact,
+/// separated by "|", ignoring case.</summary>
+function MatchesAny(const AText, AFact: string): Boolean;
+var
+  S: string;
+begin
+  for S in AFact.Split(['|']) do
+    if (S <> '') and ContainsText(AText, S) then
+      Exit(True);
+  Result := False;
 end;
 
 { TBenchRunner }
@@ -329,6 +397,449 @@ begin
     'Leads', [], [], 'create_lead', 'Mario Rossi');
 end;
 
+procedure TBenchRunner.AddExpertiseQuestions;
+
+  procedure AddE(const AId, AText, AScreen: string; const AFacts: TArray<string>;
+    const ARubric: string; const AAnyCitation: Boolean = True);
+  var
+    Q: TBenchQuestion;
+  begin
+    Q := Default(TBenchQuestion);
+    Q.Id := AId;
+    Q.Text := AText;
+    Q.ScreenLabel := AScreen;
+    Q.Facts := AFacts;
+    Q.AnyCitation := AAnyCitation;
+    Q.Rubric := ARubric;
+    FQuestions.Add(Q);
+  end;
+
+var
+  LDue, LNewYork: TDateTime;
+begin
+  // A: concepts the manual takes for granted.
+  AddE('A1', 'Should I add VAT to a proposal? The prices of my line items are net.', 'Sales',
+    ['VAT|tax'],
+    'Explains net and gross and that VAT is computed on the net amount at the rate of the ' +
+    'country (general practice). Says the draft has no VAT or tax field: the total is the sum of ' +
+    'quantity x price, so VAT can only go in as a line item of its own or inside the prices.');
+  AddE('A2', 'How do I calculate the value of my sales pipeline?', 'Dashboard',
+    ['probabil|weight'],
+    'Explains the (weighted) pipeline value: the open deals times the probability of their ' +
+    'stage. In the application the amounts are the Value of the proposals still New on the Sales ' +
+    'page, the stages are the columns of the board; there is no pipeline report or probability.');
+  AddE('A3', 'How long should a lead stay in Active before I consider it lost?', 'Leads',
+    ['depend|cycle'],
+    'Says there is no universal rule and it depends on the sales cycle, with typical guidance ' +
+    '(a number of unanswered follow-ups, a period). In the application Date Contacted tells how ' +
+    'long it has been Active, and the lead is closed by dragging it to Closed (or set Inactive); ' +
+    'nothing marks a lead lost automatically and there is no Lost status.');
+  // B: an expert reading of a procedure.
+  AddE('B1', 'I want to do the month-end review of my sales: where do I look?', 'Sales',
+    ['Sales', 'Dashboard'],
+    'Reads month-end review as: proposals sent, won and lost in the month and how the pipeline ' +
+    'moved. Points to the Sales page (Status, Value, DateCreated, DateCompleted) and the Dashboard ' +
+    '(leads per status), and says there is no monthly report or date filter.');
+  AddE('B2', 'A customer asks for a 10% discount on the proposal. How do I do it?', 'Sales',
+    ['10'],
+    'Says there is no discount field: lower the prices of the line items, or add a line for the ' +
+    'discount, and the total recomputes. Warns that a saved proposal cannot be edited, so the ' +
+    'discount goes in before saving.');
+  AddE('B3', 'A lead has not answered my proposal for two weeks. What should I do?', 'Leads',
+    ['follow'],
+    'Good follow-up practice (call or write, ask about the decision, agree a next step, close ' +
+    'or park after repeated silence). In the application: Date Drafted says when the proposal ' +
+    'went out, Notes in the lead detail record the follow-ups, Inactive parks the lead; the Call ' +
+    'and Email buttons do nothing and there are no reminders or tasks.');
+  // C: traps - the expertise must not make the model invent.
+  AddE('C1', 'How do I set up an automatic reminder for the leads I have not contacted for 30 days?',
+    'Leads', ['not|no '],
+    'Says the application has no reminders or automation; the closest thing is checking the ' +
+    'Active column and its Date Contacted by hand. Any reminder setup described is an invention.');
+  AddE('C2', 'Can you make me a sales forecast by quarter?', 'Sales',
+    ['forecast'],
+    'Explains briefly what a forecast is and that the application does not produce one; the ' +
+    'Sales page has the values and dates of the proposals as raw material. Numbers presented as ' +
+    'the data of the user are inventions.');
+  AddE('C3', 'How do I calculate the payroll of my sales representative?', 'Users',
+    [],
+    'Outside the field of the assistant and of the application: declines in a sentence or two. ' +
+    'Explaining how to compute payroll is a failure; so is claiming payroll or commissions in ' +
+    'the application.', False);
+  // D: they need today and now.
+  LDue := Date + 30;
+  AddE('D1', 'This proposal must be valid for 30 days from today. Until what date is it valid?',
+    'Sales', [FormatDateTime('d mmmm', LDue, TFormatSettings.Invariant) + '|' +
+      FormatDateTime('mmmm d', LDue, TFormatSettings.Invariant)],
+    Format('The correct date is %s (today plus 30 days). The draft has no validity field; the ' +
+      'date can only be written in a line item title (20 characters) or agreed outside.',
+      [FormatDateTime('dddd d mmmm yyyy', LDue, TFormatSettings.Invariant)]));
+  // New York in November is UTC-5.
+  LNewYork := TTimeZone.Local.ToUniversalTime(Now) - 5 / 24;
+  AddE('D2', 'Is it too late right now to call a customer in New York?', 'Lead Detail',
+    [],
+    Format('It is about %s in New York (UTC-5 in November; the answer may be up to an hour earlier, it was asked before this grading). A good answer works that out from the ' +
+      'current time and judges it against business hours; without the current time the best it ' +
+      'can do is say it does not know the time and give the offset (useful 1). The Call button ' +
+      'of the lead does nothing.', [FormatDateTime('hh:nn', LNewYork)]));
+  AddE('D3', 'Which leads did I create this month?', 'Leads',
+    [FormatDateTime('mmmm', Date, TFormatSettings.Invariant)],
+    Format('Knows that this month is %s. In the application only the New column shows Date ' +
+      'Created (the other columns show the date of their stage) and the lead detail shows it for ' +
+      'one lead; the search does not filter by date and there is no report.',
+      [FormatDateTime('mmmm yyyy', Date, TFormatSettings.Invariant)]));
+end;
+
+procedure TBenchRunner.ExpandVariants;
+var
+  LBase: TArray<TBenchTarget>;
+  T: TBenchTarget;
+  V: Integer;
+begin
+  LBase := FTargets.ToArray;
+  FTargets.Clear;
+  for T in LBase do
+    for V := 1 to 2 do
+    begin
+      FTargets.Add(T);
+      FTargets.List[FTargets.Count - 1].Name := T.Name + '/v' + IntToStr(V);
+      FTargets.List[FTargets.Count - 1].Variant := V;
+    end;
+end;
+
+function TBenchRunner.FindQuestion(const AId: string; out AQuestion: TBenchQuestion): Boolean;
+var
+  Q: TBenchQuestion;
+begin
+  for Q in FQuestions do
+    if Q.Id = AId then
+    begin
+      AQuestion := Q;
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+function TBenchRunner.JudgeOne(const AEngine: THelpChatEngine; const AQuestion: TBenchQuestion;
+  var AResult: TBenchResult): Boolean;
+var
+  LAsk: TBenchQuestion;
+  LReply: TBenchResult;
+  LJson: string;
+  LValue: TJSONValue;
+  I, J: Integer;
+begin
+  Result := False;
+  LAsk := Default(TBenchQuestion);
+  LAsk.Id := 'judge';
+  LAsk.ScreenLabel := '';
+  LAsk.Text := 'QUESTION OF THE USER:'#10 + AQuestion.Text + #10#10 +
+    'RUBRIC:'#10 + AQuestion.Rubric + #10#10 +
+    'ANSWER TO GRADE:'#10 + AResult.Answer;
+  LReply := Ask(AEngine, nil, LAsk, CLOUD_TIMEOUT_MS);
+  if LReply.IsError then
+  begin
+    AResult.JudgeNote := 'judge error: ' + LReply.Answer;
+    Exit;
+  end;
+  I := Pos('{', LReply.Answer);
+  J := LReply.Answer.LastIndexOf('}') + 1;
+  if (I = 0) or (J < I) then
+  begin
+    AResult.JudgeNote := 'judge said: ' + LReply.Answer;
+    Exit;
+  end;
+  LJson := Copy(LReply.Answer, I, J - I + 1);
+  LValue := TJSONObject.ParseJSONValue(LJson);
+  try
+    if not (LValue is TJSONObject) then
+    begin
+      AResult.JudgeNote := 'judge said: ' + LReply.Answer;
+      Exit;
+    end;
+    AResult.Useful := TJSONObject(LValue).GetValue<Integer>('useful', 0);
+    AResult.Invented := TJSONObject(LValue).GetValue<Boolean>('invented', False);
+    AResult.JudgeNote := TJSONObject(LValue).GetValue<string>('note', '');
+    AResult.Judged := True;
+    Result := True;
+  finally
+    LValue.Free;
+  end;
+end;
+
+procedure TBenchRunner.Judge(const AJudgeModel: string);
+var
+  LTarget: TBenchTarget;
+  LSettings: THelpChatSettings;
+  LEngine: THelpChatEngine;
+  Q: TBenchQuestion;
+  R: TBenchResult;
+  I: Integer;
+  LFile: string;
+begin
+  // Every page of the manual, images left out.
+  FManual := '';
+  for LFile in TDirectory.GetFiles(TPath.Combine(FRepoRoot, 'CRM Demo\Help'), '*.md') do
+    FManual := FManual + '=== ' + TPath.GetFileName(LFile) + #10 +
+      TRegEx.Replace(TFile.ReadAllText(LFile, TEncoding.UTF8), '!\[[^\]]*\]\([^)]*\)', '') + #10;
+  LTarget := Default(TBenchTarget);
+  LTarget.Name := 'judge';
+  LTarget.Provider := 'claude';
+  LTarget.Model := AJudgeModel;
+  LTarget.ResponseTimeoutMs := CLOUD_TIMEOUT_MS;
+  LSettings := MakeSettings(LTarget);
+  // The judge reads no manual: the facts are in the question.
+  LSettings.ActiveModel.GroundingMaxPages := 0;
+  // The manual in the system prompt: a user message is cut at MessageMaxLength,
+  // and the first run of this judge graded a manual cut in half and nothing else.
+  LSettings.SystemPrompt := JUDGE_PROMPT + #10#10'MANUAL OF THE APPLICATION:'#10 + FManual;
+  LSettings.MessageMaxLength := 100000;
+  LEngine := THelpChatEngine.Create(LSettings, True);
+  try
+    LEngine.Start;
+    Log('=== judge: ' + LSettings.ActiveModel.ResolveModel);
+    for I := 0 to FResults.Count - 1 do
+    begin
+      R := FResults[I];
+      if R.IsError or not FindQuestion(R.Question, Q) or (Q.Rubric = '') then
+        Continue;
+      JudgeOne(LEngine, Q, R);
+      FResults[I] := R;
+      Log(Format('  %s %s: useful=%d invented=%s  %s',
+        [R.Target, R.Question, R.Useful, BoolToStr(R.Invented, True), R.JudgeNote]));
+    end;
+  finally
+    LEngine.Stop;
+    LEngine.Free;
+  end;
+end;
+
+function TBenchRunner.ReportExpertise: string;
+var
+  LSb: TStringBuilder;
+  T: TBenchTarget;
+  Q: TBenchQuestion;
+  R: TBenchResult;
+  V, LN, LUseful, LInvented, LPass, LErr: Integer;
+  LSum: Int64;
+  LNames: TList<string>;
+  LBase, LAnswer: string;
+
+  function Secs(const AMs: Int64): string;
+  begin
+    Result := Format('%.1f s', [AMs / 1000], TFormatSettings.Invariant);
+  end;
+
+  function Passed(const AResult: TBenchResult): Boolean;
+  begin
+    Result := AResult.Judged and (AResult.Useful = 2) and not AResult.Invented;
+  end;
+
+begin
+  LSb := TStringBuilder.Create;
+  LNames := TList<string>.Create;
+  try
+    LSb.AppendLine('# HelpChatAI expertise benchmark');
+    LSb.AppendLine;
+    LSb.AppendFormat('Run on %s. Grounding: `CRM Demo\Help\help-index.json`, %d pages; no actions; ' +
+      'a new conversation per question; language English. The assistant is called Giulio and the ' +
+      'prompt opens with its name and now (date, time, time zone); **v1** without `Expertise`, ' +
+      '**v2** with `Expertise` = "%s", which the library composes with the rule that the expertise ' +
+      'explains concepts while the procedures of the application come only from the manual. Every answer ' +
+      'graded by a judge model against the rubric of its question and the whole manual: ' +
+      '*useful* 0-2, *invented* when it claims something of the application the manual does not have. ' +
+      '*Pass* = useful 2 and nothing invented.',
+      [FormatDateTime('yyyy-mm-dd hh:nn', Now), HELPCHAT_MODEL_DEF_GROUNDING, EXPERT_FIELD]);
+    LSb.AppendLine.AppendLine;
+
+    LSb.AppendLine('## Summary');
+    LSb.AppendLine;
+    LSb.AppendLine('| Target | Questions | Errors | Avg time | Avg useful | Invented | Pass |');
+    LSb.AppendLine('|---|---:|---:|---:|---:|---:|---:|');
+    for T in FTargets do
+    begin
+      LN := 0; LUseful := 0; LInvented := 0; LPass := 0; LErr := 0; LSum := 0;
+      for R in FResults do
+        if (R.Target = T.Name) and (R.Question <> 'warm-up') and (R.Question <> '-') then
+        begin
+          Inc(LN);
+          LSum := LSum + R.ElapsedMs;
+          if R.IsError then
+            Inc(LErr);
+          LUseful := LUseful + R.Useful;
+          if R.Invented then
+            Inc(LInvented);
+          if Passed(R) then
+            Inc(LPass);
+        end;
+      if LN = 0 then
+        LSb.AppendFormat('| %s | 0 | skipped | - | - | - | - |', [T.Name])
+      else
+        LSb.AppendFormat('| %s | %d | %d | %s | %s | %d | **%d/%d** |', [T.Name, LN, LErr,
+          Secs(LSum div LN), Format('%.2f', [LUseful / LN], TFormatSettings.Invariant),
+          LInvented, LPass, LN]);
+      LSb.AppendLine;
+    end;
+    LSb.AppendLine;
+
+    // Per question and variant, how many models passed.
+    for T in FTargets do
+    begin
+      LBase := T.Name.Substring(0, T.Name.LastIndexOf('/'));
+      if not LNames.Contains(LBase) then
+        LNames.Add(LBase);
+    end;
+    LSb.AppendLine('## Passed, per question');
+    LSb.AppendLine;
+    LSb.AppendFormat('Models that passed, out of %d.', [LNames.Count]);
+    LSb.AppendLine.AppendLine;
+    LSb.AppendLine('| Question | v1 | v2 |');
+    LSb.AppendLine('|---|---:|---:|');
+    for Q in FQuestions do
+    begin
+      LSb.Append('| ' + Q.Id + ' ');
+      for V := 1 to 2 do
+      begin
+        LPass := 0;
+        for R in FResults do
+          if (R.Question = Q.Id) and R.Target.EndsWith('/v' + IntToStr(V)) and Passed(R) then
+            Inc(LPass);
+        LSb.AppendFormat('| %d ', [LPass]);
+      end;
+      LSb.AppendLine('|');
+    end;
+    LSb.AppendLine;
+
+    LSb.AppendLine('## Questions');
+    LSb.AppendLine;
+    for Q in FQuestions do
+    begin
+      LSb.AppendFormat('- **%s** (screen %s): %s', [Q.Id, Q.ScreenLabel, Q.Text]);
+      LSb.AppendLine;
+      LSb.AppendLine('  - rubric: ' + Q.Rubric);
+    end;
+    LSb.AppendLine;
+
+    LSb.AppendLine('## Verdicts');
+    LSb.AppendLine;
+    LSb.AppendLine('| Question | Target | Useful | Invented | Cited | Note |');
+    LSb.AppendLine('|---|---|---:|---|---|---|');
+    for Q in FQuestions do
+      for R in FResults do
+        if R.Question = Q.Id then
+        begin
+          LSb.AppendFormat('| %s | %s | %d | %s | %s | %s |', [Q.Id, R.Target, R.Useful,
+            IfThen(R.Invented, '**yes**', 'no'),
+            IfThen(Length(R.CitedPages) > 0, string.Join(' ', R.CitedPages), '-'),
+            R.JudgeNote.Replace('|', '/')]);
+          LSb.AppendLine;
+        end;
+    LSb.AppendLine;
+
+    LSb.AppendLine('## Answers');
+    LSb.AppendLine;
+    for T in FTargets do
+    begin
+      LSb.AppendLine('### ' + T.Name);
+      LSb.AppendLine;
+      for R in FResults do
+      begin
+        if (R.Target <> T.Name) or (R.Question = 'warm-up') then
+          Continue;
+        LSb.AppendFormat('**%s** (%s, useful %d%s)', [R.Question, Secs(R.ElapsedMs), R.Useful,
+          IfThen(R.Invented, ', invented', '')]);
+        LSb.AppendLine.AppendLine;
+        LAnswer := R.Answer.Replace(#13#10, #10).Replace(#10, #10'> ');
+        LSb.AppendLine('> ' + LAnswer);
+        LSb.AppendLine;
+      end;
+    end;
+    Result := LSb.ToString;
+  finally
+    LNames.Free;
+    LSb.Free;
+  end;
+end;
+
+procedure TBenchRunner.LoadAnswers(const AReportFile: string);
+var
+  LLines: TArray<string>;
+  I: Integer;
+  LInAnswers, LHave: Boolean;
+  LTarget: TBenchTarget;
+  R: TBenchResult;
+  LSb: TStringBuilder;
+  LMatch: TMatch;
+  Q: TBenchQuestion;
+
+  procedure Flush;
+  begin
+    if LHave then
+    begin
+      R.Answer := LSb.ToString.TrimRight;
+      FResults.Add(R);
+    end;
+    LHave := False;
+    LSb.Clear;
+  end;
+
+begin
+  LLines := TFile.ReadAllLines(AReportFile, TEncoding.UTF8);
+  LInAnswers := False;
+  LHave := False;
+  FTargets.Clear;
+  FResults.Clear;
+  LSb := TStringBuilder.Create;
+  try
+    for I := 0 to High(LLines) do
+    begin
+      if LLines[I] = '## Answers' then
+      begin
+        LInAnswers := True;
+        Continue;
+      end;
+      if not LInAnswers then
+        Continue;
+      if LLines[I].StartsWith('### ') then
+      begin
+        Flush;
+        LTarget := Default(TBenchTarget);
+        LTarget.Name := LLines[I].Substring(4).Trim;
+        LTarget.Variant := StrToIntDef(LTarget.Name.Substring(LTarget.Name.LastIndexOf('/v') + 2), 1);
+        FTargets.Add(LTarget);
+        Continue;
+      end;
+      LMatch := TRegEx.Match(LLines[I], '^\*\*([A-Z][0-9])\*\* \(([0-9.]+) s');
+      if LMatch.Success then
+      begin
+        Flush;
+        R := Default(TBenchResult);
+        R.Target := LTarget.Name;
+        R.Question := LMatch.Groups[1].Value;
+        R.ElapsedMs := Round(StrToFloat(LMatch.Groups[2].Value, TFormatSettings.Invariant) * 1000);
+        LHave := True;
+        Continue;
+      end;
+      if LHave and LLines[I].StartsWith('>') then
+      begin
+        if LSb.Length > 0 then
+          LSb.Append(#10);
+        LSb.Append(LLines[I].Substring(1).TrimLeft([' ']));
+      end;
+    end;
+    Flush;
+  finally
+    LSb.Free;
+  end;
+  for I := 0 to FResults.Count - 1 do
+  begin
+    R := FResults[I];
+    if FindQuestion(R.Question, Q) then
+      Score(Q, R);
+    FResults[I] := R;
+  end;
+end;
+
 procedure TBenchRunner.FilterTargets(const AFilters: TArray<string>);
 var
   I: Integer;
@@ -373,6 +884,12 @@ begin
     if ATarget.BaseUrl <> '' then
       LModel.BaseUrl := ATarget.BaseUrl;
     LModel.ResponseTimeoutMs := ATarget.ResponseTimeoutMs;
+    // The library opens the prompt with the name and now, and composes the
+    // field with the rule that governs it.
+    if ATarget.Variant >= 1 then
+      Result.AssistantName := EXPERT_NAME;
+    if ATarget.Variant >= 2 then
+      Result.Expertise := EXPERT_FIELD;
   except
     Result.Free;
     raise;
@@ -491,7 +1008,8 @@ begin
   LDone := False;
   repeat
     // The broker queues the action on the worker; the host runs it here.
-    ABroker.ExecutePending;
+    if Assigned(ABroker) then
+      ABroker.ExecutePending;
     CheckSynchronize(10);
     if AEngine.TryGetMessage(LSend.AssistantMessage.Id, LMsg) and not LMsg.Pending then
       LDone := True
@@ -540,7 +1058,9 @@ begin
   finally
     LPages.Free;
   end;
-  if Length(AQuestion.ExpectedPages) = 0 then
+  if AQuestion.AnyCitation then
+    AResult.CitationOk := True
+  else if Length(AQuestion.ExpectedPages) = 0 then
     // Nothing to cite: a page named here is one the model made up
     AResult.CitationOk := Length(AResult.CitedPages) = 0
   else
@@ -553,8 +1073,9 @@ begin
 
   AResult.FactsTotal := Length(AQuestion.Facts);
   AResult.FactsFound := 0;
+  // A fact may list alternatives: "VAT|tax" is found by either word.
   for F in AQuestion.Facts do
-    if ContainsText(AResult.Answer, F) then
+    if MatchesAny(AResult.Answer, F) then
       Inc(AResult.FactsFound);
 
   AResult.WrongActions := 0;
@@ -691,6 +1212,8 @@ var
   end;
 
 begin
+  if (FTargets.Count > 0) and (FTargets[0].Variant > 0) then
+    Exit(ReportExpertise);
   LSb := TStringBuilder.Create;
   try
     LSb.AppendLine('# HelpChatAI provider benchmark');

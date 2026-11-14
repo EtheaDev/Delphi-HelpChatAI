@@ -37,6 +37,7 @@ type
     [Test] procedure Profile_InNoFile_IsAWarning;
     [Test] procedure DocAreas_UnknownToTheIndex_IsAWarning;
     [Test] procedure AllowedActions_NobodyRegistered_IsAWarning;
+    [Test] procedure PreviewConversation_IsOfItsProject_AndProfile;
   end;
 
 implementation
@@ -44,6 +45,7 @@ implementation
 uses
   System.SysUtils,
   System.IOUtils,
+  System.StrUtils,
   HelpChatAI.Provider,
   HelpChatAI.Provider.DocSearch,
   HelpChatAI.Provider.Claude,
@@ -373,6 +375,39 @@ begin
   FSettings.Claude.ApiKey := 'sk-ant-not-a-real-key';
   LIssues := HelpChatCheckSettings(FSettings);
   Assert.AreEqual(Ord(hikWarning), Ord(Find(LIssues, 'Documentation index').Kind));
+end;
+
+
+procedure TDiagnosticsTests.PreviewConversation_IsOfItsProject_AndProfile;
+var
+  LFirst, LSameName, LSales: string;
+  LRoot: string;
+begin
+  // Inside the IDE the executable is bds.exe: without a file of its own every
+  // preview of every project read and wrote one conversation.
+  LRoot := TPath.Combine(TPath.Combine(TPath.GetHomePath, 'HelpChatAI'), 'Preview');
+  HelpChatUsePreviewConversation(FSettings, 'C:\Work\Crm\Win32\Debug\Crm.exe');
+  LFirst := FSettings.ConversationFile;
+  Assert.IsTrue(LFirst.StartsWith(LRoot + PathDelim + 'Crm-', True), LFirst);
+  Assert.AreEqual('helpchatai-conversation.json', TPath.GetFileName(LFirst));
+  Assert.IsTrue(TDirectory.Exists(TPath.GetDirectoryName(LFirst)), LFirst);
+  // Same again: the same file, so a test is found again next time.
+  HelpChatUsePreviewConversation(FSettings, 'C:\Work\Crm\Win32\Debug\Crm.exe');
+  Assert.AreEqual(LFirst, FSettings.ConversationFile);
+  // Another project with the same name is another conversation.
+  HelpChatUsePreviewConversation(FSettings, 'C:\Other\Crm\Win32\Debug\Crm.exe');
+  LSameName := FSettings.ConversationFile;
+  Assert.AreNotEqual(LFirst, LSameName);
+  // The profile is in the name, as for the application.
+  FSettings.Profile := 'Sales';
+  HelpChatUsePreviewConversation(FSettings, 'C:\Work\Crm\Win32\Debug\Crm.exe');
+  LSales := FSettings.ConversationFile;
+  Assert.AreEqual(TPath.GetDirectoryName(LFirst), TPath.GetDirectoryName(LSales));
+  Assert.AreNotEqual(LFirst, LSales);
+  Assert.IsTrue(ContainsText(TPath.GetFileName(LSales), 'Sales'), LSales);
+  // The folders of the test are empty: take them away again.
+  TDirectory.Delete(TPath.GetDirectoryName(LFirst));
+  TDirectory.Delete(TPath.GetDirectoryName(LSameName));
 end;
 
 end.

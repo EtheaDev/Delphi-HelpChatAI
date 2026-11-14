@@ -368,7 +368,26 @@ implementation
 
 uses
   System.Generics.Defaults,
-  System.RegularExpressions;
+  System.RegularExpressions,
+  System.TimeSpan,
+  System.DateUtils;
+
+/// <summary>"Saturday, 14 November 2026, 15:40 (UTC+01:00)": now, in English
+/// (the model writes it back in the language it answers in), with the offset
+/// of this machine - which is the user's for a local engine.</summary>
+function HelpChatNowText: string;
+var
+  LOffset: TTimeSpan;
+  LSign: string;
+begin
+  LOffset := TTimeZone.Local.UtcOffset;
+  if LOffset.Ticks < 0 then
+    LSign := '-'
+  else
+    LSign := '+';
+  Result := Format('%s (UTC%s%.2d:%.2d)', [FormatDateTime('dddd, d mmmm yyyy, hh:nn', Now,
+    TFormatSettings.Invariant), LSign, Abs(LOffset.Hours), Abs(LOffset.Minutes)]);
+end;
 
 function HelpChatModelIsConfigured(const ASettings: THelpChatSettings;
   const AName: string): Boolean;
@@ -608,6 +627,7 @@ class function THelpChatProviderBase.BuildSystemPrompt(
 var
   LLang: THelpChatLanguage;
   LSb: TStringBuilder;
+  LName: string;
   LPages: TArray<THelpChatDocPage>;
   LMax, I: Integer;
 begin
@@ -618,6 +638,14 @@ begin
 
   LSb := TStringBuilder.Create;
   try
+    // Who it is and when: the name the panel shows (the default one, in the
+    // language of the chat, when nobody gave one) and now.
+    if Assigned(ASettings) and (Trim(ASettings.AssistantName) <> '') then
+      LName := HelpChatPromptField(ASettings.AssistantName)
+    else
+      LName := HelpChatMsg(hcmUiTitle, LLang);
+    LSb.Append(Format(HELPCHAT_MODEL_DEF_IDENTITY_RULE, [LName, HelpChatNowText]));
+    LSb.Append(' ');
     // The instruction to the model is English only (see the constants); the
     // configured UI language becomes the default reply language.
     if Assigned(ASettings) then
@@ -635,11 +663,6 @@ begin
         [HelpChatLanguageName(ASettings.DocLanguage), HelpChatLanguageName(LLang)]));
       LSb.Append(' ');
     end;
-    // Invariant, so that the month is November and not novembre: the
-    // instruction is English, and the model writes the date back in the
-    // language it is answering in.
-    LSb.Append(Format(HELPCHAT_MODEL_DEF_DATE_RULE,
-      [FormatDateTime('dddd, d mmmm yyyy', Date, TFormatSettings.Invariant)]));
 
     if not AContext.IsEmpty then
     begin

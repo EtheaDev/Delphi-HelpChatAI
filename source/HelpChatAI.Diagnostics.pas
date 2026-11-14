@@ -168,12 +168,26 @@ function HelpChatSettingsForFolder(const ASource: THelpChatSettings;
   const ABaseFolder, AConfigFileName: string;
   out AConfigFiles: TArray<string>; const AExeFile: string = ''): THelpChatSettings;
 
+/// <summary>Points the conversation of a design-time preview at a file of
+/// its own project: <c>%APPDATA%\HelpChatAI\Preview\&lt;Project&gt;-&lt;hash&gt;\</c>,
+/// with the profile in the name as usual, and the state file (model and
+/// language picked in the panel) next to it. Inside the IDE the executable
+/// is bds.exe, so without this every preview of every project shared one
+/// conversation, and a new project opened with the history of the last one
+/// tested. Not the application's own conversation either: a test must not
+/// end up in it. <c>AExeFile</c> is the executable of the active project;
+/// the hash of its path keeps apart two projects with the same name. The
+/// folder is created.</summary>
+procedure HelpChatUsePreviewConversation(const ASettings: THelpChatSettings;
+  const AExeFile: string);
+
 implementation
 
 uses
   System.IOUtils,
   System.Classes,
   System.JSON,
+  System.Hash,
   HelpChatAI.Types,
   HelpChatAI.Provider;
 
@@ -181,6 +195,26 @@ resourcestring
   // Not localized on purpose: see the unit summary.
   SHelpChatKindWarning = 'Warning';
   SHelpChatKindError = 'Error';
+
+procedure HelpChatUsePreviewConversation(const ASettings: THelpChatSettings;
+  const AExeFile: string);
+var
+  LName, LFolder: string;
+begin
+  if not Assigned(ASettings) then
+    Exit;
+  LName := TPath.GetFileNameWithoutExtension(AExeFile);
+  if LName = '' then
+    LName := 'NoProject'
+  else
+    LName := LName + '-' + IntToHex(Cardinal(THashBobJenkins.GetHashValue(
+      LowerCase(TPath.GetFullPath(AExeFile)))), 8);
+  LFolder := TPath.Combine(TPath.Combine(TPath.Combine(TPath.GetHomePath,
+    'HelpChatAI'), 'Preview'), LName);
+  ForceDirectories(LFolder);
+  ASettings.ConversationFile := ASettings.ProfileFileName(
+    TPath.Combine(LFolder, HELPCHAT_DEF_CONVERSATION_FILENAME));
+end;
 
 { THelpChatIssue }
 

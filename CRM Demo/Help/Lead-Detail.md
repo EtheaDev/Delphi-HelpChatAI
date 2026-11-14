@@ -1,3 +1,7 @@
+---
+areas: [Sales]
+---
+
 # Lead detail
 
 Everything about one lead: who it is, where it stands, the documents attached to it and the

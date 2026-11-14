@@ -1,3 +1,7 @@
+---
+areas: [General]
+---
+
 # Accounts
 
 The companies your leads belong to. An account is little more than a name: its job is to be
