@@ -2,8 +2,8 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
   Left = 0
   Top = 0
   Caption = 'HelpChatAI configuration'
-  ClientHeight = 640
-  ClientWidth = 920
+  ClientHeight = 680
+  ClientWidth = 1100
   Position = ScreenCenter
   FormFactor.Width = 320
   FormFactor.Height = 480
@@ -843,265 +843,511 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
     Size.Width = 920
     Size.Height = 532
     Size.PlatformDefault = False
-    TabIndex = 0
+    TabIndex = 1
     TabOrder = 1
     TabPosition = PlatformDefault
+    OnChange = TabControlChange
+    object AppearanceTab: TTabItem
+      IsSelected = False
+      Size.Width = 88
+      Size.Height = 26
+      Size.PlatformDefault = False
+      TabOrder = 0
+      Text = 'Appearance'
+      object PreviewLayout: TLayout
+        Align = Right
+        Position.X = 656
+        Size.Width = 444
+        Size.Height = 506
+        Size.PlatformDefault = False
+        TabOrder = 0
+        object PreviewTopLayout: TLayout
+          Align = Top
+          Size.Width = 444
+          Size.Height = 104
+          Size.PlatformDefault = False
+          TabOrder = 0
+          object PreviewLabel: TLabel
+            Position.X = 6
+            Position.Y = 8
+            Size.Width = 200
+            Size.Height = 20
+            Size.PlatformDefault = False
+            Text = 'Preview of the chat'
+            TabOrder = 0
+          end
+          object ThemeLabel: TLabel
+            Anchors = [akTop, akRight]
+            Position.X = 290
+            Position.Y = 8
+            Size.Width = 82
+            Size.Height = 20
+            Size.PlatformDefault = False
+            TextSettings.HorzAlign = Trailing
+            Text = 'Dark theme'
+            TabOrder = 1
+          end
+          object ThemeSwitch: TSwitch
+            Anchors = [akTop, akRight]
+            IsChecked = False
+            Position.X = 378
+            Position.Y = 6
+            Size.Width = 58
+            Size.Height = 24
+            Size.PlatformDefault = False
+            TabOrder = 2
+            OnSwitch = ThemeSwitchSwitch
+          end
+          object StyleSheetLabel: TLabel
+            Position.X = 6
+            Position.Y = 36
+            Size.Width = 300
+            Size.Height = 20
+            Size.PlatformDefault = False
+            Text = 'Style sheet of the panel (PanelStyleSheet):'
+            TabOrder = 3
+          end
+          object StyleSheetEdit: TEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Anchors = [akLeft, akTop, akRight]
+            TabOrder = 4
+            Position.X = 6
+            Position.Y = 56
+            Size.Width = 280
+            Size.Height = 24
+            Size.PlatformDefault = False
+          end
+          object StyleSheetBrowseButton: TButton
+            Anchors = [akTop, akRight]
+            Position.X = 290
+            Position.Y = 55
+            Size.Width = 30
+            Size.Height = 26
+            Size.PlatformDefault = False
+            TabOrder = 5
+            Text = '...'
+            OnClick = StyleSheetBrowseButtonClick
+          end
+          object StyleSheetApplyButton: TButton
+            Anchors = [akTop, akRight]
+            Position.X = 324
+            Position.Y = 55
+            Size.Width = 114
+            Size.Height = 26
+            Size.PlatformDefault = False
+            TabOrder = 6
+            Text = 'To the component'
+            OnClick = StyleSheetApplyButtonClick
+          end
+          object StyleSheetErrorLabel: TLabel
+            Anchors = [akLeft, akTop, akRight]
+            StyledSettings = [Family, Size, Style]
+            Position.X = 6
+            Position.Y = 82
+            Size.Width = 432
+            Size.Height = 20
+            Size.PlatformDefault = False
+            TextSettings.FontColor = claRed
+            TabOrder = 7
+          end
+        end
+        object PreviewHost: TLayout
+          Align = Client
+          Margins.Left = 6
+          Margins.Right = 6
+          Margins.Bottom = 6
+          Size.Width = 432
+          Size.Height = 396
+          Size.PlatformDefault = False
+          TabOrder = 1
+          object PreviewMessageLabel: TLabel
+            Align = Top
+            Size.Width = 432
+            Size.Height = 40
+            Size.PlatformDefault = False
+            TabOrder = 0
+          end
+        end
+      end
+      object AppearanceSplitter: TSplitter
+        Align = Right
+        Cursor = crHSplit
+        MinSize = 20.000000000000000000
+        Position.X = 652
+        Size.Width = 4
+        Size.Height = 506
+        Size.PlatformDefault = False
+      end
+      object AppearanceLeftLayout: TLayout
+        Align = Client
+        Size.Width = 652
+        Size.Height = 506
+        Size.PlatformDefault = False
+        TabOrder = 1
+        object IconLayout: TLayout
+          Align = Top
+          Size.Width = 1100
+          Size.Height = 150
+          Size.PlatformDefault = False
+          TabOrder = 0
+          object IconLabel: TLabel
+            Position.X = 8
+            Position.Y = 6
+            Size.Width = 600
+            Size.Height = 20
+            Size.PlatformDefault = False
+            Text = 'Icon of the assistant (the bubble and the header of the panel)'
+            TabOrder = 0
+          end
+          object IconList: TListBox
+            Anchors = [akLeft, akTop, akRight]
+            Position.X = 8
+            Position.Y = 28
+            Size.Width = 1084
+            Size.Height = 98
+            Size.PlatformDefault = False
+            TabOrder = 1
+            ItemHeight = 76.000000000000000000
+            ItemWidth = 116.000000000000000000
+            ListStyle = Horizontal
+            OnChange = IconListChange
+            DisableFocusEffect = True
+            DefaultItemStyles.ItemStyle = ''
+            DefaultItemStyles.GroupHeaderStyle = ''
+            DefaultItemStyles.GroupFooterStyle = ''
+            Viewport.Width = 1080
+            Viewport.Height = 94
+          end
+          object IconHintLabel: TLabel
+            Anchors = [akLeft, akTop, akRight]
+            Position.X = 8
+            Position.Y = 128
+            Size.Width = 1084
+            Size.Height = 20
+            Size.PlatformDefault = False
+            TabOrder = 2
+          end
+        end
+      end
+    end
     object SettingsTab: TTabItem
       IsSelected = True
       Size.Width = 72
       Size.Height = 26
       Size.PlatformDefault = False
-      TabOrder = 0
+      TabOrder = 1
       Text = 'Settings'
-      object ProfileLayout: TLayout
-        Align = Top
-        Size.Width = 920
-        Size.Height = 42
+      object GridLayout: TLayout
+        Align = Client
+        ClipChildren = True
+        Size.Width = 1100
+        Size.Height = 506
         Size.PlatformDefault = False
         TabOrder = 0
-        object ProfileLabel: TLabel
-          Position.X = 8
-          Position.Y = 11
-          Size.Width = 156
-          Size.Height = 22
+        object ProfileLayout: TLayout
+          Align = Top
+          Size.Width = 920
+          Size.Height = 42
           Size.PlatformDefault = False
-          Text = 'Profile of this assistant:'
           TabOrder = 0
+          object ProfileLabel: TLabel
+            Position.X = 8
+            Position.Y = 11
+            Size.Width = 156
+            Size.Height = 22
+            Size.PlatformDefault = False
+            Text = 'Profile of this assistant:'
+            TabOrder = 0
+          end
+          object ProfileCombo: TComboEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Position.X = 168
+            Position.Y = 9
+            Size.Width = 200
+            Size.Height = 24
+            Size.PlatformDefault = False
+            TabOrder = 1
+            ItemHeight = 19
+            ItemIndex = -1
+            OnChange = ProfileComboChange
+          end
+          object ProfileHintLabel: TLabel
+            Position.X = 384
+            Position.Y = 11
+            Size.Width = 500
+            Size.Height = 22
+            Size.PlatformDefault = False
+            Text = 'Empty = the default assistant. It is the Profile of the component.'
+            TabOrder = 2
+          end
         end
-        object ProfileCombo: TComboEdit
-          Touch.InteractiveGestures = [LongTap, DoubleTap]
-          Position.X = 168
-          Position.Y = 9
-          Size.Width = 200
-          Size.Height = 24
-          Size.PlatformDefault = False
-          TabOrder = 1
-          ItemHeight = 19
-          ItemIndex = -1
-          OnChange = ProfileComboChange
-        end
-        object ProfileHintLabel: TLabel
-          Position.X = 384
-          Position.Y = 11
-          Size.Width = 500
-          Size.Height = 22
-          Size.PlatformDefault = False
-          Text = 'Empty = the default assistant. It is the Profile of the component.'
-          TabOrder = 2
-        end
-      end
-      object EditLayout: TLayout
-        Align = Bottom
-        Position.Y = 334
-        Size.Width = 920
-        Size.Height = 172
-        Size.PlatformDefault = False
-        TabOrder = 2
-        object SettingLabel: TLabel
-          Position.X = 8
-          Position.Y = 4
-          Size.Width = 700
-          Size.Height = 20
-          Size.PlatformDefault = False
-          Text = 'Select a setting'
-          TabOrder = 0
-        end
-        object HintLabel: TLabel
-          Anchors = [akLeft, akTop, akRight]
-          Position.X = 8
-          Position.Y = 24
-          Size.Width = 504
-          Size.Height = 20
-          Size.PlatformDefault = False
-          TabOrder = 1
-        end
-        object ValueMemo: TMemo
-          Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
-          DataDetectorTypes = []
-          Anchors = [akLeft, akTop, akRight, akBottom]
-          Position.X = 8
-          Position.Y = 48
-          Size.Width = 504
-          Size.Height = 114
+        object EditLayout: TLayout
+          Align = Bottom
+          Position.Y = 334
+          Size.Width = 920
+          Size.Height = 172
           Size.PlatformDefault = False
           TabOrder = 2
-          Viewport.Width = 500
-          Viewport.Height = 110
+          object SettingLabel: TLabel
+            Position.X = 8
+            Position.Y = 4
+            Size.Width = 700
+            Size.Height = 20
+            Size.PlatformDefault = False
+            Text = 'Select a setting'
+            TabOrder = 0
+          end
+          object HintLabel: TLabel
+            Anchors = [akLeft, akTop, akRight]
+            Position.X = 8
+            Position.Y = 24
+            Size.Width = 504
+            Size.Height = 20
+            Size.PlatformDefault = False
+            TabOrder = 1
+          end
+          object ValueMemo: TMemo
+            Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
+            DataDetectorTypes = []
+            Anchors = [akLeft, akTop, akRight, akBottom]
+            Position.X = 8
+            Position.Y = 48
+            Size.Width = 504
+            Size.Height = 114
+            Size.PlatformDefault = False
+            TabOrder = 2
+            Viewport.Width = 500
+            Viewport.Height = 110
+          end
+          object SecretEdit: TEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Anchors = [akLeft, akTop, akRight]
+            TabOrder = 3
+            Password = True
+            Position.X = 8
+            Position.Y = 48
+            Size.Width = 414
+            Size.Height = 24
+            Size.PlatformDefault = False
+            Visible = False
+          end
+          object ShowSecretCheck: TCheckBox
+            Anchors = [akTop, akRight]
+            Position.X = 432
+            Position.Y = 50
+            Size.Width = 80
+            Size.Height = 19
+            Size.PlatformDefault = False
+            TabOrder = 4
+            Text = 'Show'
+            Visible = False
+            OnChange = ShowSecretCheckChange
+          end
+          object ValueEdit: TEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            Anchors = [akLeft, akTop, akRight]
+            TabOrder = 10
+            Position.X = 8
+            Position.Y = 48
+            Size.Width = 504
+            Size.Height = 24
+            Size.PlatformDefault = False
+            Visible = False
+          end
+          object ValueCombo: TComboBox
+            Position.X = 8
+            Position.Y = 48
+            Size.Width = 240
+            Size.Height = 24
+            Size.PlatformDefault = False
+            TabOrder = 11
+            Visible = False
+          end
+          object ChoiceCombo: TComboEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            TabOrder = 12
+            ItemHeight = 19.000000000000000000
+            ItemIndex = -1
+            Position.X = 8
+            Position.Y = 48
+            Size.Width = 240
+            Size.Height = 24
+            Size.PlatformDefault = False
+            Visible = False
+          end
+          object ValueCheck: TCheckBox
+            Position.X = 8
+            Position.Y = 50
+            Size.Width = 240
+            Size.Height = 19
+            Size.PlatformDefault = False
+            TabOrder = 13
+            Text = 'Yes'
+            Visible = False
+          end
+          object NumberSpin: TSpinBox
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            TabOrder = 14
+            Cursor = crIBeam
+            Max = 10000000.000000000000000000
+            Position.X = 8
+            Position.Y = 48
+            Size.Width = 140
+            Size.Height = 24
+            Size.PlatformDefault = False
+            Visible = False
+          end
+          object ValueChecks: TListBox
+            Anchors = [akLeft, akTop, akBottom]
+            Position.X = 8
+            Position.Y = 48
+            Size.Width = 240
+            Size.Height = 114
+            Size.PlatformDefault = False
+            TabOrder = 15
+            ShowCheckboxes = True
+            DisableFocusEffect = True
+            DefaultItemStyles.ItemStyle = ''
+            DefaultItemStyles.GroupHeaderStyle = ''
+            DefaultItemStyles.GroupFooterStyle = ''
+            Viewport.Width = 236
+            Viewport.Height = 110
+            Visible = False
+          end
+          object ToProfileButton: TButton
+            Anchors = [akTop, akRight]
+            Position.X = 520
+            Position.Y = 48
+            Size.Width = 192
+            Size.Height = 26
+            Size.PlatformDefault = False
+            TabOrder = 5
+            Text = 'Write to the profile'
+            OnClick = ToProfileButtonClick
+          end
+          object ToRootButton: TButton
+            Anchors = [akTop, akRight]
+            Position.X = 520
+            Position.Y = 78
+            Size.Width = 192
+            Size.Height = 26
+            Size.PlatformDefault = False
+            TabOrder = 6
+            Text = 'Write to the root of the file'
+            OnClick = ToRootButtonClick
+          end
+          object ToComponentButton: TButton
+            Anchors = [akTop, akRight]
+            Position.X = 520
+            Position.Y = 108
+            Size.Width = 192
+            Size.Height = 26
+            Size.PlatformDefault = False
+            TabOrder = 7
+            Text = 'Write to the component'
+            OnClick = ToComponentButtonClick
+          end
+          object RemoveProfileButton: TButton
+            Anchors = [akTop, akRight]
+            Position.X = 718
+            Position.Y = 48
+            Size.Width = 192
+            Size.Height = 26
+            Size.PlatformDefault = False
+            TabOrder = 8
+            Text = 'Remove from the profile'
+            OnClick = RemoveProfileButtonClick
+          end
+          object RemoveRootButton: TButton
+            Anchors = [akTop, akRight]
+            Position.X = 718
+            Position.Y = 78
+            Size.Width = 192
+            Size.Height = 26
+            Size.PlatformDefault = False
+            TabOrder = 9
+            Text = 'Remove from the root'
+            OnClick = RemoveRootButtonClick
+          end
+          object RemoveComponentButton: TButton
+            Anchors = [akTop, akRight]
+            Position.X = 718
+            Position.Y = 108
+            Size.Width = 192
+            Size.Height = 26
+            Size.PlatformDefault = False
+            TabOrder = 16
+            Text = 'Remove from the component'
+            OnClick = RemoveComponentButtonClick
+          end
         end
-        object SecretEdit: TEdit
-          Touch.InteractiveGestures = [LongTap, DoubleTap]
-          Anchors = [akLeft, akTop, akRight]
-          TabOrder = 3
-          Password = True
-          Position.X = 8
-          Position.Y = 48
-          Size.Width = 414
-          Size.Height = 24
+        object SettingsGrid: TStringGrid
+          Align = Client
+          CanFocus = True
+          ClipChildren = True
+          Size.Width = 920
+          Size.Height = 292
           Size.PlatformDefault = False
-          Visible = False
-        end
-        object ShowSecretCheck: TCheckBox
-          Anchors = [akTop, akRight]
-          Position.X = 432
-          Position.Y = 50
-          Size.Width = 80
-          Size.Height = 19
-          Size.PlatformDefault = False
-          TabOrder = 4
-          Text = 'Show'
-          Visible = False
-          OnChange = ShowSecretCheckChange
-        end
-        object ValueEdit: TEdit
-          Touch.InteractiveGestures = [LongTap, DoubleTap]
-          Anchors = [akLeft, akTop, akRight]
-          TabOrder = 10
-          Position.X = 8
-          Position.Y = 48
-          Size.Width = 504
-          Size.Height = 24
-          Size.PlatformDefault = False
-          Visible = False
-        end
-        object ValueCombo: TComboBox
-          Position.X = 8
-          Position.Y = 48
-          Size.Width = 240
-          Size.Height = 24
-          Size.PlatformDefault = False
-          TabOrder = 11
-          Visible = False
-        end
-        object ChoiceCombo: TComboEdit
-          Touch.InteractiveGestures = [LongTap, DoubleTap]
-          TabOrder = 12
-          ItemHeight = 19.000000000000000000
-          ItemIndex = -1
-          Position.X = 8
-          Position.Y = 48
-          Size.Width = 240
-          Size.Height = 24
-          Size.PlatformDefault = False
-          Visible = False
-        end
-        object ValueCheck: TCheckBox
-          Position.X = 8
-          Position.Y = 50
-          Size.Width = 240
-          Size.Height = 19
-          Size.PlatformDefault = False
-          TabOrder = 13
-          Text = 'Yes'
-          Visible = False
-        end
-        object NumberSpin: TSpinBox
-          Touch.InteractiveGestures = [LongTap, DoubleTap]
-          TabOrder = 14
-          Cursor = crIBeam
-          Max = 10000000.000000000000000000
-          Position.X = 8
-          Position.Y = 48
-          Size.Width = 140
-          Size.Height = 24
-          Size.PlatformDefault = False
-          Visible = False
-        end
-        object ValueChecks: TListBox
-          Anchors = [akLeft, akTop, akBottom]
-          Position.X = 8
-          Position.Y = 48
-          Size.Width = 240
-          Size.Height = 114
-          Size.PlatformDefault = False
-          TabOrder = 15
-          ShowCheckboxes = True
-          DisableFocusEffect = True
-          DefaultItemStyles.ItemStyle = ''
-          DefaultItemStyles.GroupHeaderStyle = ''
-          DefaultItemStyles.GroupFooterStyle = ''
-          Viewport.Width = 236
-          Viewport.Height = 110
-          Visible = False
-        end
-        object ToProfileButton: TButton
-          Anchors = [akTop, akRight]
-          Position.X = 520
-          Position.Y = 48
-          Size.Width = 192
-          Size.Height = 26
-          Size.PlatformDefault = False
-          TabOrder = 5
-          Text = 'Write to the profile'
-          OnClick = ToProfileButtonClick
-        end
-        object ToRootButton: TButton
-          Anchors = [akTop, akRight]
-          Position.X = 520
-          Position.Y = 78
-          Size.Width = 192
-          Size.Height = 26
-          Size.PlatformDefault = False
-          TabOrder = 6
-          Text = 'Write to the root of the file'
-          OnClick = ToRootButtonClick
-        end
-        object ToComponentButton: TButton
-          Anchors = [akTop, akRight]
-          Position.X = 520
-          Position.Y = 108
-          Size.Width = 192
-          Size.Height = 26
-          Size.PlatformDefault = False
-          TabOrder = 7
-          Text = 'Write to the component'
-          OnClick = ToComponentButtonClick
-        end
-        object RemoveProfileButton: TButton
-          Anchors = [akTop, akRight]
-          Position.X = 718
-          Position.Y = 48
-          Size.Width = 192
-          Size.Height = 26
-          Size.PlatformDefault = False
-          TabOrder = 8
-          Text = 'Remove from the profile'
-          OnClick = RemoveProfileButtonClick
-        end
-        object RemoveRootButton: TButton
-          Anchors = [akTop, akRight]
-          Position.X = 718
-          Position.Y = 78
-          Size.Width = 192
-          Size.Height = 26
-          Size.PlatformDefault = False
-          TabOrder = 9
-          Text = 'Remove from the root'
-          OnClick = RemoveRootButtonClick
-        end
-        object RemoveComponentButton: TButton
-          Anchors = [akTop, akRight]
-          Position.X = 718
-          Position.Y = 108
-          Size.Width = 192
-          Size.Height = 26
-          Size.PlatformDefault = False
-          TabOrder = 16
-          Text = 'Remove from the component'
-          OnClick = RemoveComponentButtonClick
+          TabOrder = 1
+          RowCount = 0
+          OnSelChanged = SettingsGridSelChanged
+          Viewport.Width = 916
+          Viewport.Height = 288
         end
       end
-      object SettingsGrid: TStringGrid
-        Align = Client
-        CanFocus = True
-        ClipChildren = True
-        Size.Width = 920
-        Size.Height = 292
+    end
+    object PromptTab: TTabItem
+      IsSelected = False
+      Size.Width = 64
+      Size.Height = 26
+      Size.PlatformDefault = False
+      TabOrder = 2
+      Text = 'Prompt'
+      object PromptLayout: TLayout
+        Align = Right
+        Position.X = 656
+        Size.Width = 444
+        Size.Height = 506
         Size.PlatformDefault = False
         TabOrder = 1
-        RowCount = 0
-        OnSelChanged = SettingsGridSelChanged
-        Viewport.Width = 916
-        Viewport.Height = 288
+        object PromptLabel: TLabel
+          Align = Top
+          Margins.Left = 6
+          Margins.Top = 6
+          Margins.Right = 6
+          Position.X = 6
+          Position.Y = 6
+          Size.Width = 432
+          Size.Height = 36
+          Size.PlatformDefault = False
+          Text = 'The system prompt this assistant sends, for a sample question on a sample screen. OnBuildSystemPrompt does not run in the IDE.'
+          TabOrder = 0
+        end
+        object PromptMemo: TMemo
+          Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
+          DataDetectorTypes = []
+          ReadOnly = True
+          TextSettings.WordWrap = True
+          Align = Client
+          Margins.Left = 6
+          Margins.Right = 6
+          Margins.Bottom = 6
+          Size.Width = 432
+          Size.Height = 458
+          Size.PlatformDefault = False
+          TabOrder = 1
+          Viewport.Width = 428
+          Viewport.Height = 454
+        end
+      end
+      object PromptSplitter: TSplitter
+        Align = Right
+        Cursor = crHSplit
+        MinSize = 20.000000000000000000
+        Position.X = 652
+        Size.Width = 4
+        Size.Height = 506
+        Size.PlatformDefault = False
       end
     end
     object ModelsTab: TTabItem
@@ -1109,7 +1355,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
       Size.Width = 64
       Size.Height = 26
       Size.PlatformDefault = False
-      TabOrder = 1
+      TabOrder = 3
       Text = 'Models'
       object ProfileModelsLayout: TLayout
         Align = Right
@@ -1324,7 +1570,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
       Size.Width = 64
       Size.Height = 26
       Size.PlatformDefault = False
-      TabOrder = 2
+      TabOrder = 4
       Text = 'Profiles'
       object ProfilesHintLabel: TLabel
         Position.X = 8
@@ -1382,6 +1628,14 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
         Text = 'Delete'
         OnClick = ProfileDeleteButtonClick
       end
+    end
+    object DocumentsTab: TTabItem
+      IsSelected = False
+      Size.Width = 84
+      Size.Height = 26
+      Size.PlatformDefault = False
+      TabOrder = 5
+      Text = 'Documents'
     end
   end
 end

@@ -76,6 +76,27 @@ const
   HELPCHAT_CLAUDE_MESSAGES_PATH = '/v1/messages';
 
 type
+  /// <summary>One content block of an assistant turn, as the stream
+  /// delivered it: what has to go back, unchanged and in the same place,
+  /// when the turn is sent again with the results of its tool calls.</summary>
+  THelpChatClaudeBlock = record
+    /// <summary><c>text</c>, <c>thinking</c>, <c>redacted_thinking</c> or
+    /// <c>tool_use</c>; a block of any other type is not kept.</summary>
+    Kind: string;
+    /// <summary>The text of a <c>text</c> block, the thought of a
+    /// <c>thinking</c> block (empty when the request did not ask for a
+    /// summary, which is the default of the current models).</summary>
+    Text: string;
+    /// <summary>The signature of a <c>thinking</c> block: the API checks
+    /// it when the block comes back.</summary>
+    Signature: string;
+    /// <summary>The encrypted content of a <c>redacted_thinking</c> block.</summary>
+    Data: string;
+    /// <summary>For a <c>tool_use</c> block, its position in
+    /// <c>ToolCalls</c>; -1 otherwise.</summary>
+    Call: Integer;
+  end;
+
   /// <summary>
   ///  The Anthropic half of the stream: the base class cuts the body into
   ///  lines, this one decodes the JSON event of each <c>data:</c> line. A
@@ -85,22 +106,36 @@ type
   ///  <c>input_json_delta</c> fragments, tied to it by the index of the
   ///  content block; <c>message_delta</c> carries the stop reason; an
   ///  <c>error</c> event is kept in <c>Error</c> for the provider to raise
-  ///  once the transfer is over. Lives for one round of one reply, on the
+  ///  once the transfer is over. Every block of the turn is also kept in
+  ///  <c>Blocks</c>, in order - the <c>thinking</c> ones too, which the
+  ///  current models write by default and which must go back with the
+  ///  results of the calls. Lives for one round of one reply, on the
   ///  worker thread that runs it.
   /// </summary>
   THelpChatSseStream = class(THelpChatSseStreamBase)
   strict private
     FStopReason: string;
     FToolCalls: TList<THelpChatToolCall>;
-    FToolBlocks: TDictionary<Integer, Integer>; // content block index -> tool call
-    /// <summary>Opens a tool call when the block that begins is a
-    /// <c>tool_use</c>; any other block (text, thinking) is ignored here.</summary>
+    FBlocks: TList<THelpChatClaudeBlock>;
+    FBlockOf: TDictionary<Integer, Integer>; // content block index -> FBlocks
+    FUsage: THelpChatTokenUsage;
+    /// <summary>Takes the counts of a <c>usage</c> object: the input ones
+    /// arrive with <c>message_start</c>, the output with
+    /// <c>message_delta</c>; a count that is missing keeps its value.</summary>
+    procedure ReadUsage(const AUsage: TJSONValue);
+    /// <summary>Keeps the block that begins, when it is of a kind that has
+    /// to go back, and opens a tool call for a <c>tool_use</c>.</summary>
     procedure StartBlock(const AIndex: Integer; const ABlock: TObject);
+    /// <summary>Applies a delta to the block <c>AIndex</c>: text, thought,
+    /// signature; a delta for an unknown block is dropped.</summary>
+    procedure AppendToBlock(const AIndex: Integer; const AText, AThought,
+      ASignature: string);
     /// <summary>Adds a fragment of JSON text to the arguments of the call
     /// opened for the block <c>AIndex</c>; a fragment for an unknown block is
     /// dropped.</summary>
     procedure AppendToolInput(const AIndex: Integer; const APartial: string);
     function GetToolCalls: TArray<THelpChatToolCall>;
+    function GetBlocks: TArray<THelpChatClaudeBlock>;
   strict protected
     procedure ProcessLine(const ALine: string); override;
   public
@@ -115,6 +150,13 @@ type
     /// copy: the arguments of a call are complete only once the stream is
     /// (<c>InputJson</c> is empty for an action without parameters).</summary>
     property ToolCalls: TArray<THelpChatToolCall> read GetToolCalls;
+    /// <summary>The blocks of the turn, in the order of the stream: what
+    /// <c>BuildAssistantTurn</c> sends back. A copy.</summary>
+    property Blocks: TArray<THelpChatClaudeBlock> read GetBlocks;
+    /// <summary>The tokens of this round as the service counted them: the
+    /// model, the input at full price, written to and read from the prompt
+    /// cache, and the output. <c>Provider</c> is left empty.</summary>
+    property Usage: THelpChatTokenUsage read FUsage;
   end;
 
   /// <summary>
@@ -156,6 +198,10 @@ type
     /// through <c>ResolveApiKey</c>, so at run time the application's
     /// <c>OnDecryptSecret</c> handler runs for an encrypted key.</summary>
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; override;
+    /// <summary>True: the system prompt is the part that does not change, and
+    /// the context goes with the question, so that the prompt cache keeps the
+    /// system prompt and the conversation.</summary>
+    class function SplitsPrompt: Boolean; override;
     function SupportsStreaming: Boolean; override;
     function SupportsActions: Boolean; override;
     function SupportsDocuments: Boolean; override;
@@ -189,12 +235,26 @@ type
     /// non-empty user turn of the history, in <c>ALanguage</c> for the
     /// heading of the text ones. The fallback user turn for a history with
     /// nothing to send is added only when <c>AExtraMessagesJson</c> is the
-    /// empty string, not <c>[]</c>.</summary>
+    /// empty string, not <c>[]</c>. <c>AQuestionContext</c> (now, the screen,
+    /// the excerpts: <c>BuildQuestionContext</c>) goes right after the
+    /// question - a <c>system</c> message, the channel of the operator, or a
+    /// second text block of the question with <c>AContextAsUserText</c>, for
+    /// a model that refuses one. With it and <c>PromptCaching</c> the system
+    /// prompt and the question are breakpoints of the prompt cache too: the
+    /// next question finds the whole conversation up to here in the cache,
+    /// because the context of a question never goes back into the history.</summary>
     class function BuildRequestBody(const AHistory: TArray<THelpChatMessage>;
       const ASystemPrompt: string; const ASettings: THelpChatClaudeSettings;
       const AToolsJson, AExtraMessagesJson: string;
       const AAttachments: TArray<THelpChatAttachment> = nil;
-      const ALanguage: THelpChatLanguage = hclAuto): string; overload; static;
+      const ALanguage: THelpChatLanguage = hclAuto;
+      const AQuestionContext: string = '';
+      const AContextAsUserText: Boolean = False): string; overload; static;
+    /// <summary>True when the service told this provider, earlier in the
+    /// process, that <c>AModel</c> refuses a <c>system</c> message among the
+    /// others: the context of the question then goes in the turn of the
+    /// user.</summary>
+    class function RefusesSystemMessages(const AModel: string): Boolean; static;
     /// <summary>The content of the user turn the attachments belong to: a
     /// <c>document</c> block per PDF, an <c>image</c> block per picture, and
     /// the text last - the order Anthropic recommends, because a question
@@ -210,6 +270,18 @@ type
     /// missing or are not a JSON object become <c>{}</c>.</summary>
     class function BuildAssistantToolMessage(const AText: string;
       const ACalls: TArray<THelpChatToolCall>): string; static;
+    /// <summary>The assistant turn that asked for the actions, exactly as
+    /// the stream delivered it: every block in its place, the
+    /// <c>thinking</c> blocks with their signature and their text even when
+    /// it is empty, <c>redacted_thinking</c> as it came, the text blocks
+    /// that are not blank, and the <c>tool_use</c> blocks with the arguments
+    /// of <c>ACalls</c> (<c>{}</c> when missing or not an object). The
+    /// current models think by default, and their thinking has to come back
+    /// with the results of the calls: without it the model starts every
+    /// round of the loop from nothing. A thinking block without a signature
+    /// cannot be accepted by the API and is left out.</summary>
+    class function BuildAssistantTurn(const ABlocks: TArray<THelpChatClaudeBlock>;
+      const ACalls: TArray<THelpChatToolCall>): string; static;
     /// <summary>Extracts a readable message from a non-2xx response body:
     /// the <c>error.message</c> of the JSON the service answers with, else
     /// the localized "HTTP status" sentence in the language of
@@ -222,6 +294,7 @@ implementation
 
 uses
   System.IOUtils,
+  System.StrUtils,
   System.Net.HttpClient,
   System.Net.URLClient;
 
@@ -252,18 +325,29 @@ begin
     AAbort := True;
 end;
 
+/// <summary>A new <c>{"type":"ephemeral"}</c>: a breakpoint of the prompt
+/// cache, at the default lifetime of five minutes, which every read renews.
+/// The caller owns it.</summary>
+function CacheControl: TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('type', 'ephemeral');
+end;
+
 { THelpChatSseStream }
 
 constructor THelpChatSseStream.Create(const AOnToken: THelpChatTokenProc);
 begin
   inherited Create(AOnToken);
   FToolCalls := TList<THelpChatToolCall>.Create;
-  FToolBlocks := TDictionary<Integer, Integer>.Create;
+  FBlocks := TList<THelpChatClaudeBlock>.Create;
+  FBlockOf := TDictionary<Integer, Integer>.Create;
 end;
 
 destructor THelpChatSseStream.Destroy;
 begin
-  FToolBlocks.Free;
+  FBlockOf.Free;
+  FBlocks.Free;
   FToolCalls.Free;
   inherited;
 end;
@@ -273,21 +357,73 @@ begin
   Result := FToolCalls.ToArray;
 end;
 
+function THelpChatSseStream.GetBlocks: TArray<THelpChatClaudeBlock>;
+begin
+  Result := FBlocks.ToArray;
+end;
+
 procedure THelpChatSseStream.StartBlock(const AIndex: Integer; const ABlock: TObject);
 var
-  LBlock: TJSONObject;
+  LJson: TJSONObject;
+  LBlock: THelpChatClaudeBlock;
   LCall: THelpChatToolCall;
 begin
   if not (ABlock is TJSONObject) then
     Exit;
-  LBlock := TJSONObject(ABlock);
-  if LBlock.GetValue<string>('type', '') <> 'tool_use' then
+  LJson := TJSONObject(ABlock);
+  LBlock := Default(THelpChatClaudeBlock);
+  LBlock.Kind := LJson.GetValue<string>('type', '');
+  LBlock.Call := -1;
+  if LBlock.Kind = 'tool_use' then
+  begin
+    LCall.Id := LJson.GetValue<string>('id', '');
+    LCall.Name := LJson.GetValue<string>('name', '');
+    LCall.InputJson := '';
+    FToolCalls.Add(LCall);
+    LBlock.Call := FToolCalls.Count - 1;
+  end
+  else if LBlock.Kind = 'text' then
+    LBlock.Text := LJson.GetValue<string>('text', '')
+  else if LBlock.Kind = 'thinking' then
+  begin
+    LBlock.Text := LJson.GetValue<string>('thinking', '');
+    LBlock.Signature := LJson.GetValue<string>('signature', '');
+  end
+  else if LBlock.Kind = 'redacted_thinking' then
+    LBlock.Data := LJson.GetValue<string>('data', '')
+  else
+    Exit; // a kind this provider does not send back
+  FBlocks.Add(LBlock);
+  FBlockOf.AddOrSetValue(AIndex, FBlocks.Count - 1);
+end;
+
+procedure THelpChatSseStream.AppendToBlock(const AIndex: Integer; const AText,
+  AThought, ASignature: string);
+var
+  LPos: Integer;
+  LBlock: THelpChatClaudeBlock;
+begin
+  if not FBlockOf.TryGetValue(AIndex, LPos) then
     Exit;
-  LCall.Id := LBlock.GetValue<string>('id', '');
-  LCall.Name := LBlock.GetValue<string>('name', '');
-  LCall.InputJson := '';
-  FToolCalls.Add(LCall);
-  FToolBlocks.AddOrSetValue(AIndex, FToolCalls.Count - 1);
+  LBlock := FBlocks[LPos];
+  LBlock.Text := LBlock.Text + AText + AThought;
+  LBlock.Signature := LBlock.Signature + ASignature;
+  FBlocks[LPos] := LBlock;
+end;
+
+procedure THelpChatSseStream.ReadUsage(const AUsage: TJSONValue);
+var
+  LUsage: TJSONObject;
+begin
+  if not (AUsage is TJSONObject) then
+    Exit;
+  LUsage := TJSONObject(AUsage);
+  FUsage.InputTokens := LUsage.GetValue<Integer>('input_tokens', FUsage.InputTokens);
+  FUsage.CacheWriteTokens := LUsage.GetValue<Integer>('cache_creation_input_tokens',
+    FUsage.CacheWriteTokens);
+  FUsage.CacheReadTokens := LUsage.GetValue<Integer>('cache_read_input_tokens',
+    FUsage.CacheReadTokens);
+  FUsage.OutputTokens := LUsage.GetValue<Integer>('output_tokens', FUsage.OutputTokens);
 end;
 
 procedure THelpChatSseStream.AppendToolInput(const AIndex: Integer; const APartial: string);
@@ -296,8 +432,9 @@ var
   LCall: THelpChatToolCall;
 begin
   // The arguments arrive as fragments of JSON text, to be concatenated.
-  if not FToolBlocks.TryGetValue(AIndex, LPos) then
+  if not FBlockOf.TryGetValue(AIndex, LPos) or (FBlocks[LPos].Call < 0) then
     Exit;
+  LPos := FBlocks[LPos].Call;
   LCall := FToolCalls[LPos];
   LCall.InputJson := LCall.InputJson + APartial;
   FToolCalls[LPos] := LCall;
@@ -314,7 +451,17 @@ begin
     Exit;
   try
     LType := LRoot.GetValue<string>('type', '');
-    if LType = 'content_block_start' then
+    if LType = 'message_start' then
+    begin
+      // The model that answers and the input counts, cache included.
+      LDelta := LRoot.GetValue('message') as TJSONObject;
+      if LDelta <> nil then
+      begin
+        FUsage.Model := LDelta.GetValue<string>('model', '');
+        ReadUsage(LDelta.GetValue('usage'));
+      end;
+    end
+    else if LType = 'content_block_start' then
       // A block of the reply begins: text, or an action the model wants to call.
       StartBlock(LRoot.GetValue<Integer>('index', -1), LRoot.GetValue('content_block'))
     else if LType = 'content_block_delta' then
@@ -327,9 +474,16 @@ begin
         begin
           LToken := LDelta.GetValue<string>('text', '');
           EmitToken(LToken);
+          AppendToBlock(LIndex, LToken, '', '');
         end
         else if LDelta.GetValue<string>('type', '') = 'input_json_delta' then
-          AppendToolInput(LIndex, LDelta.GetValue<string>('partial_json', ''));
+          AppendToolInput(LIndex, LDelta.GetValue<string>('partial_json', ''))
+        // The reasoning of the model is never the answer: it is kept only to
+        // go back with the results of the calls.
+        else if LDelta.GetValue<string>('type', '') = 'thinking_delta' then
+          AppendToBlock(LIndex, '', LDelta.GetValue<string>('thinking', ''), '')
+        else if LDelta.GetValue<string>('type', '') = 'signature_delta' then
+          AppendToBlock(LIndex, '', '', LDelta.GetValue<string>('signature', ''));
       end;
     end
     else if LType = 'message_delta' then
@@ -337,6 +491,7 @@ begin
       LDelta := LRoot.GetValue('delta') as TJSONObject;
       if LDelta <> nil then
         FStopReason := LDelta.GetValue<string>('stop_reason', '');
+      ReadUsage(LRoot.GetValue('usage'));
     end
     else if LType = 'error' then
     begin
@@ -397,6 +552,110 @@ begin
   end;
 end;
 
+class function THelpChatClaudeProvider.BuildAssistantTurn(
+  const ABlocks: TArray<THelpChatClaudeBlock>;
+  const ACalls: TArray<THelpChatToolCall>): string;
+var
+  LMsg, LBlock: TJSONObject;
+  LContent: TJSONArray;
+  LInput: TJSONValue;
+  I: Integer;
+begin
+  LMsg := TJSONObject.Create;
+  try
+    LMsg.AddPair('role', 'assistant');
+    LContent := TJSONArray.Create;
+    LMsg.AddPair('content', LContent);
+    for I := Low(ABlocks) to High(ABlocks) do
+    begin
+      LBlock := nil;
+      if ABlocks[I].Kind = 'thinking' then
+      begin
+        // Unchanged, the empty text included: the API rejects a block that
+        // was modified, and one without its signature.
+        if ABlocks[I].Signature = '' then
+          Continue;
+        LBlock := TJSONObject.Create;
+        LBlock.AddPair('type', 'thinking');
+        LBlock.AddPair('thinking', ABlocks[I].Text);
+        LBlock.AddPair('signature', ABlocks[I].Signature);
+      end
+      else if ABlocks[I].Kind = 'redacted_thinking' then
+      begin
+        LBlock := TJSONObject.Create;
+        LBlock.AddPair('type', 'redacted_thinking');
+        LBlock.AddPair('data', ABlocks[I].Data);
+      end
+      else if ABlocks[I].Kind = 'text' then
+      begin
+        // The API refuses an empty text block.
+        if Trim(ABlocks[I].Text) = '' then
+          Continue;
+        LBlock := TJSONObject.Create;
+        LBlock.AddPair('type', 'text');
+        LBlock.AddPair('text', ABlocks[I].Text);
+      end
+      else if (ABlocks[I].Kind = 'tool_use') and (ABlocks[I].Call >= 0) and
+        (ABlocks[I].Call <= High(ACalls)) then
+      begin
+        LBlock := TJSONObject.Create;
+        LBlock.AddPair('type', 'tool_use');
+        LBlock.AddPair('id', ACalls[ABlocks[I].Call].Id);
+        LBlock.AddPair('name', ACalls[ABlocks[I].Call].Name);
+        LInput := nil;
+        if Trim(ACalls[ABlocks[I].Call].InputJson) <> '' then
+          LInput := TJSONObject.ParseJSONValue(ACalls[ABlocks[I].Call].InputJson);
+        if not (LInput is TJSONObject) then
+        begin
+          LInput.Free;
+          LInput := TJSONObject.Create;
+        end;
+        LBlock.AddPair('input', LInput);
+      end;
+      if LBlock <> nil then
+        LContent.AddElement(LBlock);
+    end;
+    Result := LMsg.ToJSON;
+  finally
+    LMsg.Free;
+  end;
+end;
+
+var
+  // The models the service said refuse a system message among the others,
+  // for the whole process: asking each of them once is enough.
+  GRefusingModels: TStringList;
+
+class function THelpChatClaudeProvider.RefusesSystemMessages(const AModel: string): Boolean;
+begin
+  TMonitor.Enter(GRefusingModels);
+  try
+    Result := GRefusingModels.IndexOf(AModel) >= 0;
+  finally
+    TMonitor.Exit(GRefusingModels);
+  end;
+end;
+
+/// <summary>Remembers that AModel refuses a system message.</summary>
+procedure RememberRefusingModel(const AModel: string);
+begin
+  TMonitor.Enter(GRefusingModels);
+  try
+    if GRefusingModels.IndexOf(AModel) < 0 then
+      GRefusingModels.Add(AModel);
+  finally
+    TMonitor.Exit(GRefusingModels);
+  end;
+end;
+
+/// <summary>True when the error of the service says a system message is
+/// not accepted: "role 'system' is not supported on this model".</summary>
+function IsSystemRoleRefusal(const AMessage: string): Boolean;
+begin
+  Result := ContainsText(AMessage, 'system') and
+    (ContainsText(AMessage, 'not supported') or ContainsText(AMessage, 'role'));
+end;
+
 { THelpChatClaudeProvider }
 
 function THelpChatClaudeProvider.GetName: string;
@@ -414,6 +673,11 @@ begin
     Result := Format('No API key: set Settings.Claude.ApiKey, the Claude/ApiKey ' +
       'entry of helpchatai.json, or the %s environment variable.',
       [HELPCHAT_CLAUDE_APIKEY_ENVVAR]);
+end;
+
+class function THelpChatClaudeProvider.SplitsPrompt: Boolean;
+begin
+  Result := True;
 end;
 
 function THelpChatClaudeProvider.SupportsStreaming: Boolean;
@@ -527,28 +791,55 @@ class function THelpChatClaudeProvider.BuildRequestBody(
   const ASettings: THelpChatClaudeSettings;
   const AToolsJson, AExtraMessagesJson: string;
   const AAttachments: TArray<THelpChatAttachment>;
-  const ALanguage: THelpChatLanguage): string;
+  const ALanguage: THelpChatLanguage; const AQuestionContext: string;
+  const AContextAsUserText: Boolean): string;
 var
-  LRoot, LMsg: TJSONObject;
-  LMessages: TJSONArray;
+  LRoot, LMsg, LBlock: TJSONObject;
+  LMessages, LContent: TJSONArray;
   LValue: TJSONValue;
   LItem: TJSONValue;
   I, LLastUser: Integer;
+  LCache: Boolean;
+
+  /// The context of the question, as a message of its own.
+  procedure AddContextMessage;
+  var
+    LCtx: TJSONObject;
+  begin
+    LCtx := TJSONObject.Create;
+    LCtx.AddPair('role', 'system');
+    LCtx.AddPair('content', AQuestionContext);
+    LMessages.AddElement(LCtx);
+  end;
+
 begin
+  // The breakpoints of the system prompt and of the question make sense only
+  // once what changes with every question has left the system prompt.
+  LCache := ASettings.PromptCaching and (AQuestionContext <> '');
   LRoot := TJSONObject.Create;
   try
     LRoot.AddPair('model', ASettings.ResolveModel);
     LRoot.AddPair('max_tokens', TJSONNumber.Create(ASettings.MaxTokens));
     LRoot.AddPair('stream', TJSONBool.Create(True));
-    if ASystemPrompt <> '' then
+    if (ASystemPrompt <> '') and LCache then
+    begin
+      // The same for every question of this assistant: a breakpoint after it.
+      LBlock := TJSONObject.Create;
+      LBlock.AddPair('type', 'text');
+      LBlock.AddPair('text', ASystemPrompt);
+      LBlock.AddPair('cache_control', CacheControl);
+      LRoot.AddPair('system', TJSONArray.Create(LBlock));
+    end
+    else if ASystemPrompt <> '' then
       LRoot.AddPair('system', ASystemPrompt);
 
     // The attachments belong to the question being asked, which is the last
     // user turn of the history: they are sent again at every round of the
     // tool loop and at every later question, because the conversation keeps
     // them until it is cleared.
+    // The question being asked: the attachments and the context go with it.
     LLastUser := -1;
-    if Length(AAttachments) > 0 then
+    if (Length(AAttachments) > 0) or (AQuestionContext <> '') then
       for I := High(AHistory) downto Low(AHistory) do
         if (AHistory[I].Role = hcrUser) and (Trim(AHistory[I].Content) <> '') then
         begin
@@ -569,10 +860,26 @@ begin
       else
         LMsg.AddPair('role', 'assistant');
       if I = LLastUser then
-        LMsg.AddPair('content', BuildUserContent(AHistory[I].Content, AAttachments, ALanguage))
+      begin
+        LContent := BuildUserContent(AHistory[I].Content, AAttachments, ALanguage);
+        LMsg.AddPair('content', LContent);
+        // The question is the last thing the next question will find as it
+        // was: everything up to it is read from the cache then.
+        if LCache then
+          (LContent.Items[LContent.Count - 1] as TJSONObject).AddPair('cache_control', CacheControl);
+        if (AQuestionContext <> '') and AContextAsUserText then
+        begin
+          LBlock := TJSONObject.Create;
+          LBlock.AddPair('type', 'text');
+          LBlock.AddPair('text', AQuestionContext);
+          LContent.AddElement(LBlock);
+        end;
+      end
       else
         LMsg.AddPair('content', AHistory[I].Content);
       LMessages.AddElement(LMsg);
+      if (I = LLastUser) and (AQuestionContext <> '') and not AContextAsUserText then
+        AddContextMessage;
     end;
     // The API wants a non-empty array starting with a user turn.
     if (LMessages.Count = 0) and (AExtraMessagesJson = '') then
@@ -584,6 +891,8 @@ begin
       else
         LMsg.AddPair('content', LastUserMessage(AHistory));
       LMessages.AddElement(LMsg);
+      if AQuestionContext <> '' then
+        AddContextMessage;
     end;
 
     // What this conversation already exchanged with the tools: the assistant
@@ -605,7 +914,26 @@ begin
     begin
       LValue := TJSONObject.ParseJSONValue(AToolsJson);
       if (LValue is TJSONArray) and (TJSONArray(LValue).Count > 0) then
-        LRoot.AddPair('tools', LValue)
+      begin
+        LRoot.AddPair('tools', LValue);
+        if ASettings.PromptCaching then
+        begin
+          // The tools are the same for every question of the assistant and
+          // come first in the prompt: a breakpoint on the last one keeps them
+          // in the cache from one question to the next (below the minimum of
+          // the model - 512 tokens on the current ones - the service just
+          // does not cache, without an error).
+          LItem := TJSONArray(LValue).Items[TJSONArray(LValue).Count - 1];
+          if LItem is TJSONObject then
+            TJSONObject(LItem).AddPair('cache_control', CacheControl);
+          // And the whole request, the breakpoint moving to its end round
+          // after round: the rounds of the tool loop repeat everything the
+          // first one sent. The system prompt changes with every question
+          // (the time, the screen, the excerpts), so before the tools
+          // nothing else repeats across questions.
+          LRoot.AddPair('cache_control', CacheControl);
+        end;
+      end
       else
         LValue.Free;
     end;
@@ -716,12 +1044,36 @@ function THelpChatClaudeProvider.Generate(const AHistory: TArray<THelpChatMessag
   const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
   const ACancel: IHelpChatCancelToken): string;
 var
-  LSystem, LTools: string;
+  LSystem, LTools, LQuestionContext, LModel: string;
   LStream: THelpChatSseStream;
   LExtra: TStringBuilder;
   LText: TStringBuilder;
   LRound, LMaxRounds: Integer;
   LCalls: TArray<THelpChatToolCall>;
+  LAsUserText: Boolean;
+
+  function PostThisRound: THelpChatSseStream;
+  begin
+    try
+      Result := PostRound(BuildRequestBody(AHistory, LSystem, Settings.Claude,
+        LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language,
+        LQuestionContext, LAsUserText), AOnToken, ACancel);
+    except
+      // A model that refuses a system message: once, then the context goes
+      // in the turn of the user, for this request and for the process.
+      on E: EHelpChatError do
+      begin
+        if LAsUserText or (E is EHelpChatCancelled) or not IsSystemRoleRefusal(E.Message) then
+          raise;
+        RememberRefusingModel(LModel);
+        LAsUserText := True;
+        Result := PostRound(BuildRequestBody(AHistory, LSystem, Settings.Claude,
+          LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language,
+          LQuestionContext, LAsUserText), AOnToken, ACancel);
+      end;
+    end;
+  end;
+
 begin
   if Settings.Claude.ResolveApiKey = '' then
     raise EHelpChatConfigError.Create(MsgFmt(hcmClaudeNotConfigured,
@@ -729,9 +1081,14 @@ begin
        TPath.GetDirectoryName(THelpChatSettings.UserConfigFile)]));
 
   CheckCancelled(ACancel);
-  // The prompt every provider shares: the instruction of the settings, the
-  // language, the screen and the documentation excerpts.
-  LSystem := BuildSystemPrompt(AHistory, AContext, Settings, Retriever);
+  // The prompt every provider shares, in two parts: what stays the same for
+  // every question goes in the system prompt, now, the screen and the
+  // excerpts go with the question - so that the prompt cache keeps the
+  // system prompt and the conversation from one question to the next.
+  LSystem := BuildStablePrompt(AContext, Settings);
+  LQuestionContext := BuildQuestionContext(AHistory, AContext, Settings, Retriever);
+  LModel := Settings.Claude.ResolveModel;
+  LAsUserText := RefusesSystemMessages(LModel);
   LMaxRounds := Settings.Claude.ResolveMaxToolRounds;
   LTools := '';
   if OffersActions(LMaxRounds) then
@@ -748,10 +1105,9 @@ begin
   try
     for LRound := 1 to LMaxRounds do
     begin
-      LStream := PostRound(BuildRequestBody(AHistory, LSystem, Settings.Claude,
-        LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language),
-        AOnToken, ACancel);
+      LStream := PostThisRound;
       try
+        ReportTokenUsage(LStream.Usage);
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;
         // Nothing to do, or nobody to do it: this is the reply.
@@ -768,7 +1124,9 @@ begin
         end;
         if LExtra.Length > 0 then
           LExtra.Append(',');
-        LExtra.Append(BuildAssistantToolMessage(LStream.Text, LCalls));
+        // The turn as the model wrote it - its thinking first, signed - or
+        // the next round starts without the reasoning that chose the calls.
+        LExtra.Append(BuildAssistantTurn(LStream.Blocks, LCalls));
         LExtra.Append(',');
         LExtra.Append(ExecuteToolCalls(LCalls, ACancel));
         // What the model says after acting is a new paragraph, not a sentence
@@ -796,9 +1154,12 @@ begin
 end;
 
 initialization
+  GRefusingModels := TStringList.Create;
+  GRefusingModels.CaseSensitive := False;
   THelpChatProviderRegistry.RegisterProvider(HELPCHAT_PROVIDER_CLAUDE, THelpChatClaudeProvider);
 
 finalization
   THelpChatProviderRegistry.UnregisterProvider(HELPCHAT_PROVIDER_CLAUDE);
+  GRefusingModels.Free;
 
 end.

@@ -25,7 +25,7 @@
 {******************************************************************************}
 
 /// <summary>
-///  The faces of the assistant: four icons, nine sizes each, compiled into
+///  The faces of the assistant: ten icons, nine sizes each, compiled into
 ///  <c>HelpChatAI.Assistant.res</c> from the PNGs of <c>Images\</c>.
 ///
 ///  They live here, in the engine, and not in one of the framework packages,
@@ -36,9 +36,13 @@
 ///  module handle is published too: that is how
 ///  <c>Vcl.HelpChatAI.Bubble</c> reaches them from another package.
 ///
-///  Adding an icon: the PNGs in <c>Images\</c>, an entry in
-///  <c>resources/HelpChatAI.Assistant.rc</c>, <c>Tools\BuildResources.cmd</c>,
-///  and the name in <c>HelpChatAssistantIconNames</c>.
+///  Adding an icon: the SVG in <c>Images\</c> and its PNGs (SVGToPNG of
+///  SVGShellExtensions, at the sizes of <c>HELPCHAT_ICON_SIZES</c>), the
+///  entries in <c>resources/HelpChatAI.Assistant.rc</c>,
+///  <c>Tools\BuildResources.cmd</c>, then a member at the end of
+///  <c>THelpChatAssistantIcon</c> with its name in <c>HELPCHAT_ICON_NAMES</c>:
+///  the position is the <c>ImageIndex</c> of the built-in list, so a member
+///  is never inserted before the others.
 ///
 ///  "Assistant" here is the face the user sees, the component: the unit has
 ///  no tie to profiles, models or the engine, and uses nothing of the
@@ -65,8 +69,31 @@ const
   HELPCHAT_ICON_AI_FEMALE = 'AIAssistant_Female';
   HELPCHAT_ICON_MALE = 'Assistant_Male';
   HELPCHAT_ICON_FEMALE = 'Assistant_Female';
+  // From flat-color-icons (Icons8, MIT), the SVGs in Images\.
+  HELPCHAT_ICON_BUSINESSMAN = 'Businessman';
+  HELPCHAT_ICON_BUSINESSWOMAN = 'Businesswoman';
+  HELPCHAT_ICON_CUSTOMER_SUPPORT = 'CustomerSupport';
+  HELPCHAT_ICON_MANAGER = 'Manager';
+  HELPCHAT_ICON_VOICE_PRESENTATION = 'VoicePresentation';
+  HELPCHAT_ICON_PORTRAIT_MODE = 'PortraitMode';
   /// <summary>The one used when the application picks none.</summary>
   HELPCHAT_ICON_DEFAULT = HELPCHAT_ICON_AI_MALE;
+
+type
+  /// <summary>The built-in icons, in the order of the built-in image list:
+  /// the ordinal of a member is its <c>ImageIndex</c> when the application
+  /// gives no image list of its own. New members go at the end.</summary>
+  THelpChatAssistantIcon = (haiAIMale, haiAIFemale, haiMale, haiFemale,
+    haiBusinessman, haiBusinesswoman, haiCustomerSupport, haiManager,
+    haiVoicePresentation, haiPortraitMode);
+
+const
+  /// <summary>The <c>ImageName</c> of each built-in icon.</summary>
+  HELPCHAT_ICON_NAMES: array[THelpChatAssistantIcon] of string = (
+    HELPCHAT_ICON_AI_MALE, HELPCHAT_ICON_AI_FEMALE, HELPCHAT_ICON_MALE,
+    HELPCHAT_ICON_FEMALE, HELPCHAT_ICON_BUSINESSMAN, HELPCHAT_ICON_BUSINESSWOMAN,
+    HELPCHAT_ICON_CUSTOMER_SUPPORT, HELPCHAT_ICON_MANAGER,
+    HELPCHAT_ICON_VOICE_PRESENTATION, HELPCHAT_ICON_PORTRAIT_MODE);
 
   /// <summary>Every icon ships in these sizes.</summary>
   HELPCHAT_ICON_SIZES: array[0..8] of Integer =
@@ -76,8 +103,13 @@ const
   /// 40 CSS pixels, so this is the 2x a high-DPI WebView asks for.</summary>
   HELPCHAT_ICON_PANEL_SIZE = 80;
 
-/// <summary>The four names above, in the order the palette shows them.</summary>
+/// <summary>The names of <c>HELPCHAT_ICON_NAMES</c>, in the order of
+/// <c>THelpChatAssistantIcon</c>: the order of the built-in image list.</summary>
 function HelpChatAssistantIconNames: TArray<string>;
+
+/// <summary>The built-in icon called AName (case-insensitive); False when no
+/// built-in icon has that name.</summary>
+function HelpChatAssistantIconOf(const AName: string; out AIcon: THelpChatAssistantIcon): Boolean;
 
 /// <summary>True when <c>AName</c> is one of them (case-insensitive).</summary>
 function HelpChatIsAssistantIcon(const AName: string): Boolean;
@@ -114,9 +146,26 @@ uses
   System.NetEncoding;
 
 function HelpChatAssistantIconNames: TArray<string>;
+var
+  LIcon: THelpChatAssistantIcon;
 begin
-  Result := [HELPCHAT_ICON_AI_MALE, HELPCHAT_ICON_AI_FEMALE,
-    HELPCHAT_ICON_MALE, HELPCHAT_ICON_FEMALE];
+  Result := nil;
+  for LIcon := Low(THelpChatAssistantIcon) to High(THelpChatAssistantIcon) do
+    Result := Result + [HELPCHAT_ICON_NAMES[LIcon]];
+end;
+
+function HelpChatAssistantIconOf(const AName: string; out AIcon: THelpChatAssistantIcon): Boolean;
+var
+  LIcon: THelpChatAssistantIcon;
+begin
+  for LIcon := Low(THelpChatAssistantIcon) to High(THelpChatAssistantIcon) do
+    if SameText(HELPCHAT_ICON_NAMES[LIcon], AName) then
+    begin
+      AIcon := LIcon;
+      Exit(True);
+    end;
+  AIcon := haiAIMale;
+  Result := False;
 end;
 
 function HelpChatIsAssistantIcon(const AName: string): Boolean;

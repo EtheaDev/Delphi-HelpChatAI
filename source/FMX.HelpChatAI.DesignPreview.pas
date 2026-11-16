@@ -294,19 +294,17 @@ begin
       Max(AChat.PanelHeight, HELPCHAT_DESIGN_MIN_HEIGHT) + HELPCHAT_DESIGN_LOG_HEIGHT);
 
     // A copy, not the component on the form: that one is in csDesigning and
-    // must stay exactly as the developer left it. The profile goes first:
-    // assigning the settings puts the profile of the copy on them.
+    // must stay exactly as the developer left it. Everything the developer
+    // set on it - the icon and its image list, the style sheets... - then
+    // what the preview changes: a property copied by hand here was a
+    // property forgotten the day it was added (the icon was).
     LClone := TFmxHelpChatPreviewChat.Create(nil);
-    LClone.Profile := AChat.Profile;
-    LClone.AssistantName := AChat.AssistantName;
-    LClone.Caption := AChat.Caption;
-    LClone.EnabledCommands := AChat.EnabledCommands;
+    LClone.Assign(AChat);
     LClone.Settings := ASettings;      // assigned: the copy keeps its own
     LClone.ShowBubble := False;        // the window is the preview itself
     LClone.RegisterHelpViewer := False;
     LClone.HandleF1 := False;
     LClone.RememberPanelPosition := False;
-    LClone.ThemeMode := AChat.ThemeMode;
     LClone.ActionsEnabled := False;    // the handlers live in the application
     // Owned by nothing, so the copy has no form of its own: the preview is
     // both its host and its container.

@@ -339,6 +339,14 @@ type
     /// page may call. Raises <c>EResNotFound</c> when the resources are not
     /// linked.</summary>
     class function RenderPage(const AOptions: THelpChatPanelOptions): string; static;
+    /// <summary>The page as <c>RenderPage</c> writes it, with <c>ABodyHtml</c>
+    /// already in the conversation instead of the request that loads it: a
+    /// picture of the panel with nobody behind it, for the configuration
+    /// editor, which shows what a theme, a stylesheet and an icon look like.
+    /// The page still runs its script; with no server its requests go
+    /// nowhere.</summary>
+    class function PreviewPage(const AOptions: THelpChatPanelOptions;
+      const ABodyHtml: string): string; static;
     /// <summary>The stylesheet a printable document is built with: the file
     /// the application named in <c>PdfStyleSheet</c>, or the built-in one when
     /// it did not. A named file that is not there raises, exactly like a named
@@ -582,6 +590,29 @@ begin
     raise EHelpChatConfigError.CreateFmt('The PDF %s "%s" was not found',
       [AWhat, LFileName]);
   Result := TFile.ReadAllText(LFileName, TEncoding.UTF8);
+end;
+
+class function THelpChatPanel.PreviewPage(const AOptions: THelpChatPanelOptions;
+  const ABodyHtml: string): string;
+var
+  LStart, LEnd: Integer;
+  LOptions: THelpChatPanelOptions;
+begin
+  LOptions := AOptions;
+  // Nobody to receive what the page asks of its host.
+  LOptions.HostCommands := False;
+  Result := RenderPage(LOptions);
+  // The conversation is written in place of the element that would ask the
+  // server for it, so no history request replaces it.
+  LStart := Result.IndexOf('<main id="hc-body"');
+  if LStart < 0 then
+    Exit;
+  LEnd := Result.IndexOf('</main>', LStart);
+  if LEnd < 0 then
+    Exit;
+  Result := Result.Substring(0, LStart) +
+    '<main id="hc-body" class="hc-chat-body">' + ABodyHtml +
+    Result.Substring(LEnd);
 end;
 
 class function THelpChatPanel.PrintCss(const AStyleSheetFile: string): string;

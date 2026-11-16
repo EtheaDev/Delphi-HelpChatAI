@@ -89,6 +89,10 @@ const
   ///  siblings. In the WM_APP range because nobody else talks to this window.
   /// </summary>
   HELPCHAT_CM_BRINGTOTOP = WM_APP + 117;
+  /// <summary>Posted to a floating bubble that a modal form disabled with the
+  /// other windows of the application: it enables itself again, so the
+  /// assistant can still be asked while the modal form is up.</summary>
+  HELPCHAT_CM_REENABLE = WM_APP + 118;
 
   // The names of the icons, their sizes and the one used by default live in
   // HelpChatAI.Assistant, with the resource: FireMonkey needs them too.
@@ -97,6 +101,12 @@ const
   HELPCHAT_ICON_AI_FEMALE = HelpChatAI.Assistant.HELPCHAT_ICON_AI_FEMALE;
   HELPCHAT_ICON_MALE = HelpChatAI.Assistant.HELPCHAT_ICON_MALE;
   HELPCHAT_ICON_FEMALE = HelpChatAI.Assistant.HELPCHAT_ICON_FEMALE;
+  HELPCHAT_ICON_BUSINESSMAN = HelpChatAI.Assistant.HELPCHAT_ICON_BUSINESSMAN;
+  HELPCHAT_ICON_BUSINESSWOMAN = HelpChatAI.Assistant.HELPCHAT_ICON_BUSINESSWOMAN;
+  HELPCHAT_ICON_CUSTOMER_SUPPORT = HelpChatAI.Assistant.HELPCHAT_ICON_CUSTOMER_SUPPORT;
+  HELPCHAT_ICON_MANAGER = HelpChatAI.Assistant.HELPCHAT_ICON_MANAGER;
+  HELPCHAT_ICON_VOICE_PRESENTATION = HelpChatAI.Assistant.HELPCHAT_ICON_VOICE_PRESENTATION;
+  HELPCHAT_ICON_PORTRAIT_MODE = HelpChatAI.Assistant.HELPCHAT_ICON_PORTRAIT_MODE;
   HELPCHAT_ICON_DEFAULT = HelpChatAI.Assistant.HELPCHAT_ICON_DEFAULT;
   HELPCHAT_ICON_PANEL_SIZE = HelpChatAI.Assistant.HELPCHAT_ICON_PANEL_SIZE;
 
@@ -167,6 +177,20 @@ type
     FDownPoint: TPoint;
     FDownLeft: Integer;
     FDownTop: Integer;
+    // The form a floating bubble belongs to: it is then a window of its own,
+    // owned by that form, not a child clipped by it. Nil for a child bubble.
+    FFloatHost: TWinControl;
+    FOnHostChanged: TNotifyEvent;
+    // Inside FollowHost: re-creating the window sends the host messages again.
+    FFollowing: Boolean;
+    /// <summary>The floating bubble after its host moved, was resized, shown,
+    /// hidden or got a new window: a window again if Windows destroyed it with
+    /// the old one of the host, then OnHostChanged, which places it.</summary>
+    procedure FollowHost;
+    /// <summary>Topmost while the application is active - in front of every
+    /// form of it, a full-screen one included -, just below the window that
+    /// took the activation when another application did.</summary>
+    procedure UpdateTopmost(const AAppActive: Boolean);
     /// <summary>Whether to ask Windows for a layered window at all: not in
     /// the designer, not before Windows 8.</summary>
     function WantsLayered: Boolean;
@@ -213,6 +237,10 @@ type
     procedure CMVisibleChanged(var Message: TMessage); message CM_VISIBLECHANGED;
     procedure CMStyleChanged(var Message: TMessage); message CM_STYLECHANGED;
     procedure CMBringToTop(var Message: TMessage); message HELPCHAT_CM_BRINGTOTOP;
+    procedure CMReenable(var Message: TMessage); message HELPCHAT_CM_REENABLE;
+    procedure WMActivateApp(var Message: TWMActivateApp); message WM_ACTIVATEAPP;
+    procedure WMMouseActivate(var Message: TWMMouseActivate); message WM_MOUSEACTIVATE;
+    procedure WMEnable(var Message: TWMEnable); message WM_ENABLE;
   strict protected
     function GetActionLinkClass: TControlActionLinkClass; override;
     /// <summary>An image list that goes away takes the bubble back to the
@@ -262,6 +290,21 @@ type
     /// <summary>A layered window gets no WM_PAINT: every change of state is
     /// pushed to it here instead.</summary>
     procedure Invalidate; override;
+    /// <summary>Makes the bubble a window of its own over AHost, in place of
+    /// a child of it (call it instead of setting <c>Parent</c>): owned by the
+    /// form, so it goes away with it and is hidden when the form is
+    /// minimized, topmost while the application is active - in front of
+    /// every form of the application, modal ones included, and still
+    /// clickable while one of them is up - and free to stand outside the
+    /// form. Its <c>Left</c> and <c>Top</c> are then screen coordinates, and
+    /// <c>OnHostChanged</c> says when the form moved and the bubble must be
+    /// placed again. Nil takes it back to no host.</summary>
+    procedure FloatOver(const AHost: TWinControl);
+    /// <summary>The form a floating bubble belongs to; nil for a child.</summary>
+    property FloatHost: TWinControl read FFloatHost;
+    /// <summary>A floating bubble's form moved, was resized, shown or hidden:
+    /// the owner places the bubble again.</summary>
+    property OnHostChanged: TNotifyEvent read FOnHostChanged write FOnHostChanged;
   published
     property Action;
     property Align;
@@ -302,8 +345,8 @@ type
 
 /// <summary>
 ///  The icons compiled into the component, as a collection shared by every
-///  bubble of the process: AIAssistant_Male, AIAssistant_Female,
-///  Assistant_Male and Assistant_Female, each in nine sizes. Created on
+///  bubble of the process: the icons of <c>THelpChatAssistantIcon</c>, in its
+///  order, each in nine sizes. Created on
 ///  first use, on the main thread, and freed when the unit finalizes: never
 ///  free it, and do not add to it - every assistant of the application
 ///  reads the same one.
@@ -822,6 +865,8 @@ end;
 destructor TVclHelpChatAIBubble.Destroy;
 begin
   UnhookParent;
+  if Assigned(FFloatHost) then
+    FFloatHost.RemoveFreeNotification(Self);
   Images := nil;                 // unregisters the change link first
   FreeAndNil(FImageChangeLink);
   inherited Destroy;
@@ -838,6 +883,14 @@ begin
   inherited Notification(AComponent, Operation);
   if (Operation = opRemove) and (AComponent = FImages) then
     Images := nil;
+  if (Operation = opRemove) and (AComponent = FFloatHost) then
+  begin
+    // The form is going, and its hook with it; Windows destroys the window
+    // it owns, which is this one.
+    if FHookedParent = FFloatHost then
+      FHookedParent := nil;
+    FFloatHost := nil;
+  end;
 end;
 
 { --- images ------------------------------------------------------------- }
@@ -940,9 +993,109 @@ end;
 
 procedure TVclHelpChatAIBubble.BringToTop;
 begin
-  if HandleAllocated and Visible then
+  if not HandleAllocated or not Visible then
+    Exit;
+  if Assigned(FFloatHost) then
+    UpdateTopmost(Application.Active)
+  else
     SetWindowPos(Handle, HWND_TOP, 0, 0, 0, 0,
       SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE);
+end;
+
+procedure TVclHelpChatAIBubble.UpdateTopmost(const AAppActive: Boolean);
+var
+  LFore: HWND;
+begin
+  if not HandleAllocated or (FFloatHost = nil) then
+    Exit;
+  if AAppActive then
+    SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0,
+      SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE)
+  else
+  begin
+    // HWND_NOTOPMOST alone would put it at the top of the windows that are
+    // not topmost - above the application the user just switched to. Below
+    // that window instead, which also takes the topmost state away; a
+    // topmost window of another application (the taskbar, a start menu)
+    // stays above it anyway.
+    LFore := GetForegroundWindow;
+    if (LFore <> 0) and (LFore <> Handle) and
+       (GetWindowLong(LFore, GWL_EXSTYLE) and WS_EX_TOPMOST = 0) then
+      SetWindowPos(Handle, LFore, 0, 0, 0, 0, SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE)
+    else
+      SetWindowPos(Handle, HWND_NOTOPMOST, 0, 0, 0, 0,
+        SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE);
+  end;
+end;
+
+procedure TVclHelpChatAIBubble.FloatOver(const AHost: TWinControl);
+begin
+  if AHost = FFloatHost then
+    Exit;
+  Parent := nil;
+  UnhookParent;
+  FFloatHost := AHost;
+  if Assigned(FFloatHost) then
+  begin
+    FFloatHost.FreeNotification(Self);
+    // The owner of the window: not a parent, so the form does not clip it.
+    ParentWindow := FFloatHost.Handle;
+    HookParent(FFloatHost);
+  end
+  else
+    ParentWindow := 0;
+end;
+
+procedure TVclHelpChatAIBubble.FollowHost;
+begin
+  if (FFloatHost = nil) or FFollowing or (csDestroying in ComponentState) or
+     not FFloatHost.HandleAllocated then
+    Exit;
+  FFollowing := True;
+  try
+    // A form that re-creates its window (a change of VCL style does) takes
+    // the windows it owns with the old one: the bubble needs the new owner.
+    if not HandleAllocated or (ParentWindow <> FFloatHost.Handle) then
+      ParentWindow := FFloatHost.Handle;
+    if Assigned(FOnHostChanged) then
+      FOnHostChanged(Self);
+  finally
+    FFollowing := False;
+  end;
+end;
+
+procedure TVclHelpChatAIBubble.CMReenable(var Message: TMessage);
+begin
+  if HandleAllocated and Assigned(FFloatHost) and not IsWindowEnabled(Handle) then
+    EnableWindow(Handle, True);
+end;
+
+procedure TVclHelpChatAIBubble.WMEnable(var Message: TWMEnable);
+begin
+  inherited;
+  // ShowModal disables every window of the application but the modal one,
+  // this one included: the assistant must stay at hand over a modal form,
+  // and the chat it opens is owned by that form (UpdateOwnFormOwner). When
+  // the modal form closes, the VCL enables again what it disabled.
+  if Assigned(FFloatHost) and not Message.Enabled and HandleAllocated then
+    PostMessage(Handle, HELPCHAT_CM_REENABLE, 0, 0);
+end;
+
+procedure TVclHelpChatAIBubble.WMActivateApp(var Message: TWMActivateApp);
+begin
+  inherited;
+  if Assigned(FFloatHost) and Visible then
+    UpdateTopmost(Message.Active);
+end;
+
+procedure TVclHelpChatAIBubble.WMMouseActivate(var Message: TWMMouseActivate);
+begin
+  // A click on a floating bubble must not take the activation from the form
+  // the user is working on: the bubble is a button, not a window to work in.
+  if Assigned(FFloatHost) then
+    Message.Result := MA_NOACTIVATE
+  else
+    inherited;
 end;
 
 procedure TVclHelpChatAIBubble.CMBringToTop(var Message: TMessage);
@@ -971,6 +1124,16 @@ end;
 
 procedure TVclHelpChatAIBubble.ParentMessage(const AMsg: Cardinal);
 begin
+  if Assigned(FFloatHost) then
+  begin
+    // Not a child: nothing of the form can bury it, but it has to follow
+    // the form, which a child does by itself.
+    case AMsg of
+      WM_MOVE, WM_SIZE, WM_WINDOWPOSCHANGED, WM_SHOWWINDOW:
+        FollowHost;
+    end;
+    Exit;
+  end;
   // A new child, a resize or a reorder can bury the bubble: ask to come back
   // on top, but later — the host is in the middle of its own work right now.
   case AMsg of
@@ -996,7 +1159,9 @@ function TVclHelpChatAIBubble.WantsLayered: Boolean;
 begin
   // Child windows can be layered from Windows 8 on, for an application whose
   // manifest says it knows Windows 8 (Delphi's default_app.manifest does).
-  Result := not (csDesigning in ComponentState) and CheckWin32Version(6, 2);
+  // A window of its own (floating) can be layered on every Windows.
+  Result := not (csDesigning in ComponentState) and
+    (Assigned(FFloatHost) or CheckWin32Version(6, 2));
 end;
 
 procedure TVclHelpChatAIBubble.CreateParams(var Params: TCreateParams);
@@ -1004,6 +1169,13 @@ begin
   inherited CreateParams(Params);
   if WantsLayered then
     Params.ExStyle := Params.ExStyle or WS_EX_LAYERED;
+  if Assigned(FFloatHost) then
+  begin
+    // A popup owned by the form (WndParent is the ParentWindow it was given):
+    // no button on the taskbar, never activated by a click.
+    Params.Style := (Params.Style and not WS_CHILD) or WS_POPUP;
+    Params.ExStyle := Params.ExStyle or WS_EX_TOOLWINDOW or WS_EX_NOACTIVATE;
+  end;
 end;
 
 procedure TVclHelpChatAIBubble.CreateWnd;
@@ -1273,10 +1445,12 @@ end;
 procedure TVclHelpChatAIBubble.MouseMove(Shift: TShiftState; X, Y: Integer);
 var
   LPoint: TPoint;
+  LWork: TRect;
   LLeft, LTop: Integer;
 begin
   inherited MouseMove(Shift, X, Y);
-  if not FTracking or not FDraggable or not (ssLeft in Shift) or (Parent = nil) then
+  if not FTracking or not FDraggable or not (ssLeft in Shift) or
+     ((Parent = nil) and (FFloatHost = nil)) then
     Exit;
   // Screen coordinates: the bubble moves under the mouse, its own do not hold.
   LPoint := ClientToScreen(Point(X, Y));
@@ -1287,6 +1461,20 @@ begin
       Exit;
     FDragged := True;
     Application.CancelHint;
+  end;
+  if Assigned(FFloatHost) then
+  begin
+    // Screen coordinates, anywhere on the work area of the monitor of its
+    // form: outside the form too, anchored to its nearest corner, but never
+    // off the screen or under the taskbar, where nobody could get it back.
+    LWork := Screen.MonitorFromWindow(FFloatHost.Handle, mdNearest).WorkareaRect;
+    LLeft := Max(LWork.Left, Min(FDownLeft + LPoint.X - FDownPoint.X,
+      LWork.Right - Width));
+    LTop := Max(LWork.Top, Min(FDownTop + LPoint.Y - FDownPoint.Y,
+      LWork.Bottom - Height));
+    if (LLeft <> Left) or (LTop <> Top) then
+      SetBounds(LLeft, LTop, Width, Height);
+    Exit;
   end;
   LLeft := Max(0, Min(FDownLeft + LPoint.X - FDownPoint.X, Parent.ClientWidth - Width));
   LTop := Max(0, Min(FDownTop + LPoint.Y - FDownPoint.Y, Parent.ClientHeight - Height));

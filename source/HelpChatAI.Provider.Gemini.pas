@@ -81,6 +81,7 @@ type
   THelpChatGeminiStream = class(THelpChatSseStreamBase)
   strict private
     FFinishReason: string;
+    FUsage: THelpChatTokenUsage;
     FTextSignature: string;
     FToolCalls: TList<THelpChatToolCall>;
     /// <summary>One part of the candidate: a function call (kept with the
@@ -108,6 +109,11 @@ type
     /// part of the round. Returning it is not validated, only recommended:
     /// the model reasons better with its own notes back.</summary>
     property TextSignature: string read FTextSignature;
+    /// <summary>The tokens of the round, from the <c>usageMetadata</c> of the
+    /// last chunk: the prompt split into what the implicit cache of the
+    /// service read (<c>cachedContentTokenCount</c>) and the rest; the output
+    /// counts the thoughts too.</summary>
+    property Usage: THelpChatTokenUsage read FUsage;
   end;
 
   /// <summary>
@@ -187,7 +193,13 @@ type
       const ASystemPrompt: string; const ASettings: THelpChatGeminiSettings;
       const AToolsJson, AExtraContentsJson: string;
       const AAttachments: TArray<THelpChatAttachment> = nil;
-      const ALanguage: THelpChatLanguage = hclAuto): string; static;
+      const ALanguage: THelpChatLanguage = hclAuto;
+      const AQuestionContext: string = ''): string; static;
+    /// <summary>True: the system instruction is the part that does not
+    /// change, and the context is a second part of the question, so that the
+    /// implicit cache of the service reads the instruction and the
+    /// conversation again.</summary>
+    class function SplitsPrompt: Boolean; override;
     /// <summary>The model turn that asked for the actions, as the API wants it
     /// back: its text and one functionCall part per call, each carrying again
     /// the <c>thoughtSignature</c> it arrived with. Dropping those is a 400
@@ -316,6 +328,18 @@ begin
       Exit;
     end;
 
+    // Every chunk carries the counts so far: the last one has them all.
+    if LRoot.GetValue('modelVersion') <> nil then
+      FUsage.Model := LRoot.GetValue<string>('modelVersion', '');
+    if LRoot.GetValue('usageMetadata') is TJSONObject then
+    begin
+      FUsage.CacheReadTokens := LRoot.GetValue<Integer>('usageMetadata.cachedContentTokenCount', 0);
+      FUsage.InputTokens := LRoot.GetValue<Integer>('usageMetadata.promptTokenCount', 0) -
+        FUsage.CacheReadTokens;
+      FUsage.OutputTokens := LRoot.GetValue<Integer>('usageMetadata.candidatesTokenCount', 0) +
+        LRoot.GetValue<Integer>('usageMetadata.thoughtsTokenCount', 0);
+    end;
+
     LCandidates := LRoot.GetValue('candidates') as TJSONArray;
     if (LCandidates = nil) or (LCandidates.Count = 0) then
       Exit;
@@ -435,7 +459,7 @@ class function THelpChatGeminiProvider.BuildRequestBody(
   const ASettings: THelpChatGeminiSettings;
   const AToolsJson, AExtraContentsJson: string;
   const AAttachments: TArray<THelpChatAttachment>;
-  const ALanguage: THelpChatLanguage): string;
+  const ALanguage: THelpChatLanguage; const AQuestionContext: string): string;
 var
   LRoot, LContent, LPart, LConfig, LSystem, LToolConfig, LCallingConfig: TJSONObject;
   LContents, LParts, LTools: TJSONArray;
@@ -500,9 +524,10 @@ begin
       LParts.AddElement(LPart);
     end;
 
-    // The attachments belong to the question being asked: the last user turn.
+    // The attachments and the context belong to the question being asked:
+    // the last user turn.
     LLastUser := -1;
-    if Length(AAttachments) > 0 then
+    if (Length(AAttachments) > 0) or (AQuestionContext <> '') then
       for I := High(AHistory) downto Low(AHistory) do
         if (AHistory[I].Role = hcrUser) and (Trim(AHistory[I].Content) <> '') then
         begin
@@ -517,12 +542,22 @@ begin
       if (AHistory[I].Role = hcrSystem) or (Trim(AHistory[I].Content) = '') then
         Continue;
       // The assistant is called "model" here.
-      if I = LLastUser then
+      if (I = LLastUser) and (Length(AAttachments) > 0) then
         LContent := NewUserContentWithFiles
       else if AHistory[I].Role = hcrUser then
         LContent := NewTextContent('user', AHistory[I].Content)
       else
         LContent := NewTextContent('model', AHistory[I].Content);
+      // The context of the question, a part of its own after it: this API
+      // has no system message among the others, and the question comes back
+      // next time without it, so everything before it stays the prefix the
+      // cache knows.
+      if (I = LLastUser) and (AQuestionContext <> '') then
+      begin
+        LPart := TJSONObject.Create;
+        LPart.AddPair('text', AQuestionContext);
+        LContent.GetValue<TJSONArray>('parts').AddElement(LPart);
+      end;
       LContents.AddElement(LContent);
     end;
     // The API refuses an empty conversation: with nothing to send and no
@@ -756,11 +791,16 @@ begin
   end;
 end;
 
+class function THelpChatGeminiProvider.SplitsPrompt: Boolean;
+begin
+  Result := True;
+end;
+
 function THelpChatGeminiProvider.Generate(const AHistory: TArray<THelpChatMessage>;
   const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
   const ACancel: IHelpChatCancelToken): string;
 var
-  LSystem, LTools: string;
+  LSystem, LTools, LQuestionContext: string;
   LStream: THelpChatGeminiStream;
   LExtra: TStringBuilder;
   LText: TStringBuilder;
@@ -775,9 +815,12 @@ begin
        TPath.GetDirectoryName(THelpChatSettings.UserConfigFile)]));
 
   CheckCancelled(ACancel);
-  // The prompt every provider shares: the instruction of the settings, the
-  // language, the screen and the documentation excerpts.
-  LSystem := BuildSystemPrompt(AHistory, AContext, Settings, Retriever);
+  // The prompt every provider shares, in two parts: what stays the same for
+  // every question is the system instruction, now, the screen and the
+  // excerpts go with the question - the implicit cache of the service then
+  // reads the instruction and the conversation again at the next question.
+  LSystem := BuildStablePrompt(AContext, Settings);
+  LQuestionContext := BuildQuestionContext(AHistory, AContext, Settings, Retriever);
   LMaxRounds := Settings.Gemini.ResolveMaxToolRounds;
   LTools := '';
   if OffersActions(LMaxRounds) then
@@ -795,9 +838,10 @@ begin
     for LRound := 1 to LMaxRounds do
     begin
       LStream := PostRound(BuildRequestBody(AHistory, LSystem, Settings.Gemini,
-        LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language),
+        LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language, LQuestionContext),
         AOnToken, ACancel);
       try
+        ReportTokenUsage(LStream.Usage);
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;
         // A function call part is the whole signal here: this API does not

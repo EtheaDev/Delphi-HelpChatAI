@@ -61,15 +61,21 @@ uses
   FMX.TabControl,
   FMX.Controls.Presentation,
   HelpChatAI.Settings,
-  HelpChatAI.ConfigController;
+  HelpChatAI.ConfigController,
+  FMX.WebBrowser,
+  FMX.HelpChatAI;
 
 type
   /// <summary>
   ///  The editor as a FireMonkey form, shown modally inside the IDE by the
-  ///  component editor of <c>TFmxHelpChatAI</c>. Three pages: the settings
-  ///  with the value in use and where it comes from, the catalogue of
-  ///  models with what the profile offers of it, and the profiles of the
-  ///  file. One file is edited at a time; nothing is written until Save.
+  ///  component editor of <c>TFmxHelpChatAI</c>. Six pages: Appearance,
+  ///  Settings, Prompt and Documents list the settings of the catalogue that
+  ///  belong to them, with the value in use and where it comes from (one
+  ///  grid and one edit area, <c>GridLayout</c>, moved to the page shown; the
+  ///  Prompt page shows beside it the prompt those settings build), then
+  ///  the catalogue of models with what the profile offers of it, and the
+  ///  profiles of the file. One file is edited at a time; nothing is written
+  ///  until Save.
   ///
   ///  A secret is shown masked in the grid (the controller masks it) and
   ///  edited in clear in a password box: what goes back to the controller is
@@ -97,9 +103,46 @@ type
     CloseButton: TButton;
     HelpButton: TButton;
     TabControl: TTabControl;
+    AppearanceTab: TTabItem;
+    /// <summary>The right of the Appearance page: the chat as it would look,
+    /// the switch between the light and the dark theme, and the style sheet
+    /// of the component.</summary>
+    PreviewLayout: TLayout;
+    PreviewTopLayout: TLayout;
+    PreviewLabel: TLabel;
+    ThemeLabel: TLabel;
+    ThemeSwitch: TSwitch;
+    StyleSheetLabel: TLabel;
+    StyleSheetEdit: TEdit;
+    StyleSheetBrowseButton: TButton;
+    StyleSheetApplyButton: TButton;
+    StyleSheetErrorLabel: TLabel;
+    /// <summary>Where the browser of the preview is created, in code: the
+    /// WebView2 loader must be reachable first.</summary>
+    PreviewHost: TLayout;
+    PreviewMessageLabel: TLabel;
+    AppearanceSplitter: TSplitter;
+    /// <summary>The left of the Appearance page: the icon, then the grid.</summary>
+    AppearanceLeftLayout: TLayout;
+    /// <summary>The icon of the assistant: the images of the component's
+    /// <c>Images</c>, else the built-in ones; a click writes
+    /// <c>ImageIndex</c> or <c>ImageName</c> into the component.</summary>
+    IconLayout: TLayout;
+    IconLabel: TLabel;
+    IconList: TListBox;
+    IconHintLabel: TLabel;
     SettingsTab: TTabItem;
+    /// <summary>The grid of the settings and the edit area, moved to the
+    /// page shown among the four that list settings.</summary>
+    GridLayout: TLayout;
+    PromptTab: TTabItem;
+    PromptLayout: TLayout;
+    PromptLabel: TLabel;
+    PromptMemo: TMemo;
+    PromptSplitter: TSplitter;
     ModelsTab: TTabItem;
     ProfilesTab: TTabItem;
+    DocumentsTab: TTabItem;
     ProfileLayout: TLayout;
     ProfileLabel: TLabel;
     ProfileCombo: TComboEdit;
@@ -186,7 +229,24 @@ type
     procedure ProfileDeleteButtonClick(Sender: TObject);
     procedure TestButtonClick(Sender: TObject);
     procedure HelpButtonClick(Sender: TObject);
+    procedure TabControlChange(Sender: TObject);
+    procedure IconListChange(Sender: TObject);
+    procedure ThemeSwitchSwitch(Sender: TObject);
+    procedure StyleSheetBrowseButtonClick(Sender: TObject);
+    procedure StyleSheetApplyButtonClick(Sender: TObject);
   strict private
+    /// <summary>The browser of the preview; nil until the Appearance page is
+    /// first shown, and when WebView2 is not available.</summary>
+    FPreviewBrowser: TWebBrowser;
+    FPreviewTried: Boolean;
+    /// <summary>The executable of the project: its folder is where the
+    /// WebView2 loader is looked for first.</summary>
+    FExeFile: string;
+    /// <summary>The component being edited, for the icon; not owned, may
+    /// be nil.</summary>
+    FChat: TFmxHelpChatAI;
+    /// <summary>The prompt shown, with LF line breaks.</summary>
+    FPromptText: string;
     FController: THelpChatConfigController;
     FEntries: TArray<THelpChatConfigEntry>;
     FModels: TArray<THelpChatConfigModel>;
@@ -194,6 +254,14 @@ type
     FOnComponentChanged: TProc<string>;
     FOnTest: TProc;
     FRefreshing: Boolean;
+    /// <summary>The hint of the setting the ticks of <c>ValueChecks</c>
+    /// belong to, which the hint of the selected item follows.</summary>
+    FCheckEntryHint: string;
+    /// <summary>True once the window is shown: the preview waits for it.</summary>
+    FShown: Boolean;
+    /// <summary>Shows the hint of the item selected in <c>ValueChecks</c>
+    /// under the caption of the setting.</summary>
+    procedure ValueChecksChange(Sender: TObject);
     /// <summary>Gives a grid its read-only columns and row selection. In
     /// code and not in the FMX file: the grid is the one control the VCL
     /// twin has no equivalent of.</summary>
@@ -230,6 +298,20 @@ type
     /// set.</summary>
     function EditedValue: string;
     function ModelFromEdits: THelpChatConfigModel;
+    /// <summary>The page of the catalogue the page shown stands for; False
+    /// for Models and Profiles, which list no settings.</summary>
+    function ShownPage(out APage: THelpChatConfigPage): Boolean;
+    /// <summary>The icons the component can show, the one in use selected.</summary>
+    procedure RefreshIcons;
+    /// <summary>The prompt, with the part the selected setting writes
+    /// selected and scrolled into view: a FireMonkey memo has one font, so
+    /// the selection - kept visible when the memo has no focus - is what
+    /// the VCL twin shows in bold.</summary>
+    procedure HighlightPrompt;
+    /// <summary>The chat as the settings in force, the icon, the theme of the
+    /// switch and the style sheet of the component would show it. Only on
+    /// the Appearance page.</summary>
+    procedure RefreshPreview;
     /// <summary>A question that waits for its answer. The synchronous
     /// service, because the callers decide on the answer before going
     /// on.</summary>
@@ -239,9 +321,15 @@ type
     /// to drop them; False on Cancel or when the save failed (the reason is
     /// shown). What closing, switching file and testing all ask first.</summary>
     function SaveFirst: Boolean;
+  protected
+    /// <summary>The first preview, once the window is on the screen: a
+    /// browser created and loaded while the form is still hidden shows
+    /// nothing until the next load.</summary>
+    procedure DoShow; override;
   public
     /// <summary>Opens the editor on the settings of a component and returns
-    /// when it is closed. ASettings are the component's and are not owned:
+    /// when it is closed. AChat is the component, for the icon (nil offers
+    /// none). ASettings are the component's and are not owned:
     /// only "To component" writes into them, and never a secret. AExeFile is
     /// the executable of the project being designed - never the IDE's -
     /// where the application file lives and what names the per-user folder;
@@ -255,7 +343,7 @@ type
     /// would open a preview and is nil here. The same contract as
     /// <c>TVclHelpChatConfigEditor.Execute</c>, so that the two design
     /// packages call their editor alike.</summary>
-    class procedure Execute(const ASettings: THelpChatSettings;
+    class procedure Execute(const AChat: TFmxHelpChatAI; const ASettings: THelpChatSettings;
       const AProfile, AAssistantName, AExeFile, AConfigFileName: string;
       const AOnProfileChanged, AOnComponentChanged: TProc<string>; const AOnTest: TProc);
   end;
@@ -269,9 +357,46 @@ uses
   Winapi.Windows,
   Winapi.ShellAPI,
   {$ENDIF}
-  FMX.DialogService.Sync;
+  FMX.DialogService.Sync,
+  FMX.Text,
+  FMX.ImgList,
+  FMX.Dialogs,
+  HelpChatAI.Assistant,
+  HelpChatAI.Commands,
+  FMX.HelpChatAI.DesignPreview;
 
-class procedure TFmxHelpChatConfigEditor.Execute(const ASettings: THelpChatSettings;
+var
+  // Where the editor was when it was closed, for as long as the IDE runs:
+  // the bounds of the normal window, whether it was maximized, and the page.
+  GSavedBounds: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
+  GSavedWindowState: TWindowState = TWindowState.wsNormal;
+  GSavedTabIndex: Integer = -1;
+
+procedure SaveEditorPlacement(const AEditor: TFmxHelpChatConfigEditor);
+begin
+  // The bounds of the normal window only, as the VCL twin does.
+  if AEditor.WindowState = TWindowState.wsNormal then
+    GSavedBounds := AEditor.Bounds;
+  if AEditor.WindowState = TWindowState.wsMaximized then
+    GSavedWindowState := TWindowState.wsMaximized
+  else
+    GSavedWindowState := TWindowState.wsNormal;
+  GSavedTabIndex := AEditor.TabControl.TabIndex;
+end;
+
+procedure RestoreEditorPlacement(const AEditor: TFmxHelpChatConfigEditor);
+begin
+  if GSavedBounds.Width > 0 then
+  begin
+    AEditor.Position := TFormPosition.Designed;
+    AEditor.Bounds := GSavedBounds;
+  end;
+  if GSavedWindowState = TWindowState.wsMaximized then
+    AEditor.WindowState := TWindowState.wsMaximized;
+end;
+
+class procedure TFmxHelpChatConfigEditor.Execute(const AChat: TFmxHelpChatAI;
+  const ASettings: THelpChatSettings;
   const AProfile, AAssistantName, AExeFile, AConfigFileName: string;
   const AOnProfileChanged, AOnComponentChanged: TProc<string>; const AOnTest: TProc);
 var
@@ -284,12 +409,27 @@ begin
     LForm.FController := THelpChatConfigController.Create(ASettings, AProfile, AExeFile,
       AConfigFileName);
     LForm.FController.ComponentAssistantName := AAssistantName;
+    LForm.FChat := AChat;
+    LForm.FExeFile := AExeFile;
     LForm.FOnProfileChanged := AOnProfileChanged;
     LForm.FOnComponentChanged := AOnComponentChanged;
     LForm.FOnTest := AOnTest;
     LForm.TestButton.Enabled := Assigned(AOnTest);
+    // The page it was left on, Appearance the first time; then the grid goes
+    // where that page wants it.
+    if (GSavedTabIndex >= 0) and (GSavedTabIndex < LForm.TabControl.TabCount) then
+      LForm.TabControl.TabIndex := GSavedTabIndex
+    else
+      LForm.TabControl.ActiveTab := LForm.AppearanceTab;
+    if LForm.TabControl.ActiveTab = LForm.AppearanceTab then
+      LForm.GridLayout.Parent := LForm.AppearanceLeftLayout
+    else
+      LForm.GridLayout.Parent := LForm.TabControl.ActiveTab;
+    RestoreEditorPlacement(LForm);
     LForm.RefreshAll;
+    LForm.RefreshIcons;
     LForm.ShowModal;
+    SaveEditorPlacement(LForm);
   finally
     LForm.Free;
   end;
@@ -315,9 +455,15 @@ end;
 
 procedure TFmxHelpChatConfigEditor.FormCreate(Sender: TObject);
 begin
+  ValueChecks.OnChange := ValueChecksChange;
+  ValueChecks.ShowHint := True;
+  HintLabel.ShowHint := True;
   TabControl.ActiveTab := SettingsTab;
-  AddColumns(SettingsGrid, ['Setting', 'In use', 'From', 'This file, root', 'This file, profile'],
-    [180, 220, 200, 125, 125]);
+  GridLayout.Parent := SettingsTab;
+  // A prompt is a paragraph: wrapped, not one line to scroll sideways.
+  ValueMemo.TextSettings.WordWrap := True;
+  AddColumns(SettingsGrid, ['Property', 'Description', 'In use', 'From', 'This file, root',
+    'This file, profile'], [170, 170, 230, 210, 140, 140]);
   SettingsGrid.DefaultDrawing := False;
   SettingsGrid.OnDrawColumnCell := SettingsGridDrawColumnCell;
   AddColumns(ModelsGrid, ['Name', 'Provider', 'Model', 'Endpoint', 'Icon', 'Key'],
@@ -402,30 +548,81 @@ begin
   end;
 end;
 
+function TFmxHelpChatConfigEditor.ShownPage(out APage: THelpChatConfigPage): Boolean;
+begin
+  Result := True;
+  if TabControl.ActiveTab = AppearanceTab then
+    APage := ccpAppearance
+  else if TabControl.ActiveTab = PromptTab then
+    APage := ccpPrompt
+  else if TabControl.ActiveTab = DocumentsTab then
+    APage := ccpDocuments
+  else if TabControl.ActiveTab = SettingsTab then
+    APage := ccpSettings
+  else
+    Result := False;
+end;
+
+procedure TFmxHelpChatConfigEditor.TabControlChange(Sender: TObject);
+var
+  LPage: THelpChatConfigPage;
+begin
+  // One grid for the four pages of settings: it goes where it is needed,
+  // and lists the settings of that page. Not before the controller exists:
+  // the form file selects a tab while it loads.
+  if not Assigned(FController) or not ShownPage(LPage) then
+    Exit;
+  // On Appearance the grid goes under the icon, left of the preview.
+  if LPage = ccpAppearance then
+    GridLayout.Parent := AppearanceLeftLayout
+  else
+    GridLayout.Parent := TabControl.ActiveTab;
+  RefreshEntries;
+end;
+
 procedure TFmxHelpChatConfigEditor.RefreshEntries;
 var
-  I, LSelected: Integer;
-  LError: string;
+  I: Integer;
+  LError, LSelectedPath: string;
+  LPage: THelpChatConfigPage;
 begin
-  LSelected := SettingsGrid.Selected;
-  FEntries := FController.Entries;
+  LSelectedPath := '';
+  if (SettingsGrid.Selected >= 0) and (SettingsGrid.Selected <= High(FEntries)) then
+    LSelectedPath := FEntries[SettingsGrid.Selected].Path;
+  if not ShownPage(LPage) then
+    LPage := ccpSettings;
+  FEntries := THelpChatConfigController.EntriesOfPage(FController.Entries, LPage);
   SettingsGrid.BeginUpdate;
   try
     SettingsGrid.RowCount := Length(FEntries);
     for I := 0 to High(FEntries) do
     begin
-      SettingsGrid.Cells[0, I] := FEntries[I].Caption;
-      SettingsGrid.Cells[1, I] := FEntries[I].InUse;
-      SettingsGrid.Cells[2, I] := FEntries[I].Origin;
-      SettingsGrid.Cells[3, I] := FEntries[I].RootValue;
-      SettingsGrid.Cells[4, I] := FEntries[I].ProfileValue;
+      // The name of the property first, as the Object Inspector lists it.
+      SettingsGrid.Cells[0, I] := FEntries[I].Path;
+      SettingsGrid.Cells[1, I] := FEntries[I].Caption;
+      SettingsGrid.Cells[2, I] := FEntries[I].InUse;
+      SettingsGrid.Cells[3, I] := FEntries[I].Origin;
+      SettingsGrid.Cells[4, I] := FEntries[I].RootValue;
+      SettingsGrid.Cells[5, I] := FEntries[I].ProfileValue;
     end;
   finally
     SettingsGrid.EndUpdate;
   end;
-  if (LSelected >= 0) and (LSelected < SettingsGrid.RowCount) then
-    SettingsGrid.Selected := LSelected;
+  if LPage = ccpPrompt then
+  begin
+    FPromptText := FController.PromptPreview.Replace(#13#10, #10);
+    PromptMemo.Text := FPromptText.Replace(#10, sLineBreak);
+  end;
+  SettingsGrid.Selected := -1;
+  for I := 0 to High(FEntries) do
+    if SameText(FEntries[I].Path, LSelectedPath) then
+    begin
+      SettingsGrid.Selected := I;
+      Break;
+    end;
   ShowSelected;
+  if LPage = ccpAppearance then
+    RefreshPreview;
   LError := FController.Validate;
   if LError = '' then
     LError := FController.LastError;
@@ -452,6 +649,7 @@ var
   LText, LChoice, LTick: string;
   LTicked: TArray<string>;
   LItem: TListBoxItem;
+  I: Integer;
 begin
   LHasProfile := FController.Profile <> '';
   // One control per kind: all hidden first, the one of the setting shown.
@@ -469,6 +667,8 @@ begin
     SettingLabel.Text := 'Select a setting';
     HintLabel.Text := '';
     EditLayout.Enabled := False;
+    if TabControl.ActiveTab = PromptTab then
+      HighlightPrompt;
     Exit;
   end;
   EditLayout.Enabled := True;
@@ -524,19 +724,33 @@ begin
         ChoiceCombo.Text := LText;
         ChoiceCombo.Visible := True;
       end;
-    cvkLanguages:
+    cvkLanguages, cvkSet:
       begin
+        // The item carries its choice in TagString: a set shows a caption of
+        // its own for each (a skill and its actions), and its hint when it is
+        // selected.
         LTicked := LText.Split([',', ';']);
+        FCheckEntryHint := LEntry.Hint;
         ValueChecks.Clear;
-        for LChoice in LEntry.Choices do
+        for I := 0 to High(LEntry.Choices) do
         begin
+          LChoice := LEntry.Choices[I];
           LItem := TListBoxItem.Create(ValueChecks);
-          LItem.Text := LChoice;
+          LItem.TagString := LChoice;
+          if I < Length(LEntry.ChoiceCaptions) then
+            LItem.Text := LEntry.ChoiceCaptions[I]
+          else
+            LItem.Text := LChoice;
+          if I < Length(LEntry.ChoiceHints) then
+            LItem.Hint := LEntry.ChoiceHints[I];
           for LTick in LTicked do
             if SameText(Trim(LTick), LChoice) then
               LItem.IsChecked := True;
           ValueChecks.AddObject(LItem);
         end;
+        // A caption with the actions does not fit the narrow list of the
+        // form file: as wide as the room left of the buttons.
+        ValueChecks.Width := ToProfileButton.Position.X - 2 * ValueChecks.Position.X;
         ValueChecks.Visible := True;
       end;
   else
@@ -546,10 +760,24 @@ begin
   end;
   ToProfileButton.Enabled := LHasProfile;
   RemoveProfileButton.Enabled := LHasProfile and LEntry.InProfile;
+  if TabControl.ActiveTab = PromptTab then
+    HighlightPrompt;
   RemoveRootButton.Enabled := LEntry.InRoot;
   // A key belongs to a file, never to the form file.
   ToComponentButton.Enabled := not LSecret;
   RemoveComponentButton.Enabled := LEntry.InComponent and not LSecret;
+end;
+
+procedure TFmxHelpChatConfigEditor.ValueChecksChange(Sender: TObject);
+var
+  LItem: TListBoxItem;
+begin
+  LItem := ValueChecks.Selected;
+  if Assigned(LItem) and (LItem.Hint <> '') then
+    HintLabel.Text := LItem.TagString + ': ' + LItem.Hint
+  else
+    HintLabel.Text := FCheckEntryHint;
+  HintLabel.Hint := HintLabel.Text;
 end;
 
 function TFmxHelpChatConfigEditor.EditedValue: string;
@@ -569,13 +797,14 @@ begin
       if ValueCombo.ItemIndex >= 0 then
         Result := ValueCombo.Items[ValueCombo.ItemIndex];
     cvkChoice: Result := Trim(ChoiceCombo.Text);
-    cvkLanguages:
+    cvkLanguages, cvkSet:
+      // The choice, not the caption shown for it.
       for I := 0 to ValueChecks.Count - 1 do
         if ValueChecks.ListItems[I].IsChecked then
         begin
           if Result <> '' then
             Result := Result + ', ';
-          Result := Result + ValueChecks.ListItems[I].Text;
+          Result := Result + ValueChecks.ListItems[I].TagString;
         end;
   else
     Result := Trim(ValueEdit.Text);
@@ -634,7 +863,7 @@ procedure TFmxHelpChatConfigEditor.SettingsGridDrawColumnCell(Sender: TObject;
 var
   LRect: TRectF;
 begin
-  if (Column.Index <> 1) or (Row > High(FEntries)) then
+  if (Column.Index <> 2) or (Row > High(FEntries)) then
   begin
     Column.DefaultDrawCell(Canvas, Bounds, Row, Value, State);
     Exit;
@@ -919,6 +1148,265 @@ begin
   RefreshFile;
   if Assigned(FOnTest) then
     FOnTest();
+end;
+
+procedure TFmxHelpChatConfigEditor.HighlightPrompt;
+var
+  LEntry: THelpChatConfigEntry;
+  LFragment: string;
+  LStart, LLine, LCol, LLength: Integer;
+  LFrom, LTo: TCaretPosition;
+
+  procedure LineCol(const AIndex: Integer; out ALine, ACol: Integer);
+  var
+    LText: string;
+  begin
+    LText := FPromptText.Substring(0, AIndex);
+    ALine := LText.CountChar(#10);
+    ACol := LText.Length - (LText.LastIndexOf(#10) + 1);
+  end;
+
+begin
+  PromptMemo.HideSelectionOnExit := False;
+  LFragment := '';
+  if SelectedEntry(LEntry) then
+    LFragment := FController.PromptFragment(LEntry.Path).Replace(#13#10, #10);
+  LStart := -1;
+  if LFragment <> '' then
+    LStart := FPromptText.IndexOf(LFragment);
+  if LStart < 0 then
+  begin
+    PromptMemo.SelLength := 0;
+    Exit;
+  end;
+  // Lines and columns of the LF text, turned into the positions of the
+  // memo, whose own counting of a line break is its business.
+  LineCol(LStart, LLine, LCol);
+  LFrom := TCaretPosition.Create(LLine, LCol);
+  LineCol(LStart + LFragment.Length, LLine, LCol);
+  LTo := TCaretPosition.Create(LLine, LCol);
+  LLength := PromptMemo.PosToTextPos(LTo) - PromptMemo.PosToTextPos(LFrom);
+  // The caret first, which scrolls the part into view, then the selection.
+  PromptMemo.CaretPosition := LFrom;
+  PromptMemo.SelStart := PromptMemo.PosToTextPos(LFrom);
+  PromptMemo.SelLength := LLength;
+end;
+
+procedure TFmxHelpChatConfigEditor.RefreshIcons;
+var
+  LItem: TListBoxItem;
+  LName: string;
+  LBytes: TBytes;
+  LStream: TBytesStream;
+  LSelected, I: Integer;
+  LImage: TImage;
+  LGlyph: TGlyph;
+
+  // An item of its own making: the picture over its name. The bitmap of the
+  // item would be drawn by the style of the list, at the size of a row.
+  function NewItem(const ACaption: string): TListBoxItem;
+  var
+    LLabel: TLabel;
+  begin
+    Result := TListBoxItem.Create(IconList);
+    Result.Parent := IconList;
+    Result.TagString := ACaption;
+    LLabel := TLabel.Create(Result);
+    LLabel.Parent := Result;
+    LLabel.Align := TAlignLayout.Bottom;
+    LLabel.Height := 18;
+    LLabel.TextSettings.HorzAlign := TTextAlign.Center;
+    LLabel.Text := ACaption;
+    LLabel.HitTest := False;
+  end;
+
+  procedure AddPicture(const AItem: TListBoxItem; const AControl: TControl);
+  begin
+    AControl.Parent := AItem;
+    AControl.Align := TAlignLayout.Client;
+    AControl.Margins.Rect := TRectF.Create(4, 4, 4, 0);
+    AControl.HitTest := False;
+  end;
+
+begin
+  FRefreshing := True;
+  IconList.BeginUpdate;
+  try
+    IconList.Clear;
+    IconLayout.Enabled := Assigned(FChat);
+    StyleSheetEdit.Enabled := Assigned(FChat);
+    StyleSheetBrowseButton.Enabled := Assigned(FChat);
+    StyleSheetApplyButton.Enabled := Assigned(FChat);
+    if not Assigned(FChat) then
+      Exit;
+    StyleSheetEdit.Text := FChat.PanelStyleSheet;
+    LSelected := -1;
+    if Assigned(FChat.Images) then
+    begin
+      // The application's image list wins, as at run time.
+      IconList.Images := FChat.Images;
+      IconHintLabel.Text := Format('From the Images of the component (%s): a click sets ' +
+        'ImageIndex.', [FChat.Images.Name]);
+      for I := 0 to FChat.Images.Count - 1 do
+      begin
+        LItem := NewItem(IntToStr(I));
+        LGlyph := TGlyph.Create(LItem);
+        LGlyph.Images := FChat.Images;
+        LGlyph.ImageIndex := I;
+        AddPicture(LItem, LGlyph);
+        if I = FChat.ImageIndex then
+          LSelected := I;
+      end;
+    end
+    else
+    begin
+      IconList.Images := nil;
+      IconHintLabel.Text := 'The built-in icons (the component has no Images): a click sets ' +
+        'ImageName.';
+      for LName in HelpChatAssistantIconNames do
+      begin
+        LItem := NewItem(LName);
+        LImage := TImage.Create(LItem);
+        LImage.WrapMode := TImageWrapMode.Fit;
+        AddPicture(LItem, LImage);
+        LBytes := HelpChatAssistantIconPng(LName, 128);
+        if Length(LBytes) > 0 then
+        begin
+          LStream := TBytesStream.Create(LBytes);
+          try
+            LImage.Bitmap.LoadFromStream(LStream);
+          finally
+            LStream.Free;
+          end;
+        end;
+        if SameText(LName, FChat.ImageName) or ((FChat.ImageName = '') and
+           (LItem.Index = FChat.ImageIndex)) then
+          LSelected := LItem.Index;
+      end;
+      if (LSelected < 0) and (FChat.ImageName = '') then
+        for I := 0 to IconList.Count - 1 do
+          if SameText(IconList.ListItems[I].TagString, HELPCHAT_ICON_DEFAULT) then
+            LSelected := I;
+    end;
+    IconList.ItemIndex := LSelected;
+  finally
+    IconList.EndUpdate;
+    FRefreshing := False;
+  end;
+end;
+
+procedure TFmxHelpChatConfigEditor.IconListChange(Sender: TObject);
+var
+  LIndex: Integer;
+begin
+  LIndex := IconList.ItemIndex;
+  if FRefreshing or not Assigned(FChat) or (LIndex < 0) then
+    Exit;
+  if Assigned(FChat.Images) then
+  begin
+    if FChat.ImageIndex = LIndex then
+      Exit;
+    FChat.ImageIndex := LIndex;
+    if Assigned(FOnComponentChanged) then
+      FOnComponentChanged('ImageIndex');
+  end
+  else
+  begin
+    if SameText(FChat.ImageName, IconList.ListItems[LIndex].TagString) then
+      Exit;
+    FChat.ImageName := IconList.ListItems[LIndex].TagString;
+    if Assigned(FOnComponentChanged) then
+      FOnComponentChanged('ImageName');
+  end;
+  RefreshPreview;
+end;
+
+procedure TFmxHelpChatConfigEditor.DoShow;
+begin
+  inherited;
+  if FShown then
+    Exit;
+  FShown := True;
+  // Queued: the native browser needs a window that is already visible.
+  TThread.ForceQueue(nil,
+    procedure
+    begin
+      RefreshPreview;
+    end);
+end;
+
+procedure TFmxHelpChatConfigEditor.RefreshPreview;
+var
+  LFrom, LError, LIcon, LStyleSheet, LHtml: string;
+  LCommands: THelpChatCommands;
+begin
+  if not FShown or (TabControl.ActiveTab <> AppearanceTab) then
+    Exit;
+  if not FPreviewTried then
+  begin
+    // Once: the loader by full path, then a browser of our own - the panel
+    // of the component lets nothing but its server navigate it.
+    FPreviewTried := True;
+    if FmxHelpChatEnsureWebView2Loader(ExtractFilePath(FExeFile), LFrom) then
+    begin
+      FPreviewBrowser := TWebBrowser.Create(Self);
+      FPreviewBrowser.WindowsEngine := TWindowsEngine.EdgeOnly;
+      FPreviewBrowser.Parent := PreviewHost;
+      FPreviewBrowser.Align := TAlignLayout.Client;
+      PreviewMessageLabel.Visible := False;
+    end
+    else
+      PreviewMessageLabel.Text := 'The preview needs WebView2Loader.dll: put it in the ' +
+        'output folder of the project, or install the library with its Redist folder.';
+  end;
+  if FPreviewBrowser = nil then
+    Exit;
+  LIcon := '';
+  LStyleSheet := '';
+  LCommands := HELPCHAT_DEF_COMMANDS;
+  if Assigned(FChat) then
+  begin
+    LIcon := FChat.AssistantIconDataUri;
+    LStyleSheet := FChat.PanelStyleSheet;
+    LCommands := FChat.EnabledCommands;
+  end;
+  LHtml := FController.AppearancePreview(ThemeSwitch.IsChecked, LIcon, LStyleSheet,
+    LCommands, LError);
+  StyleSheetErrorLabel.Text := LError;
+  FPreviewBrowser.LoadFromStrings(LHtml, '');
+end;
+
+procedure TFmxHelpChatConfigEditor.ThemeSwitchSwitch(Sender: TObject);
+begin
+  RefreshPreview;
+end;
+
+procedure TFmxHelpChatConfigEditor.StyleSheetBrowseButtonClick(Sender: TObject);
+var
+  LDialog: TOpenDialog;
+begin
+  LDialog := TOpenDialog.Create(Self);
+  try
+    LDialog.Filter := 'Style sheets (*.css)|*.css|All files (*.*)|*.*';
+    LDialog.FileName := StyleSheetEdit.Text;
+    if LDialog.Execute then
+    begin
+      StyleSheetEdit.Text := LDialog.FileName;
+      StyleSheetApplyButtonClick(Sender);
+    end;
+  finally
+    LDialog.Free;
+  end;
+end;
+
+procedure TFmxHelpChatConfigEditor.StyleSheetApplyButtonClick(Sender: TObject);
+begin
+  if not Assigned(FChat) or (FChat.PanelStyleSheet = Trim(StyleSheetEdit.Text)) then
+    Exit;
+  FChat.PanelStyleSheet := Trim(StyleSheetEdit.Text);
+  if Assigned(FOnComponentChanged) then
+    FOnComponentChanged('PanelStyleSheet');
+  RefreshPreview;
 end;
 
 procedure TFmxHelpChatConfigEditor.HelpButtonClick(Sender: TObject);

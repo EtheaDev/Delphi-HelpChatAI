@@ -82,6 +82,7 @@ uses
   Vcl.HelpChatAI.Panel,
   HelpChatAI.HelpViewer,
   HelpChatAI.Actions,
+  HelpChatAI.Skills,
   HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Settings,
@@ -183,6 +184,10 @@ type
     FRegisterHelpViewer: Boolean;
     FShowBubble: Boolean;
     FBubbleDraggable: Boolean;
+    FBubbleStayOnTop: Boolean;
+    /// <summary>Where the bubble is, kept for a floating bubble, which has no
+    /// anchors to follow its form by and is placed again when it moves.</summary>
+    FBubblePlace: THelpChatBubblePlace;
     FConfigFileName: TFileName;
     FPdfStyleSheet: TFileName;
     FPanelStyleSheet: TFileName;
@@ -191,6 +196,7 @@ type
     FPdfFooterFile: TFileName;
     FOnPdfInfo: THelpChatPdfInfoEvent;
     FOnDecryptSecret: THelpChatSecretEvent;
+    FOnBuildSystemPrompt: THelpChatBuildPromptEvent;
     FCaption: string;
     FAssistantName: string;
     FProfile: string;
@@ -208,6 +214,7 @@ type
     FActionsRef: IHelpChatActionInvoker; // owns the broker (it is reference counted)
     FActionsEnabled: Boolean;
     FUseSharedActions: Boolean;
+    FSkills: THelpChatSkillSet;
     FOnActionConfirm: THelpChatActionConfirmEvent;
     FOnActionExecuted: THelpChatActionExecutedEvent;
     FOnBeforeShowHelp: TVclHelpChatShowEvent;
@@ -232,6 +239,7 @@ type
     /// the component's.</summary>
     procedure SetSettings(const Value: THelpChatSettings);
     procedure SetOnDecryptSecret(const Value: THelpChatSecretEvent);
+    procedure SetOnBuildSystemPrompt(const Value: THelpChatBuildPromptEvent);
     procedure SetContainer(const Value: TWinControl);
     /// <summary>Activation: reads the configuration (the profile on top of
     /// the root), acquires the engine of the profile and starts it unless it
@@ -244,6 +252,12 @@ type
     procedure SetActive(const Value: Boolean);
     procedure SetShowBubble(const Value: Boolean);
     procedure SetBubbleDraggable(const Value: Boolean);
+    procedure SetBubbleStayOnTop(const Value: Boolean);
+    /// <summary>The form the bubble is on: its parent, or the form a floating
+    /// bubble belongs to.</summary>
+    function BubbleHost: TWinControl;
+    /// <summary>The form of a floating bubble moved or changed size.</summary>
+    procedure BubbleHostChanged(Sender: TObject);
     procedure SetImages(const Value: TCustomImageList);
     procedure SetImageIndex(const Value: TImageIndex);
     procedure SetImageName(const Value: TImageName);
@@ -486,6 +500,14 @@ type
     /// <summary>The form this assistant lives on: <c>HostForm</c>, else the
     /// form that owns the component, else the main form.</summary>
     function ResolvedHostForm: TCustomForm;
+    /// <summary>Copies the configuration of another <c>TVclHelpChatAI</c>:
+    /// every published property - the settings, the icon with its image
+    /// list, the container, the bubble, the style sheets - except
+    /// <c>Active</c>, which stays as it is, and the events, which belong to
+    /// the form that wrote them (at design time they are not even code).
+    /// What the design-time preview is made with, so a property added to the
+    /// component must be added here too: a test compares them all.</summary>
+    procedure Assign(Source: TPersistent); override;
 
     /// <summary>The engine of the profile of this assistant while
     /// <c>Active</c>, nil otherwise. It is shared with the other assistants of
@@ -568,6 +590,17 @@ type
     /// RememberPanelPosition it is found there again, per form.
     /// ResetBubblePosition takes it back.</summary>
     property BubbleDraggable: Boolean read FBubbleDraggable write SetBubbleDraggable default True;
+    /// <summary>For the assistant of the main form of the application only:
+    /// its bubble stays in front of every form of the application while the
+    /// application is active - secondary forms opened full screen, modal
+    /// forms, which leave it clickable - and may be dragged anywhere on the
+    /// monitor of the main form, outside it too, still anchored to the
+    /// nearest corner and never off the work area of the screen. It is
+    /// then a small window of its own, owned by the main form, which follows
+    /// it and hides it when minimized. When another application is active it
+    /// stays behind its windows. Ignored on any other form, whose bubble is
+    /// always a part of its form.</summary>
+    property BubbleStayOnTop: Boolean read FBubbleStayOnTop write SetBubbleStayOnTop default False;
     /// <summary>Image list holding the bubble icon; nil uses the icons
     /// compiled into the component (HELPCHAT_ICON_* names). The same icon is
     /// drawn in the header of the chat panel, left of AssistantName.</summary>
@@ -577,7 +610,9 @@ type
     /// assistant (AIAssistant_Male).</summary>
     property ImageIndex: TImageIndex read FImageIndex write SetImageIndex default 0;
     /// <summary>Bubble icon by name: with the built-in icons, one of
-    /// AIAssistant_Male, AIAssistant_Female, Assistant_Male, Assistant_Female.</summary>
+    /// a name of <c>HELPCHAT_ICON_NAMES</c>: AIAssistant_Male, AIAssistant_Female,
+    /// Assistant_Male, Assistant_Female, Businessman, Businesswoman,
+    /// CustomerSupport, Manager, VoicePresentation, PortraitMode.</summary>
     property ImageName: TImageName read FImageName write SetImageName;
     /// <summary>Which engine dictates, and whether the microphone button
     /// appears at all (hveNone hides it). The default is the dictation of Windows,
@@ -649,6 +684,13 @@ type
     /// CRM demo for a worked example.</summary>
     property OnDecryptSecret: THelpChatSecretEvent read FOnDecryptSecret
       write SetOnDecryptSecret;
+    /// <summary>The last word on the system prompt of every request: the
+    /// prompt the settings built arrives in <c>APrompt</c>, and the handler
+    /// may change it. The rule about the actions is added after it and
+    /// cannot be changed. <b>It runs on a worker thread</b>, like
+    /// <c>OnDecryptSecret</c>. See <see cref="THelpChatBuildPromptEvent" />.</summary>
+    property OnBuildSystemPrompt: THelpChatBuildPromptEvent read FOnBuildSystemPrompt
+      write SetOnBuildSystemPrompt;
     /// <summary>Offer the registered actions to the model. False keeps them
     /// registered but invisible: the assistant can only answer.</summary>
     property ActionsEnabled: Boolean read FActionsEnabled write SetActionsEnabled default True;
@@ -708,6 +750,7 @@ implementation
 
 uses
   HelpChatAI.Attachments,
+  System.Math,
   System.IOUtils,
   System.JSON,
   System.Generics.Collections,
@@ -716,6 +759,7 @@ uses
   Vcl.ComCtrls,
   Vcl.HelpChatAI.Theme,
   Vcl.HelpChatAI.ConfirmDialog,
+  Vcl.HelpChatAI.Skills,       // registers the VCL skills: Settings.Skills is enough
   HelpChatAI.Panel,            // the page contract: it decides the default name
   HelpChatAI.Server,
   HelpChatAI.Transport.Remote;
@@ -1138,6 +1182,7 @@ begin
   FActions.OnExecuted := ActionExecuted;
   FActionsEnabled := True;
   FUseSharedActions := True;
+  FSkills := THelpChatSkillSet.Create;
   FHandleF1 := True;
   FEnabledCommands := HELPCHAT_DEF_COMMANDS;
   FRegisterHelpViewer := True;
@@ -1159,6 +1204,7 @@ destructor TVclHelpChatAI.Destroy;
 begin
   Active := False;
   FreeAndNil(FVoice);
+  FreeAndNil(FSkills); // before the broker its skills take their actions from
   FActions.OnPending := nil;
   FActions.OnConfirm := nil;
   FActions.OnExecuted := nil;
@@ -1218,7 +1264,49 @@ begin
   // assigned, which are not ours: the component keeps the last word on who
   // decrypts its secrets and on which assistant it is.
   FSettings.SetSecretHandler(FOnDecryptSecret, Self);
+  FSettings.SetPromptHandler(FOnBuildSystemPrompt, Self);
   FSettings.Profile := FProfile;
+end;
+
+procedure TVclHelpChatAI.Assign(Source: TPersistent);
+var
+  LSource: TVclHelpChatAI;
+begin
+  if not (Source is TVclHelpChatAI) then
+  begin
+    inherited;
+    Exit;
+  end;
+  LSource := TVclHelpChatAI(Source);
+  // Which assistant first: assigning the settings puts the profile of this
+  // component on them.
+  Profile := LSource.Profile;
+  Settings := LSource.Settings;
+  RegisterHelpViewer := LSource.RegisterHelpViewer;
+  HandleF1 := LSource.HandleF1;
+  Caption := LSource.Caption;
+  AssistantName := LSource.AssistantName;
+  EnabledCommands := LSource.EnabledCommands;
+  ShowBubble := LSource.ShowBubble;
+  BubbleDraggable := LSource.BubbleDraggable;
+  BubbleStayOnTop := LSource.BubbleStayOnTop;
+  // The list before the index and the name, which are checked against it.
+  Images := LSource.Images;
+  ImageIndex := LSource.ImageIndex;
+  ImageName := LSource.ImageName;
+  VoiceEngine := LSource.VoiceEngine;
+  ConfigFileName := LSource.ConfigFileName;
+  PanelStyleSheet := LSource.PanelStyleSheet;
+  PdfStyleSheet := LSource.PdfStyleSheet;
+  PdfHeaderFile := LSource.PdfHeaderFile;
+  PdfFooterFile := LSource.PdfFooterFile;
+  ActionsEnabled := LSource.ActionsEnabled;
+  UseSharedActions := LSource.UseSharedActions;
+  FollowVclStyle := LSource.FollowVclStyle;
+  RememberPanelPosition := LSource.RememberPanelPosition;
+  Container := LSource.Container;
+  PanelWidth := LSource.PanelWidth;
+  PanelHeight := LSource.PanelHeight;
 end;
 
 procedure TVclHelpChatAI.SetProfile(const Value: string);
@@ -1240,6 +1328,12 @@ begin
   Result := Trim(FSettings.AssistantName);
   if Result = '' then
     Result := Trim(FAssistantName);
+end;
+
+procedure TVclHelpChatAI.SetOnBuildSystemPrompt(const Value: THelpChatBuildPromptEvent);
+begin
+  FOnBuildSystemPrompt := Value;
+  FSettings.SetPromptHandler(Value, Self);
 end;
 
 procedure TVclHelpChatAI.SetOnDecryptSecret(const Value: THelpChatSecretEvent);
@@ -1321,6 +1415,9 @@ begin
       else
         FActions.Shared := nil;
       FActions.Allowed := FSettings.ResolveAllowedActions;
+      // The skills the configuration names: actions the library writes,
+      // added after the application's own, which win on a clash.
+      FSkills.Attach(Self, FActions, FSettings.ResolveSkills);
       FActions.HostActive := True;
       FTransport.SetActions(FActionsRef);
       FTransport.SetOnUiCommand(UiCommand);
@@ -1333,6 +1430,7 @@ begin
       // shared engine that nobody will ever release.
       FActions.HostActive := False;
       FActions.Remove(HELPCHAT_PDF_ACTION);
+      FSkills.Detach;
       FTransport := nil;
       THelpChatEngines.Release(Self, FEngine);
       raise;
@@ -1378,6 +1476,7 @@ begin
       // Ours, so ours to take away: what the application registered stays.
       if Assigned(FActions) then
         FActions.Remove(HELPCHAT_PDF_ACTION);
+      FSkills.Detach;
       FTransport.Stop;
       FTransport := nil;
     end;
@@ -1504,6 +1603,11 @@ begin
   LHost := ResolveHostForm;
   if (LHost = nil) or not LHost.HandleAllocated then
     Exit;
+  // Whether this is the bubble of the main form is known once the main form
+  // is: the first form is created before Application.MainForm is set, and
+  // the bubble waits for the next idle turn (CoordinatorIdle).
+  if FBubbleStayOnTop and (Application.MainForm = nil) then
+    Exit;
   LSize := LHost.ScaleValue(HELPCHAT_VCL_DEF_BUBBLE_SIZE);
   // A windowed control, not a TSpeedButton: a graphic control is painted on
   // the canvas of its parent and always stays below every windowed sibling,
@@ -1512,7 +1616,16 @@ begin
   FBubble := TVclHelpChatAIBubble.Create(Self);
   FBubble.FreeNotification(Self);
   FBubble.Name := '';
-  FBubble.Parent := LHost;
+  if FBubbleStayOnTop and (LHost = Application.MainForm) then
+  begin
+    // A window of its own over the main form, in front of every other form.
+    FBubble.OnHostChanged := BubbleHostChanged;
+    // Hidden until placed: its window is created as soon as it has an owner.
+    FBubble.Visible := False;
+    FBubble.FloatOver(LHost);
+  end
+  else
+    FBubble.Parent := LHost;
   FBubble.SetBounds(FBubble.Left, FBubble.Top, LSize, LSize);
   if not FRememberPanelPosition or
      not HelpChatLoadBubblePlace(UiStateFile, BubbleFormKey, LPlace) then
@@ -1525,6 +1638,8 @@ begin
   FBubble.Draggable := FBubbleDraggable;
   FBubble.OnMoved := BubbleMoved;
   ApplyBubbleIcon;
+  if Assigned(FBubble.FloatHost) then
+    BubbleHostChanged(FBubble);  // shown, if its form is, and placed
   FBubble.BringToTop;
 end;
 
@@ -1698,12 +1813,36 @@ begin
     DestroyBubble;
 end;
 
+function TVclHelpChatAI.BubbleHost: TWinControl;
+begin
+  Result := nil;
+  if Assigned(FBubble) then
+    if Assigned(FBubble.FloatHost) then
+      Result := FBubble.FloatHost
+    else
+      Result := FBubble.Parent;
+end;
+
 function TVclHelpChatAI.BubbleFormKey: string;
 begin
-  if Assigned(FBubble) and (FBubble.Parent <> nil) then
-    Result := FBubble.Parent.ClassName
+  if BubbleHost <> nil then
+    Result := BubbleHost.ClassName
   else
     Result := '';
+end;
+
+procedure TVclHelpChatAI.BubbleHostChanged(Sender: TObject);
+var
+  LHost: TWinControl;
+begin
+  LHost := BubbleHost;
+  if LHost = nil then
+    Exit;
+  // A minimized form hides the windows it owns, and shows them again when
+  // restored; a form that is hidden takes its bubble with it.
+  FBubble.Visible := LHost.Visible and not IsIconic(LHost.Handle);
+  if FBubble.Visible then
+    PlaceBubble(FBubblePlace);
 end;
 
 procedure TVclHelpChatAI.PlaceBubble(const APlace: THelpChatBubblePlace);
@@ -1711,7 +1850,35 @@ var
   LParent: TWinControl;
   LScale, LLeft, LTop: Single;
   LAnchors: TAnchors;
+  LOrigin: TPoint;
+  LSize: Integer;
+  LWork: TRect;
 begin
+  FBubblePlace := APlace;
+  if Assigned(FBubble) and Assigned(FBubble.FloatHost) then
+  begin
+    // A window of its own: screen coordinates, no anchors - it is placed
+    // again whenever its form moves - anywhere outside the form, but always
+    // on the work area of the monitor of the form: a form moved to the edge
+    // of the screen pushes the bubble back instead of taking it off.
+    LParent := FBubble.FloatHost;
+    if not LParent.HandleAllocated or not (LParent is TCustomForm) then
+      Exit;
+    // Not a child, so the VCL does not rescale it: the size follows the DPI
+    // of the form, on whatever monitor it is now.
+    LSize := TCustomForm(LParent).ScaleValue(HELPCHAT_VCL_DEF_BUBBLE_SIZE);
+    LScale := TCustomForm(LParent).CurrentPPI / 96;
+    LWork := TCustomForm(LParent).Monitor.WorkareaRect;
+    APlace.ToPosition(LSize, LParent.ClientWidth, LParent.ClientHeight, LScale,
+      LLeft, LTop, Max(LWork.Width, LWork.Height));
+    LOrigin := LParent.ClientToScreen(Point(0, 0));
+    FBubble.SetBounds(
+      EnsureRange(LOrigin.X + Round(LLeft), LWork.Left, LWork.Right - LSize),
+      EnsureRange(LOrigin.Y + Round(LTop), LWork.Top, LWork.Bottom - LSize),
+      LSize, LSize);
+    FBubble.BringToTop;
+    Exit;
+  end;
   if not Assigned(FBubble) or (FBubble.Parent = nil) then
     Exit;
   LParent := FBubble.Parent;
@@ -1736,11 +1903,26 @@ end;
 procedure TVclHelpChatAI.BubbleMoved(Sender: TObject);
 var
   LPlace: THelpChatBubblePlace;
+  LHost: TWinControl;
+  LOrigin: TPoint;
+  LWork: TRect;
 begin
-  if not Assigned(FBubble) or (FBubble.Parent = nil) then
+  LHost := BubbleHost;
+  if LHost = nil then
     Exit;
-  LPlace := THelpChatBubblePlace.FromBounds(FBubble.Left, FBubble.Top, FBubble.Width,
-    FBubble.Parent.ClientWidth, FBubble.Parent.ClientHeight, FBubble.CurrentPPI / 96);
+  if Assigned(FBubble.FloatHost) then
+  begin
+    // Screen coordinates, and it may be anywhere out of the form: the drag
+    // kept it on the monitor, so the whole screen is the limit.
+    LOrigin := LHost.ClientToScreen(Point(0, 0));
+    LWork := Screen.MonitorFromWindow(LHost.Handle, mdNearest).WorkareaRect;
+    LPlace := THelpChatBubblePlace.FromBounds(FBubble.Left - LOrigin.X,
+      FBubble.Top - LOrigin.Y, FBubble.Width, LHost.ClientWidth, LHost.ClientHeight,
+      TCustomForm(LHost).CurrentPPI / 96, Max(LWork.Width, LWork.Height));
+  end
+  else
+    LPlace := THelpChatBubblePlace.FromBounds(FBubble.Left, FBubble.Top, FBubble.Width,
+      LHost.ClientWidth, LHost.ClientHeight, FBubble.CurrentPPI / 96);
   PlaceBubble(LPlace);
   if FRememberPanelPosition then
     HelpChatSaveBubblePlace(UiStateFile, BubbleFormKey, LPlace);
@@ -1769,6 +1951,21 @@ begin
   FBubbleDraggable := Value;
   if Assigned(FBubble) then
     FBubble.Draggable := Value;
+end;
+
+procedure TVclHelpChatAI.SetBubbleStayOnTop(const Value: Boolean);
+begin
+  if Value = FBubbleStayOnTop then
+    Exit;
+  FBubbleStayOnTop := Value;
+  if csDesigning in ComponentState then
+    Exit;
+  // A child and a window of its own are two different windows: made again.
+  if Assigned(FBubble) then
+  begin
+    DestroyBubble;
+    EnsureBubble;
+  end;
 end;
 
 procedure TVclHelpChatAI.BubbleClick(Sender: TObject);
@@ -2037,7 +2234,7 @@ begin
   LRequest.Caption := ResolvedAssistantName;
   LRequest.Title := HelpChatMsgFmt(hcmActionConfirmTitle, [AName], LRequest.Language);
   if Assigned(LRequest.Action) then
-    LRequest.Description := LRequest.Action.Description;
+    LRequest.Description := LRequest.Action.DisplaySummary(AArgs);
   LRequest.Values := AArgs.ToDisplayPairs(LRequest.Action);
   if Length(LRequest.Values) > 0 then
     LRequest.Footer := HelpChatMsg(hcmActionValuesFooter, LRequest.Language);

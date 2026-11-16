@@ -71,14 +71,18 @@ rest of the application works exactly as before — see
 ## Does my data leave the machine when I use the assistant?
 
 Your question, the name of the screen you are on, the excerpts of this manual that look
-relevant and the outcome of any action it runs. **Not the database**: leads, accounts,
-proposals and attached documents are never sent, and the assistant cannot read them.
+relevant and the outcome of any action it runs. When you ask it to work on a window - fill
+it, find a record, count a list - also the fields of that window and what is in them, the
+record found, the count. **Not the database**: the assistant cannot browse the leads, the
+accounts or the proposals, attached documents are never sent, and a password field is never
+read.
 
 ## Can the assistant change my data?
 
-Only in the three ways listed in [Asking the assistant](Assistant.md), and the two that
-write something stop and ask first, showing what they are about to do. It never saves a
-proposal and never deletes anything.
+Only in the ways listed in [Asking the assistant](Assistant.md): the actions of this
+application, and filling the window in front of you or pressing one of its buttons. Whatever
+writes something stops and asks first, showing what it is about to do. It never saves - a
+record it fills stays in edit until you save it - and never presses a button that saves.
 
 ## Can I attach a big file to a lead?
 

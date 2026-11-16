@@ -43,6 +43,8 @@ type
     [Test] procedure Responses_Url_Tools_AndBody;
     [Test] procedure Responses_Stream_TextCallsAndItems;
     [Test] procedure Responses_Stream_Failure_IsKept;
+    [Test] procedure QuestionContext_ChatBeforeTheQuestion_ResponsesAsDeveloper;
+    [Test] procedure Usage_CachedTokens_ChatAndResponses;
   end;
 
 implementation
@@ -128,6 +130,84 @@ begin
   Feed('data: {"error":{"message":"model not found","type":"invalid_request_error"}}'#10#10);
   FStream.Finish;
   Assert.AreEqual('model not found', FStream.Error);
+end;
+
+procedure TOpenAITests.QuestionContext_ChatBeforeTheQuestion_ResponsesAsDeveloper;
+var
+  LOpenAI: THelpChatOpenAISettings;
+  LHistory: TArray<THelpChatMessage>;
+  LValue: TJSONValue;
+  LItems: TJSONArray;
+begin
+  LOpenAI := THelpChatOpenAISettings.Create;
+  try
+    SetLength(LHistory, 3);
+    LHistory[0].Role := hcrUser;
+    LHistory[0].Content := 'first question';
+    LHistory[1].Role := hcrAssistant;
+    LHistory[1].Content := 'first answer';
+    LHistory[2].Role := hcrUser;
+    LHistory[2].Content := 'second question';
+    // Chat Completions: the context in front of the question, in its message; the
+    // system prompt first, the earlier question as it was typed.
+    LValue := TJSONObject.ParseJSONValue(THelpChatOpenAIProvider.BuildRequestBody(LHistory,
+      'RULES', LOpenAI, '', '', nil, hclAuto, '', 'Now it is X.'));
+    try
+      LItems := (LValue as TJSONObject).GetValue<TJSONArray>('messages');
+      Assert.AreEqual(4, LItems.Count);
+      Assert.AreEqual('RULES', LItems.Items[0].GetValue<string>('content'));
+      Assert.AreEqual('first question', LItems.Items[1].GetValue<string>('content'));
+      Assert.AreEqual('Now it is X.'#10#10'second question', LItems.Items[3].GetValue<string>('content'));
+    finally
+      LValue.Free;
+    end;
+    // Responses: a developer message right after the question.
+    LValue := TJSONObject.ParseJSONValue(THelpChatOpenAIProvider.BuildResponsesBody(LHistory,
+      'RULES', LOpenAI, '', '', nil, hclAuto, 'Now it is X.'));
+    try
+      Assert.AreEqual('RULES', (LValue as TJSONObject).GetValue<string>('instructions'));
+      LItems := (LValue as TJSONObject).GetValue<TJSONArray>('input');
+      Assert.AreEqual(4, LItems.Count);
+      Assert.AreEqual('second question', LItems.Items[2].GetValue<string>('content'));
+      Assert.AreEqual('developer', LItems.Items[3].GetValue<string>('role'));
+      Assert.AreEqual('Now it is X.', LItems.Items[3].GetValue<string>('content'));
+    finally
+      LValue.Free;
+    end;
+  finally
+    LOpenAI.Free;
+  end;
+end;
+
+procedure TOpenAITests.Usage_CachedTokens_ChatAndResponses;
+var
+  LStream: THelpChatOpenAIResponsesStream;
+  LBytes: TBytes;
+begin
+  // Chat Completions: the usage record ends the stream, with no choice.
+  Feed('data: {"model":"gpt-6-luna","choices":[{"index":0,"delta":{"content":"Ok"}}]}'#10#10);
+  Feed('data: {"model":"gpt-6-luna","choices":[],"usage":{"prompt_tokens":3000,' +
+    '"completion_tokens":40,"prompt_tokens_details":{"cached_tokens":2048}}}'#10#10);
+  FStream.Finish;
+  Assert.AreEqual('gpt-6-luna', FStream.Usage.Model);
+  Assert.AreEqual(952, FStream.Usage.InputTokens, 'the prompt less what the cache read');
+  Assert.AreEqual(2048, FStream.Usage.CacheReadTokens);
+  Assert.AreEqual(40, FStream.Usage.OutputTokens);
+  // Responses: the counts arrive with response.completed.
+  LStream := THelpChatOpenAIResponsesStream.Create(nil);
+  try
+    LBytes := TEncoding.UTF8.GetBytes('data: {"type":"response.completed","response":{"model":' +
+      '"gpt-6-luna","usage":{"input_tokens":2500,"input_tokens_details":{"cache_write_tokens":400,' +
+      '"cached_tokens":1024},"output_tokens":77}}}'#10#10);
+    LStream.Write(LBytes[0], Length(LBytes));
+    LStream.Finish;
+    Assert.AreEqual(1076, LStream.Usage.InputTokens, 'what was neither read nor written');
+    Assert.AreEqual(400, LStream.Usage.CacheWriteTokens);
+    Assert.AreEqual(1024, LStream.Usage.CacheReadTokens);
+    Assert.AreEqual(77, LStream.Usage.OutputTokens);
+  finally
+    LStream.Free;
+  end;
 end;
 
 procedure TOpenAITests.Sse_AssemblesToolCallsByIndex;

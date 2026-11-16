@@ -126,6 +126,7 @@
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="rtl.dcp"/>
+        <DCCReference Include="dbrtl.dcp"/>
         <DCCReference Include="MarkdownProcessor.dcp"/>
         <DCCReference Include="..\..\source\HelpChatAI.Types.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Messages.pas"/>
@@ -133,6 +134,8 @@
         <DCCReference Include="..\..\source\HelpChatAI.UiState.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Icons.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Commands.pas"/>
+        <DCCReference Include="..\..\source\HelpChatAI.Skills.pas"/>
+        <DCCReference Include="..\..\source\HelpChatAI.Skills.Screen.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Settings.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Actions.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Attachments.pas"/>

@@ -117,6 +117,30 @@ type
       const ASignature: string = ''): THelpChatToolCall; static;
   end;
 
+  /// <summary>The tokens of one request to a model, as the service counted
+  /// them: what it read at full price, what it wrote to its prompt cache and
+  /// what it read from there, and what it wrote back. The three inputs add
+  /// up to the whole prompt.</summary>
+  THelpChatTokenUsage = record
+    /// <summary>The provider that made the request (<c>claude</c>...).</summary>
+    Provider: string;
+    /// <summary>The model the service answered with.</summary>
+    Model: string;
+    /// <summary>Input billed at the full price: what follows the last cache
+    /// breakpoint, or everything when nothing was cached.</summary>
+    InputTokens: Integer;
+    /// <summary>Input written to the prompt cache by this request.</summary>
+    CacheWriteTokens: Integer;
+    /// <summary>Input read from the prompt cache.</summary>
+    CacheReadTokens: Integer;
+    /// <summary>Output, the thinking of the model included.</summary>
+    OutputTokens: Integer;
+  end;
+
+  /// <summary>Receives the tokens of every request a provider makes, on the
+  /// worker thread that made it.</summary>
+  THelpChatTokenUsageProc = reference to procedure(const AUsage: THelpChatTokenUsage);
+
   /// <summary>
   ///  Convenience base class for providers: reference-counted, non-streaming by
   ///  default, holding the settings snapshot and the retriever handed by the
@@ -191,6 +215,15 @@ type
     /// check: a provider that needs a key or a file says so here, so adding a
     /// provider still means a new unit and nothing else.</summary>
     class function ConfigurationIssue(const ASettings: THelpChatSettings): string; virtual;
+    /// <summary>True for a provider that sends <see cref="BuildStablePrompt" />
+    /// as its system prompt and <see cref="BuildQuestionContext" /> with the
+    /// question, instead of <see cref="BuildSystemPrompt" /> whole: what
+    /// <c>/prompt</c> shows follows it. False here.</summary>
+    class function SplitsPrompt: Boolean; virtual;
+    /// <summary>Hands the tokens of one request to
+    /// <see cref="HelpChatOnTokenUsage" />, when somebody listens, with the
+    /// name of this provider. On the worker thread of the request.</summary>
+    procedure ReportTokenUsage(const AUsage: THelpChatTokenUsage);
     /// <summary>The system prompt every model gets: the instruction of the
     /// assistant (<c>THelpChatSettings.ResolveSystemPrompt</c>: the built-in
     /// rules or <c>SystemPrompt</c>, then <c>Instructions</c>), the language
@@ -202,6 +235,23 @@ type
     /// differently to the same question. The actions rule is not part of it:
     /// a provider that supports actions appends it.</summary>
     class function BuildSystemPrompt(const AHistory: TArray<THelpChatMessage>;
+      const AContext: THelpChatContext; const ASettings: THelpChatSettings;
+      const ARetriever: IHelpChatRetriever): string; static;
+    /// <summary>The part of the system prompt that does not change from one
+    /// question to the next: who the assistant is, the instruction
+    /// (<c>ResolveSystemPrompt</c>), the language and the language of the
+    /// manual - what <see cref="BuildSystemPrompt" /> writes before now, the
+    /// screen and the excerpts - then <c>OnBuildSystemPrompt</c>, on this
+    /// part only. A provider that keeps it apart from
+    /// <see cref="BuildQuestionContext" /> can have it kept in the prompt
+    /// cache of its service (claude).</summary>
+    class function BuildStablePrompt(const AContext: THelpChatContext;
+      const ASettings: THelpChatSettings): string; static;
+    /// <summary>What changes with every question, for the provider that sends
+    /// it with the question: now (<c>NowRule</c>, unless an old
+    /// <c>IdentityRule</c> says it), the screen the user is on and the
+    /// documentation excerpts found for the last question.</summary>
+    class function BuildQuestionContext(const AHistory: TArray<THelpChatMessage>;
       const AContext: THelpChatContext; const ASettings: THelpChatSettings;
       const ARetriever: IHelpChatRetriever): string; static;
     /// <summary>The name the provider is registered under.</summary>
@@ -238,6 +288,12 @@ type
 /// it - a name somebody else typed, which must not be able to read like a
 /// line of the instruction.</summary>
 function HelpChatPromptField(const AValue: string; const AMaxChars: Integer = 80): string;
+
+/// <summary>"Saturday, 14 November 2026, 15:40 (UTC+01:00)": now, in English
+/// (the model writes it back in the language it answers in), with the offset
+/// of this machine - which is the user's for a local engine. What the
+/// identity rule of the system prompt is given.</summary>
+function HelpChatNowText: string;
 
 /// <summary>
 ///  True when the model AName of ASettings could answer as it is configured:
@@ -364,6 +420,18 @@ type
 /// provider.</summary>
 function HelpChatServiceName(const ASettings: THelpChatSettings; const AProvider: string): string;
 
+var
+  /// <summary>
+  ///  A diagnostic hook: when assigned, the providers that read the usage of
+  ///  the service (<c>claude</c>, <c>openai</c>, <c>gemini</c>; a local
+  ///  server only when it sends one) report the tokens of every request they
+  ///  make - one call per round of the tool loop - on the worker thread that
+  ///  made it, so the handler must be thread-safe and quick. It is what
+  ///  <c>Test\LLMBench</c> measures the prompt cache with; an application may
+  ///  log costs with it. Set it before the engines start and leave it.
+  /// </summary>
+  HelpChatOnTokenUsage: THelpChatTokenUsageProc;
+
 implementation
 
 uses
@@ -372,9 +440,6 @@ uses
   System.TimeSpan,
   System.DateUtils;
 
-/// <summary>"Saturday, 14 November 2026, 15:40 (UTC+01:00)": now, in English
-/// (the model writes it back in the language it answers in), with the offset
-/// of this machine - which is the user's for a local engine.</summary>
 function HelpChatNowText: string;
 var
   LOffset: TTimeSpan;
@@ -621,84 +686,166 @@ begin
   Result.Signature := ASignature;
 end;
 
+/// <summary>The language the prompt is written for: the one of the chat.</summary>
+function PromptLanguage(const ASettings: THelpChatSettings): THelpChatLanguage;
+begin
+  if Assigned(ASettings) then
+    Result := ASettings.ResolveLanguage
+  else
+    Result := HelpChatResolveLanguage(hclAuto);
+end;
+
+/// <summary>The rules of the assistant, each followed by a space: who it is
+/// (the name the panel shows, the default one in the language of the chat
+/// when nobody gave one), now when <c>AWithNow</c>, the instruction, the
+/// language and the language of the manual. Every text comes from the
+/// settings, whose defaults are the constants (English only: the model is
+/// told the language of the reply).</summary>
+procedure AppendRules(const ASb: TStringBuilder; const ASettings: THelpChatSettings;
+  const ALang: THelpChatLanguage; const AWithNow: Boolean);
+var
+  LName, LText: string;
+begin
+  if Assigned(ASettings) and (Trim(ASettings.AssistantName) <> '') then
+    LName := HelpChatPromptField(ASettings.AssistantName)
+  else
+    LName := HelpChatMsg(hcmUiTitle, ALang);
+  if Assigned(ASettings) then
+  begin
+    // An identity rule written before 1.12 may still say now: it is the
+    // only way it is said then, with or without AWithNow.
+    ASb.Append(ASettings.ResolveIdentityRule(LName, HelpChatNowText)).Append(' ');
+    if AWithNow then
+    begin
+      LText := ASettings.ResolveNowRule(HelpChatNowText);
+      if LText <> '' then
+        ASb.Append(LText).Append(' ');
+    end;
+    ASb.Append(ASettings.ResolveSystemPrompt).Append(' ');
+    ASb.Append(ASettings.ResolveLanguageRule(ALang)).Append(' ');
+    // A manual in another language: translate the words, keep the captions.
+    LText := ASettings.ResolveDocLanguageRule(ALang);
+    if LText <> '' then
+      ASb.Append(LText).Append(' ');
+  end
+  else
+  begin
+    ASb.Append(Format(HELPCHAT_MODEL_DEF_IDENTITY_RULE, [LName])).Append(' ');
+    if AWithNow then
+      ASb.Append(Format(HELPCHAT_MODEL_DEF_NOW_RULE, [HelpChatNowText])).Append(' ');
+    ASb.Append(HELPCHAT_MODEL_DEF_SYSTEMPROMPT).Append(' ');
+    ASb.Append(Format(HELPCHAT_MODEL_DEF_LANGUAGE_RULE, [HelpChatLanguageName(ALang)]));
+    ASb.Append(' ');
+  end;
+end;
+
+/// <summary>The screen the user is on and the documentation excerpts the
+/// retriever found for the last question, each part preceded by an empty
+/// line.</summary>
+procedure AppendScreenAndDocs(const ASb: TStringBuilder;
+  const AHistory: TArray<THelpChatMessage>; const AContext: THelpChatContext;
+  const ASettings: THelpChatSettings; const ARetriever: IHelpChatRetriever;
+  const ALang: THelpChatLanguage);
+var
+  LPages: TArray<THelpChatDocPage>;
+  LMax, I: Integer;
+begin
+  if not AContext.IsEmpty then
+  begin
+    ASb.Append(#10#10);
+    // The label is a caption, the type a class name: data of the
+    // application, cut to one short line each before entering the prompt.
+    ASb.Append(HelpChatMsgFmt(hcmScreenContext, [HelpChatPromptField(AContext.DisplayName),
+      HelpChatPromptField(AContext.ScreenType)], ALang));
+  end;
+
+  if Assigned(ASettings) then
+    LMax := ASettings.ActiveModel.GroundingMaxPages
+  else
+    LMax := HELPCHAT_MODEL_DEF_GROUNDING;
+  if (LMax > 0) and Assigned(ARetriever) and ARetriever.IsAvailable then
+  begin
+    LPages := ARetriever.Search(THelpChatProviderBase.LastUserMessage(AHistory),
+      AContext.SearchHint, LMax);
+    if Length(LPages) > 0 then
+    begin
+      ASb.Append(#10#10);
+      ASb.Append(HelpChatMsg(hcmRelevantDocs, ALang));
+      for I := Low(LPages) to High(LPages) do
+      begin
+        // Title, summary, the passages around the matching terms, source link.
+        ASb.Append(#10#10);
+        ASb.Append(Format('## %s'#10'%s', [LPages[I].Title, LPages[I].Summary]));
+        if (LPages[I].Excerpt <> '') and (LPages[I].Excerpt <> LPages[I].Summary) then
+          ASb.Append(#10#10).Append(LPages[I].Excerpt);
+        // The link as the model must write it back: a Markdown link it
+        // copies, with no URL to assemble (and none to invent).
+        ASb.Append(#10).Append(Format('%s: [%s](%s)', [HelpChatMsg(hcmSource, ALang),
+          HelpChatPromptField(LPages[I].Title), LPages[I].Url]));
+      end;
+    end;
+  end;
+end;
+
 class function THelpChatProviderBase.BuildSystemPrompt(
   const AHistory: TArray<THelpChatMessage>; const AContext: THelpChatContext;
   const ASettings: THelpChatSettings; const ARetriever: IHelpChatRetriever): string;
 var
   LLang: THelpChatLanguage;
   LSb: TStringBuilder;
-  LName: string;
-  LPages: TArray<THelpChatDocPage>;
-  LMax, I: Integer;
 begin
-  if Assigned(ASettings) then
-    LLang := ASettings.ResolveLanguage
-  else
-    LLang := HelpChatResolveLanguage(hclAuto);
-
+  LLang := PromptLanguage(ASettings);
   LSb := TStringBuilder.Create;
   try
-    // Who it is and when: the name the panel shows (the default one, in the
-    // language of the chat, when nobody gave one) and now.
-    if Assigned(ASettings) and (Trim(ASettings.AssistantName) <> '') then
-      LName := HelpChatPromptField(ASettings.AssistantName)
-    else
-      LName := HelpChatMsg(hcmUiTitle, LLang);
-    LSb.Append(Format(HELPCHAT_MODEL_DEF_IDENTITY_RULE, [LName, HelpChatNowText]));
-    LSb.Append(' ');
-    // The instruction to the model is English only (see the constants); the
-    // configured UI language becomes the default reply language.
-    if Assigned(ASettings) then
-      LSb.Append(ASettings.ResolveSystemPrompt)
-    else
-      LSb.Append(HELPCHAT_MODEL_DEF_SYSTEMPROMPT);
-    LSb.Append(' ');
-    LSb.Append(Format(HELPCHAT_MODEL_DEF_LANGUAGE_RULE, [HelpChatLanguageName(LLang)]));
-    LSb.Append(' ');
-    // A manual in another language: translate the words, keep the captions.
-    if Assigned(ASettings) and (ASettings.DocLanguage <> hclAuto) and
-       (ASettings.DocLanguage <> LLang) then
-    begin
-      LSb.Append(Format(HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE,
-        [HelpChatLanguageName(ASettings.DocLanguage), HelpChatLanguageName(LLang)]));
-      LSb.Append(' ');
-    end;
-
-    if not AContext.IsEmpty then
-    begin
-      LSb.Append(#10#10);
-      // The label is a caption, the type a class name: data of the
-      // application, cut to one short line each before entering the prompt.
-      LSb.Append(HelpChatMsgFmt(hcmScreenContext, [HelpChatPromptField(AContext.DisplayName),
-        HelpChatPromptField(AContext.ScreenType)], LLang));
-    end;
-
-    if Assigned(ASettings) then
-      LMax := ASettings.ActiveModel.GroundingMaxPages
-    else
-      LMax := HELPCHAT_MODEL_DEF_GROUNDING;
-    if (LMax > 0) and Assigned(ARetriever) and ARetriever.IsAvailable then
-    begin
-      LPages := ARetriever.Search(LastUserMessage(AHistory), AContext.SearchHint, LMax);
-      if Length(LPages) > 0 then
-      begin
-        LSb.Append(#10#10);
-        LSb.Append(HelpChatMsg(hcmRelevantDocs, LLang));
-        for I := Low(LPages) to High(LPages) do
-        begin
-          // Title, summary, the passages around the matching terms, source link.
-          LSb.Append(#10#10);
-          LSb.Append(Format('## %s'#10'%s', [LPages[I].Title, LPages[I].Summary]));
-          if (LPages[I].Excerpt <> '') and (LPages[I].Excerpt <> LPages[I].Summary) then
-            LSb.Append(#10#10).Append(LPages[I].Excerpt);
-          // The link as the model must write it back: a Markdown link it
-          // copies, with no URL to assemble (and none to invent).
-          LSb.Append(#10).Append(Format('%s: [%s](%s)', [HelpChatMsg(hcmSource, LLang),
-            HelpChatPromptField(LPages[I].Title), LPages[I].Url]));
-        end;
-      end;
-    end;
+    AppendRules(LSb, ASettings, LLang, True);
+    AppendScreenAndDocs(LSb, AHistory, AContext, ASettings, ARetriever, LLang);
     Result := LSb.ToString;
+  finally
+    LSb.Free;
+  end;
+  // The application has the last word - before the rule about the actions,
+  // which the providers add afterwards and nobody may change.
+  if Assigned(ASettings) then
+    Result := ASettings.CustomizePrompt(AContext, LLang, Result);
+end;
+
+class function THelpChatProviderBase.BuildStablePrompt(const AContext: THelpChatContext;
+  const ASettings: THelpChatSettings): string;
+var
+  LLang: THelpChatLanguage;
+  LSb: TStringBuilder;
+begin
+  LLang := PromptLanguage(ASettings);
+  LSb := TStringBuilder.Create;
+  try
+    AppendRules(LSb, ASettings, LLang, False);
+    Result := TrimRight(LSb.ToString);
+  finally
+    LSb.Free;
+  end;
+  // The last word of the application, on this part only: whatever it adds
+  // here should not change from one question to the next, or the prompt
+  // cache misses.
+  if Assigned(ASettings) then
+    Result := ASettings.CustomizePrompt(AContext, LLang, Result);
+end;
+
+class function THelpChatProviderBase.BuildQuestionContext(
+  const AHistory: TArray<THelpChatMessage>; const AContext: THelpChatContext;
+  const ASettings: THelpChatSettings; const ARetriever: IHelpChatRetriever): string;
+var
+  LLang: THelpChatLanguage;
+  LSb: TStringBuilder;
+begin
+  LLang := PromptLanguage(ASettings);
+  LSb := TStringBuilder.Create;
+  try
+    if Assigned(ASettings) then
+      LSb.Append(ASettings.ResolveNowRule(HelpChatNowText))
+    else
+      LSb.Append(Format(HELPCHAT_MODEL_DEF_NOW_RULE, [HelpChatNowText]));
+    AppendScreenAndDocs(LSb, AHistory, AContext, ASettings, ARetriever, LLang);
+    Result := Trim(LSb.ToString);
   finally
     LSb.Free;
   end;
@@ -709,6 +856,22 @@ class function THelpChatProviderBase.ConfigurationIssue(
 begin
   // A provider that needs nothing but the question answers with nothing to say.
   Result := '';
+end;
+
+class function THelpChatProviderBase.SplitsPrompt: Boolean;
+begin
+  Result := False;
+end;
+
+procedure THelpChatProviderBase.ReportTokenUsage(const AUsage: THelpChatTokenUsage);
+var
+  LUsage: THelpChatTokenUsage;
+begin
+  if not Assigned(HelpChatOnTokenUsage) then
+    Exit;
+  LUsage := AUsage;
+  LUsage.Provider := GetName;
+  HelpChatOnTokenUsage(LUsage);
 end;
 
 function THelpChatProviderBase.SupportsStreaming: Boolean;

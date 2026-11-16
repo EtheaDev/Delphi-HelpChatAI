@@ -36,6 +36,10 @@ type
     [Test] procedure Sse_ParsesToolUseBlocks;
     [Test] procedure RequestBody_DeclaresToolsAndCarriesTheToolTurns;
     [Test] procedure AssistantToolMessage_HasTextAndToolUseBlocks;
+    [Test] procedure AssistantTurn_SendsTheThinkingBack_InItsPlace;
+    [Test] procedure PromptCaching_MarksTheToolsAndTheRequest;
+    [Test] procedure Sse_ReadsTheUsage_CacheIncluded;
+    [Test] procedure QuestionContext_AfterTheQuestion_FourBreakpoints;
   end;
 
 implementation
@@ -434,6 +438,176 @@ begin
     Assert.IsTrue(LBlock.GetValue('input') is TJSONObject);
   finally
     LValue.Free;
+  end;
+end;
+
+procedure TClaudeTests.AssistantTurn_SendsTheThinkingBack_InItsPlace;
+var
+  LValue: TJSONValue;
+  LContent: TJSONArray;
+  LBlock: TJSONObject;
+begin
+  // What claude-haiku-5-5 sends by default: a thinking block with no text
+  // and only a signature, then text, a redacted block, a call - and a
+  // thinking block that never got its signature, which cannot go back.
+  Feed('data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}'#10#10);
+  Feed('data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":""}}'#10#10);
+  Feed('data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"SIG-1"}}'#10#10);
+  Feed('data: {"type":"content_block_stop","index":0}'#10#10);
+  Feed('data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}'#10#10);
+  Feed('data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Apro"}}'#10#10);
+  Feed('data: {"type":"content_block_start","index":2,"content_block":{"type":"redacted_thinking","data":"ENC"}}'#10#10);
+  Feed('data: {"type":"content_block_start","index":3,"content_block":{"type":"tool_use","id":"t1","name":"apri_schermata","input":{}}}'#10#10);
+  Feed('data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"{\"nome\":\"Scheduler\"}"}}'#10#10);
+  Feed('data: {"type":"content_block_start","index":4,"content_block":{"type":"thinking","thinking":"","signature":""}}'#10#10);
+  Feed('data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":"half a thought"}}'#10#10);
+  Feed('data: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}'#10#10);
+  FStream.Finish;
+
+  Assert.AreEqual('Apro', FStream.Text, 'the thinking is never part of the answer');
+  Assert.AreEqual(5, Integer(Length(FStream.Blocks)));
+  LValue := TJSONObject.ParseJSONValue(
+    THelpChatClaudeProvider.BuildAssistantTurn(FStream.Blocks, FStream.ToolCalls));
+  try
+    LContent := (LValue as TJSONObject).GetValue('content') as TJSONArray;
+    Assert.AreEqual(4, LContent.Count, 'the unsigned thinking block is left out');
+    LBlock := LContent.Items[0] as TJSONObject;
+    Assert.AreEqual('thinking', LBlock.GetValue<string>('type'), 'first, where the model wrote it');
+    Assert.AreEqual('', LBlock.GetValue<string>('thinking'), 'the empty text goes back as it came');
+    Assert.AreEqual('SIG-1', LBlock.GetValue<string>('signature'));
+    Assert.AreEqual('Apro', (LContent.Items[1] as TJSONObject).GetValue<string>('text'));
+    LBlock := LContent.Items[2] as TJSONObject;
+    Assert.AreEqual('redacted_thinking', LBlock.GetValue<string>('type'));
+    Assert.AreEqual('ENC', LBlock.GetValue<string>('data'));
+    LBlock := LContent.Items[3] as TJSONObject;
+    Assert.AreEqual('tool_use', LBlock.GetValue<string>('type'));
+    Assert.AreEqual('t1', LBlock.GetValue<string>('id'));
+    Assert.AreEqual('Scheduler', (LBlock.GetValue('input') as TJSONObject).GetValue<string>('nome'));
+  finally
+    LValue.Free;
+  end;
+end;
+
+procedure TClaudeTests.PromptCaching_MarksTheToolsAndTheRequest;
+const
+  TOOLS = '[{"name":"a","description":"A","input_schema":{"type":"object"}},' +
+    '{"name":"b","description":"B","input_schema":{"type":"object"}}]';
+var
+  LClaude: THelpChatClaudeSettings;
+  LHistory: TArray<THelpChatMessage>;
+  LValue: TJSONValue;
+  LRoot: TJSONObject;
+  LTools: TJSONArray;
+begin
+  LClaude := THelpChatClaudeSettings.Create;
+  try
+    SetLength(LHistory, 1);
+    LHistory[0].Role := hcrUser;
+    LHistory[0].Content := 'crea un lead';
+    // On by default: a breakpoint on the last tool, and the automatic one of
+    // the request, which follows the rounds of the tool loop.
+    LValue := TJSONObject.ParseJSONValue(THelpChatClaudeProvider.BuildRequestBody(
+      LHistory, 'sys', LClaude, TOOLS, ''));
+    try
+      LRoot := LValue as TJSONObject;
+      LTools := LRoot.GetValue('tools') as TJSONArray;
+      Assert.IsNull((LTools.Items[0] as TJSONObject).GetValue('cache_control'), 'only the last tool');
+      Assert.AreEqual('ephemeral', (LTools.Items[1] as TJSONObject).GetValue<string>('cache_control.type'));
+      Assert.AreEqual('ephemeral', LRoot.GetValue<string>('cache_control.type'));
+    finally
+      LValue.Free;
+    end;
+    // Without tools nothing repeats across questions: nothing is marked.
+    Assert.DoesNotContain(THelpChatClaudeProvider.BuildRequestBody(LHistory, 'sys', LClaude),
+      'cache_control');
+    // Off: no marker at all, for a proxy that refuses them.
+    LClaude.PromptCaching := False;
+    Assert.DoesNotContain(THelpChatClaudeProvider.BuildRequestBody(LHistory, 'sys', LClaude,
+      TOOLS, ''), 'cache_control');
+  finally
+    LClaude.Free;
+  end;
+end;
+
+procedure TClaudeTests.Sse_ReadsTheUsage_CacheIncluded;
+begin
+  // The input counts arrive with message_start, the output with message_delta.
+  Feed('data: {"type":"message_start","message":{"model":"claude-haiku-5-5","usage":' +
+    '{"input_tokens":120,"cache_creation_input_tokens":0,"cache_read_input_tokens":5400,"output_tokens":1}}}'#10#10);
+  Feed('data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'#10#10);
+  Feed('data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Ok"}}'#10#10);
+  Feed('data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}'#10#10);
+  FStream.Finish;
+  Assert.AreEqual('claude-haiku-5-5', FStream.Usage.Model);
+  Assert.AreEqual(120, FStream.Usage.InputTokens);
+  Assert.AreEqual(0, FStream.Usage.CacheWriteTokens);
+  Assert.AreEqual(5400, FStream.Usage.CacheReadTokens);
+  Assert.AreEqual(42, FStream.Usage.OutputTokens, 'the final count of message_delta');
+end;
+
+procedure TClaudeTests.QuestionContext_AfterTheQuestion_FourBreakpoints;
+const
+  TOOLS = '[{"name":"a","description":"A","input_schema":{"type":"object"}}]';
+var
+  LClaude: THelpChatClaudeSettings;
+  LHistory: TArray<THelpChatMessage>;
+  LValue: TJSONValue;
+  LRoot: TJSONObject;
+  LMessages: TJSONArray;
+  LBody: string;
+begin
+  LClaude := THelpChatClaudeSettings.Create;
+  try
+    SetLength(LHistory, 3);
+    LHistory[0].Role := hcrUser;
+    LHistory[0].Content := 'prima domanda';
+    LHistory[1].Role := hcrAssistant;
+    LHistory[1].Content := 'prima risposta';
+    LHistory[2].Role := hcrUser;
+    LHistory[2].Content := 'seconda domanda';
+    LBody := THelpChatClaudeProvider.BuildRequestBody(LHistory, 'RULES', LClaude, TOOLS, '',
+      nil, hclAuto, 'Now it is X. The excerpts.');
+    LValue := TJSONObject.ParseJSONValue(LBody);
+    try
+      LRoot := LValue as TJSONObject;
+      // The system prompt is a breakpoint, and so is the question being asked.
+      Assert.AreEqual('ephemeral', LRoot.GetValue<string>('system[0].cache_control.type'));
+      LMessages := LRoot.GetValue('messages') as TJSONArray;
+      Assert.AreEqual(4, LMessages.Count);
+      Assert.AreEqual('prima domanda', (LMessages.Items[0] as TJSONObject).GetValue<string>('content'),
+        'an earlier question goes as it always went: its context is gone');
+      Assert.AreEqual('ephemeral', (LMessages.Items[2] as TJSONObject)
+        .GetValue<string>('content[0].cache_control.type'));
+      Assert.AreEqual('system', (LMessages.Items[3] as TJSONObject).GetValue<string>('role'));
+      Assert.AreEqual('Now it is X. The excerpts.', (LMessages.Items[3] as TJSONObject).GetValue<string>('content'));
+      // With the last tool and the automatic one: four, the most the API takes.
+      Assert.AreEqual(4, (Length(LBody) - Length(StringReplace(LBody, 'cache_control', '',
+        [rfReplaceAll]))) div Length('cache_control'));
+    finally
+      LValue.Free;
+    end;
+
+    // A model that refuses a system message: the context is a second text
+    // block of the question, after the breakpoint.
+    LValue := TJSONObject.ParseJSONValue(THelpChatClaudeProvider.BuildRequestBody(LHistory,
+      'RULES', LClaude, '', '', nil, hclAuto, 'Now it is X.', True));
+    try
+      LMessages := (LValue as TJSONObject).GetValue('messages') as TJSONArray;
+      Assert.AreEqual(3, LMessages.Count);
+      Assert.AreEqual('seconda domanda', (LMessages.Items[2] as TJSONObject).GetValue<string>('content[0].text'));
+      Assert.AreEqual('Now it is X.', (LMessages.Items[2] as TJSONObject).GetValue<string>('content[1].text'));
+      Assert.IsNull(((LMessages.Items[2] as TJSONObject).GetValue<TJSONArray>('content').Items[1]
+        as TJSONObject).GetValue('cache_control'));
+    finally
+      LValue.Free;
+    end;
+
+    // Off: the same shape, no breakpoint at all.
+    LClaude.PromptCaching := False;
+    Assert.DoesNotContain(THelpChatClaudeProvider.BuildRequestBody(LHistory, 'RULES', LClaude,
+      TOOLS, '', nil, hclAuto, 'Now it is X.'), 'cache_control');
+  finally
+    LClaude.Free;
   end;
 end;
 

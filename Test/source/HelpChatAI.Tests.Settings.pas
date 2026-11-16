@@ -25,6 +25,7 @@ type
   public
     [Test] procedure Defaults;
     [Test] procedure Assign_DeepCopiesClaude;
+    [Test] procedure Assign_CopiesEveryPublishedProperty;
     [Test] procedure ResolveGreeting_UsesLanguage;
     [Test] procedure Claude_NormalizedBaseUrl_StripsSlashes;
     [Test] procedure Claude_ResolveApiKey_TrimsExplicitKey;
@@ -198,6 +199,7 @@ begin
     Assert.AreEqual(HELPCHAT_CLAUDE_DEF_GROUNDING, LSettings.Claude.GroundingMaxPages);
     Assert.AreEqual(HELPCHAT_CLAUDE_DEF_BASEURL, LSettings.Claude.BaseUrl);
     Assert.AreEqual(HELPCHAT_CLAUDE_DEF_VERSION, LSettings.Claude.ApiVersion);
+  Assert.IsTrue(LSettings.Claude.PromptCaching, 'the cache is on by default');
   finally
     LSettings.Free;
   end;
@@ -223,6 +225,32 @@ begin
     // Changing the source afterwards must not touch the copy.
     LSource.Claude.Model := 'other';
     Assert.AreEqual('m', LCopy.Claude.Model);
+  finally
+    LCopy.Free;
+    LSource.Free;
+  end;
+end;
+
+procedure TSettingsTests.Assign_CopiesEveryPublishedProperty;
+var
+  LSource, LCopy: THelpChatSettings;
+begin
+  // Every published property, the ones added after this test was written
+  // included: a property missing from Assign is a value the snapshot of a
+  // request, an engine of a profile or the design-time preview never sees.
+  LSource := THelpChatSettings.Create;
+  LCopy := THelpChatSettings.Create;
+  try
+    FillPublishedProperties(LSource, []);
+    // A model of the catalogue too, every property of its own filled.
+    FillPublishedProperties(LSource.Models.Add, []);
+    LCopy.Assign(LSource);
+    // The filling did reach them: a test that compared defaults would pass
+    // whatever Assign did.
+    Assert.AreNotEqual('', LCopy.Skills);
+    Assert.AreNotEqual('', LCopy.Remote.BaseUrl);
+    Assert.AreEqual(1, LCopy.Models.Count);
+    Assert.AreEqual('', FirstPublishedDifference(LSource, LCopy, []));
   finally
     LCopy.Free;
     LSource.Free;
@@ -325,6 +353,7 @@ begin
     LSource.AssistantName := 'Giulio';
     LSource.Claude.BaseUrl := 'https://proxy/';
     LSource.Claude.ApiVersion := '2099-01-01';
+    LSource.Claude.PromptCaching := False;
     LSource.Claude.ConnectTimeoutMs := 11;
     LSource.Claude.ResponseTimeoutMs := 22;
     LSource.OpenAI.ApiKey := 'sk-openai-test';
@@ -379,6 +408,7 @@ begin
     Assert.AreEqual('Giulio', LCopy.AssistantName);
     Assert.AreEqual('https://proxy/', LCopy.Claude.BaseUrl);
     Assert.AreEqual('2099-01-01', LCopy.Claude.ApiVersion);
+    Assert.IsFalse(LCopy.Claude.PromptCaching, 'PromptCaching survives the file');
     Assert.AreEqual(11, LCopy.Claude.ConnectTimeoutMs);
     Assert.AreEqual(22, LCopy.Claude.ResponseTimeoutMs);
     Assert.AreEqual('sk-openai-test', LCopy.OpenAI.ApiKey);

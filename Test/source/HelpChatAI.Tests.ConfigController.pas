@@ -72,6 +72,8 @@ type
     [Test]
     procedure Kinds_NumbersSetsAndChoices;
     [Test]
+    procedure Skills_AreTicks_WithTheirActions_AndTheUnknownKept;
+    [Test]
     procedure ResetComponentValue_GivesTheLibraryValueBack;
     [Test]
     procedure Secrets_AreMasked_AndNeverGoToTheFormFile;
@@ -89,6 +91,14 @@ type
     procedure MalformedFile_IsReported_AndNeverOverwritten;
     [Test]
     procedure FirstFile_IsTheOneTheConfigurationComesFrom;
+    [Test]
+    procedure Entries_ComponentByName_ThenTheProviders;
+    [Test]
+    procedure PromptTexts_ShowTheirText_AndResetToIt;
+    [Test]
+    procedure PromptPreview_IsWhatTheModelWouldRead;
+    [Test]
+    procedure AppearancePreview_IsThePanelWithASampleConversation;
   end;
 
 implementation
@@ -96,7 +106,10 @@ implementation
 uses
   System.IOUtils,
   System.JSON,
-  HelpChatAI.Types;
+  HelpChatAI.Types,
+  HelpChatAI.Theme,
+  HelpChatAI.Commands,
+  HelpChatAI.Skills.Screen; // registers the four screen skills
 
 const
   CONFIG =
@@ -234,7 +247,8 @@ begin
     LEntries := LController.Entries;
     Assert.AreEqual('', LController.LastError);
     Assert.AreEqual('Help\from-the-dfm.json', EntryOf(LEntries, 'DocIndexFile').InUse);
-    Assert.AreEqual('Component', EntryOf(LEntries, 'DocIndexFile').Origin);
+    // The property that holds it, as the Object Inspector names it.
+    Assert.AreEqual('Component: Settings.DocIndexFile', EntryOf(LEntries, 'DocIndexFile').Origin);
     Assert.AreEqual('it', EntryOf(LEntries, 'Language').InUse);
     Assert.EndsWith(', root', EntryOf(LEntries, 'Language').Origin);
     Assert.AreEqual('Orders', EntryOf(LEntries, 'DocAreas').InUse);
@@ -345,6 +359,57 @@ begin
     Assert.IsTrue(LDoc.GetValue<TJSONValue>('Claude.MaxTokens') is TJSONNumber, 'a number');
     Assert.AreEqual(2048, LDoc.GetValue<Integer>('Claude.MaxTokens'));
     Assert.AreEqual('["it","en"]', LDoc.GetValue<TJSONValue>('Languages').ToJSON, 'an array');
+  finally
+    LDoc.Free;
+  end;
+end;
+
+procedure TConfigControllerTests.Skills_AreTicks_WithTheirActions_AndTheUnknownKept;
+var
+  LController: THelpChatConfigController;
+  LEntry: THelpChatConfigEntry;
+  LDoc: TJSONValue;
+  I: Integer;
+
+  function IndexOfChoice(const AName: string): Integer;
+  begin
+    for Result := 0 to High(LEntry.Choices) do
+      if SameText(LEntry.Choices[Result], AName) then
+        Exit;
+    Result := -1;
+  end;
+
+begin
+  FComponent.AllowedActions := 'open_screen';
+  LController := NewController('');
+  try
+    // A skill the application registers is not registered in the IDE: the
+    // file names it, the editor keeps it.
+    LController.SetValue('Skills', ccsRoot, 'forms, crm_extra');
+    LEntry := EntryOf(LController.Entries, 'Skills');
+    Assert.AreEqual(Ord(cvkSet), Ord(LEntry.Kind));
+    Assert.AreEqual(Length(LEntry.Choices), Length(LEntry.ChoiceCaptions));
+    Assert.AreEqual(Length(LEntry.Choices), Length(LEntry.ChoiceHints));
+    for I := 0 to High(LEntry.Choices) do
+      Assert.IsTrue(LEntry.ChoiceHints[I] <> '', LEntry.Choices[I] + ' has a hint');
+    I := IndexOfChoice('forms');
+    Assert.IsTrue(I >= 0, 'forms offered');
+    Assert.Contains(LEntry.ChoiceCaptions[I], 'describe_form', 'its actions in the caption');
+    Assert.Contains(LEntry.ChoiceCaptions[I], 'fill_form');
+    Assert.IsTrue(IndexOfChoice('records') >= 0, 'a skill nobody named is offered too');
+    I := IndexOfChoice('crm_extra');
+    Assert.IsTrue(I >= 0, 'the unknown name is kept');
+    Assert.Contains(LEntry.ChoiceCaptions[I], 'not registered');
+    // Naming a skill allows its actions: the hint of AllowedActions says so.
+    Assert.Contains(EntryOf(LController.Entries, 'AllowedActions').Hint, 'fill_form');
+    LController.Save;
+  finally
+    LController.Free;
+  end;
+  LDoc := TJSONObject.ParseJSONValue(TFile.ReadAllText(FFile, TEncoding.UTF8));
+  try
+    Assert.AreEqual('["forms","crm_extra"]', LDoc.GetValue<TJSONValue>('Skills').ToJSON,
+      'an array of names, never the captions');
   finally
     LDoc.Free;
   end;
@@ -599,6 +664,170 @@ begin
     'a file that does not parse counts as empty');
   Assert.AreEqual(0, THelpChatConfigController.ConfiguringFile(Copy(LFiles, 2, 1), ''),
     'one file: that one');
+end;
+
+procedure TConfigControllerTests.Entries_ComponentByName_ThenTheProviders;
+var
+  LController: THelpChatConfigController;
+  LEntries: TArray<THelpChatConfigEntry>;
+  I: Integer;
+  LSeenModel: Boolean;
+begin
+  LController := NewController('');
+  try
+    LEntries := LController.Entries;
+    LSeenModel := False;
+    for I := 0 to High(LEntries) do
+    begin
+      // Once the providers start, nothing of the component follows.
+      if LEntries[I].IsModel then
+        LSeenModel := True
+      else
+        Assert.IsFalse(LSeenModel, LEntries[I].Path + ' after the providers');
+      if (I > 0) and (LEntries[I].IsModel = LEntries[I - 1].IsModel) then
+        Assert.IsTrue(CompareText(LEntries[I - 1].Path, LEntries[I].Path) < 0,
+          LEntries[I - 1].Path + ' before ' + LEntries[I].Path);
+      Assert.IsTrue(LEntries[I].Pages <> [], LEntries[I].Path + ' is on no page');
+    end;
+    Assert.IsTrue(LSeenModel);
+    // The settings the list did not have.
+    Assert.IsTrue(ccpSettings in EntryOf(LEntries, 'ConversationFile').Pages);
+    Assert.IsTrue(ccpDocuments in EntryOf(LEntries, 'Pdf.Paper').Pages);
+    Assert.IsTrue(ccpPrompt in EntryOf(LEntries, 'IdentityRule').Pages);
+    Assert.AreEqual(2, Length(EntryOf(LEntries, 'Pdf.Orientation').Choices));
+    Assert.IsTrue(EntryOf(LEntries, 'OpenAI.AzureDeployment').IsModel);
+    // The Prompt page reads like the prompt: in the order it is written.
+    LEntries := THelpChatConfigController.EntriesOfPage(LController.Entries, ccpPrompt);
+    Assert.AreEqual('AssistantName', LEntries[0].Path);
+    Assert.AreEqual('IdentityRule', LEntries[1].Path);
+    Assert.AreEqual('Expertise', LEntries[2].Path);
+    Assert.AreEqual('ExpertiseIntro', LEntries[3].Path);
+    Assert.AreEqual('SystemPrompt', LEntries[4].Path);
+    Assert.AreEqual('ExpertiseRule', LEntries[5].Path);
+    Assert.AreEqual('Instructions', LEntries[6].Path);
+    Assert.AreEqual('Language', LEntries[7].Path);
+    Assert.AreEqual('DocLanguageRule', LEntries[10].Path);
+    // Now goes with the question (claude), next to the excerpts.
+    Assert.AreEqual('NowRule', LEntries[11].Path);
+    Assert.AreEqual('Claude.GroundingMaxPages', LEntries[12].Path);
+    Assert.AreEqual('Gemini.GroundingMaxChars', LEntries[High(LEntries)].Path);
+    // The other pages keep the order of the names.
+    LEntries := THelpChatConfigController.EntriesOfPage(LController.Entries, ccpSettings);
+    Assert.AreEqual('AllowedActions', LEntries[0].Path);
+  finally
+    LController.Free;
+  end;
+end;
+
+procedure TConfigControllerTests.PromptTexts_ShowTheirText_AndResetToIt;
+var
+  LController: THelpChatConfigController;
+  LEntry: THelpChatConfigEntry;
+begin
+  LController := NewController('');
+  try
+    // Left to the library: the text itself, in use and in the edit box.
+    LEntry := EntryOf(LController.Entries, 'SystemPrompt');
+    Assert.AreEqual(HELPCHAT_MODEL_DEF_SYSTEMPROMPT, LEntry.InUse);
+    Assert.AreEqual(HELPCHAT_MODEL_DEF_SYSTEMPROMPT, LEntry.Value);
+    Assert.AreEqual(csrDefault, LEntry.Source);
+    Assert.IsFalse(LEntry.InComponent);
+    // Written into the component: blue, and named after its property.
+    LController.SetComponentValue('IdentityRule', 'I am %0:s.');
+    LEntry := EntryOf(LController.Entries, 'IdentityRule');
+    Assert.AreEqual('I am %0:s.', LEntry.InUse);
+    Assert.AreEqual(csrComponent, LEntry.Source);
+    Assert.AreEqual('Component: Settings.IdentityRule', LEntry.Origin);
+    Assert.IsTrue(LEntry.InComponent);
+    // Reset: the library's text again, not an empty one.
+    // A string left to the library is in the edit box as it is used, so
+    // that a correction is not a value typed again.
+    LEntry := EntryOf(LController.Entries, 'Greeting');
+    Assert.AreEqual(LEntry.InUse, LEntry.Value);
+    Assert.AreNotEqual('', LEntry.Value);
+    Assert.AreEqual(HELPCHAT_CLAUDE_DEF_MODEL, EntryOf(LController.Entries, 'Claude.Model').Value);
+    Assert.AreEqual('', EntryOf(LController.Entries, 'DocAreas').Value, 'nothing replaces it');
+    LController.ResetComponentValue('IdentityRule');
+    Assert.AreEqual(HELPCHAT_MODEL_DEF_IDENTITY_RULE, FComponent.IdentityRule);
+    Assert.IsFalse(EntryOf(LController.Entries, 'IdentityRule').InComponent);
+    // A file that writes one.
+    LController.SetValue('LanguageRule', ccsRoot, 'Speak %0:s.');
+    LEntry := EntryOf(LController.Entries, 'LanguageRule');
+    Assert.AreEqual('Speak %0:s.', LEntry.InUse);
+    Assert.AreEqual(csrFile, LEntry.Source);
+  finally
+    LController.Free;
+  end;
+end;
+
+procedure TConfigControllerTests.PromptPreview_IsWhatTheModelWouldRead;
+var
+  LController: THelpChatConfigController;
+  LPrompt: string;
+begin
+  LController := NewController('Orders');
+  try
+    FComponent.Expertise := 'order management';
+    LController.SetValue('Instructions', ccsProfile, 'Be brief.');
+    LPrompt := LController.PromptPreview;
+    // The name of the profile in the file, the expertise of the component,
+    // the instructions not saved yet, a sample screen and excerpt.
+    Assert.StartsWith('Your name is Giulio.', LPrompt);
+    Assert.Contains(LPrompt, 'Your field of expertise is order management.');
+    Assert.Contains(LPrompt, 'Be brief.');
+    Assert.Contains(LPrompt, 'Customers');
+    Assert.Contains(LPrompt, '[Customers](Customers.md)');
+    Assert.Contains(LPrompt, 'not customizable');
+    Assert.DoesNotContain(LPrompt, HELPCHAT_MODEL_ACTIONS_RULE);
+    // What each setting writes, found in the prompt as it is.
+    Assert.AreEqual('Be brief.', LController.PromptFragment('Instructions'));
+    Assert.Contains(LPrompt, LController.PromptFragment('SystemPrompt'));
+    Assert.Contains(LPrompt, LController.PromptFragment('ExpertiseRule'));
+    Assert.StartsWith('Your name is Giulio.', LController.PromptFragment('AssistantName'));
+    Assert.Contains(LPrompt, LController.PromptFragment('Language'));
+    Assert.Contains(LController.PromptFragment('Claude.GroundingMaxPages'), '[Customers](Customers.md)');
+    Assert.AreEqual('', LController.PromptFragment('DocLanguageRule'), 'no manual in another language');
+  finally
+    LController.Free;
+  end;
+end;
+
+procedure TConfigControllerTests.AppearancePreview_IsThePanelWithASampleConversation;
+var
+  LController: THelpChatConfigController;
+  LPage, LError, LCss: string;
+begin
+  LController := NewController('Orders');
+  try
+    LPage := LController.AppearancePreview(True, '', '', [hccHelp, hccClear], LError);
+    Assert.AreEqual('', LError);
+    // The panel of the library, its conversation already in it and no
+    // request to replace it.
+    Assert.Contains(LPage, '<main id="hc-body" class="hc-chat-body">');
+    Assert.DoesNotContain(LPage, 'hx-get="/api/history"');
+    Assert.Contains(LPage, 'How do I add a new customer?');
+    Assert.Contains(LPage, '<strong>Customers</strong>');
+    Assert.Contains(LPage, 'hc-chat-system');
+    Assert.Contains(LPage, '/help');
+    Assert.Contains(LPage, '/clear');
+    Assert.DoesNotContain(LPage, '/search', 'only the commands asked for');
+    // The name of the profile in the file, in the header.
+    Assert.Contains(LPage, 'Giulio');
+    Assert.Contains(LPage, THelpChatTheme.Dark.Background);
+    Assert.Contains(LController.AppearancePreview(False, '', '', [hccHelp], LError),
+      THelpChatTheme.Light.Background);
+    // A style sheet of the component, relative to the executable; a missing
+    // one is said, not raised.
+    LCss := TPath.Combine(FFolder, 'panel-custom.css');
+    TFile.WriteAllText(LCss, '.hc-chat-title { letter-spacing: 3px; }');
+    LPage := LController.AppearancePreview(False, '', 'panel-custom.css', [hccHelp], LError);
+    Assert.AreEqual('', LError);
+    Assert.Contains(LPage, 'letter-spacing: 3px');
+    LController.AppearancePreview(False, '', 'missing.css', [hccHelp], LError);
+    Assert.Contains(LError, 'missing.css');
+  finally
+    LController.Free;
+  end;
 end;
 
 initialization

@@ -450,7 +450,7 @@ begin
   case Index of
     0:
       if Assigned(LChat) then
-        TFmxHelpChatConfigEditor.Execute(TFmxHelpChatAI(LChat).Settings,
+        TFmxHelpChatConfigEditor.Execute(TFmxHelpChatAI(LChat), TFmxHelpChatAI(LChat).Settings,
           TFmxHelpChatAI(LChat).Profile, TFmxHelpChatAI(LChat).AssistantName,
           DesignExeFile, TFmxHelpChatAI(LChat).ConfigFileName,
           procedure(AProfile: string)

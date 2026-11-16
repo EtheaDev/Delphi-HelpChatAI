@@ -24,7 +24,8 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Settings,
   HelpChatAI.Engine,
-  HelpChatAI.Actions;
+  HelpChatAI.Actions,
+  HelpChatAI.Provider;
 
 type
   /// <summary>One provider + model to measure. Local models are listed first,
@@ -82,11 +83,23 @@ type
     Useful: Integer;       // 0 wrong or no answer, 1 partial, 2 what an expert would say
     Invented: Boolean;     // claims something of the application the manual does not have
     JudgeNote: string;
+    // The tokens of the requests of this question, as the service counted
+    // them (HelpChatOnTokenUsage: claude, openai, gemini).
+    Requests: Integer;
+    InputTokens: Integer;
+    CacheWriteTokens: Integer;
+    CacheReadTokens: Integer;
+    OutputTokens: Integer;
   end;
 
   TBenchRunner = class
   strict private
     FRepoRoot: string;
+    FOllamaBaseUrl: string;
+    FNoCache: Boolean;
+    FKeepConversation: Boolean;
+    FUsageLock: TObject;
+    FUsage: TBenchResult;     // the token counts of the question being asked
     FTargets: TList<TBenchTarget>;
     FQuestions: TList<TBenchQuestion>;
     FResults: TList<TBenchResult>;
@@ -95,6 +108,13 @@ type
     FStartTicks: Int64;
     // The manual of the CRM demo, every page, for the judge.
     FManual: string;
+    procedure AddUsage(const AUsage: THelpChatTokenUsage);
+    /// <summary>The table of the tokens per target, for the providers that
+    /// report them.</summary>
+    procedure AppendTokens(const ASb: TStringBuilder);
+    /// <summary>What each question read from the cache, out of its whole
+    /// input, per target.</summary>
+    procedure AppendTokensPerQuestion(const ASb: TStringBuilder);
     function MakeSettings(const ATarget: TBenchTarget): THelpChatSettings;
     function MakeBroker: THelpChatActionBroker;
     procedure RecordCall(const AName, AArgsJson: string);
@@ -138,6 +158,18 @@ type
     property Results: TList<TBenchResult> read FResults;
     property Targets: TList<TBenchTarget> read FTargets;
     property Questions: TList<TBenchQuestion> read FQuestions;
+    /// <summary>The Ollama the local targets are asked on, set before
+    /// AddDefaultTargets: http://localhost:11434/v1 by default, the server
+    /// that runs the models otherwise (--ollama=).</summary>
+    property OllamaBaseUrl: string read FOllamaBaseUrl write FOllamaBaseUrl;
+    /// <summary>Claude.PromptCaching off (--nocache): the same run without the
+    /// prompt cache, to compare the token counts with.</summary>
+    property NoCache: Boolean read FNoCache write FNoCache;
+    /// <summary>The conversation suite (--suite=conversation): the questions of
+    /// a target asked one after the other in one conversation, the history
+    /// never cleared - what a user does, and what the prompt cache reads
+    /// back from the second question on.</summary>
+    property KeepConversation: Boolean read FKeepConversation write FKeepConversation;
   end;
 
 /// <summary>Walks up from the executable to the folder holding "CRM Demo".</summary>
@@ -167,7 +199,6 @@ uses
   System.TimeSpan,
   HelpChatAI.DocIndex,
   HelpChatAI.Messages,
-  HelpChatAI.Provider,
   HelpChatAI.Provider.DocSearch,
   HelpChatAI.Provider.Claude,
   HelpChatAI.Provider.OpenAI,
@@ -300,6 +331,8 @@ constructor TBenchRunner.Create(const ARepoRoot: string);
 begin
   inherited Create;
   FRepoRoot := ARepoRoot;
+  FOllamaBaseUrl := OLLAMA_BASEURL;
+  FUsageLock := TObject.Create;
   FTargets := TList<TBenchTarget>.Create;
   FQuestions := TList<TBenchQuestion>.Create;
   FResults := TList<TBenchResult>.Create;
@@ -308,11 +341,27 @@ end;
 
 destructor TBenchRunner.Destroy;
 begin
+  FUsageLock.Free;
   FCalls.Free;
   FResults.Free;
   FQuestions.Free;
   FTargets.Free;
   inherited;
+end;
+
+procedure TBenchRunner.AddUsage(const AUsage: THelpChatTokenUsage);
+begin
+  // Worker thread: one call per request of the reply.
+  TMonitor.Enter(FUsageLock);
+  try
+    Inc(FUsage.Requests);
+    Inc(FUsage.InputTokens, AUsage.InputTokens);
+    Inc(FUsage.CacheWriteTokens, AUsage.CacheWriteTokens);
+    Inc(FUsage.CacheReadTokens, AUsage.CacheReadTokens);
+    Inc(FUsage.OutputTokens, AUsage.OutputTokens);
+  finally
+    TMonitor.Exit(FUsageLock);
+  end;
 end;
 
 procedure TBenchRunner.Log(const AText: string);
@@ -326,6 +375,8 @@ procedure TBenchRunner.AddDefaultTargets;
   var
     T: TBenchTarget;
   begin
+    // Every field: Variant above all, which decides the prompt and the report.
+    T := Default(TBenchTarget);
     T.Name := AName;
     T.Provider := AProvider;
     T.Model := AModel;
@@ -336,9 +387,9 @@ procedure TBenchRunner.AddDefaultTargets;
 
 begin
   // Local models first, one after the other: Ollama keeps one in VRAM.
-  AddTarget('gemma4:12b', 'openai', 'gemma4:12b', OLLAMA_BASEURL, OLLAMA_TIMEOUT_MS);
-  AddTarget('gpt-oss:20b', 'openai', 'gpt-oss:20b', OLLAMA_BASEURL, OLLAMA_TIMEOUT_MS);
-  AddTarget('qwen3-coder:30b', 'openai', 'qwen3-coder:30b', OLLAMA_BASEURL, OLLAMA_TIMEOUT_MS);
+  AddTarget('gemma4:12b', 'openai', 'gemma4:12b', FOllamaBaseUrl, OLLAMA_TIMEOUT_MS);
+  AddTarget('gpt-oss:20b', 'openai', 'gpt-oss:20b', FOllamaBaseUrl, OLLAMA_TIMEOUT_MS);
+  AddTarget('qwen3-coder:30b', 'openai', 'qwen3-coder:30b', FOllamaBaseUrl, OLLAMA_TIMEOUT_MS);
   // The references: the two remote providers as configured on this machine.
   AddTarget('claude', 'claude', '', '', CLOUD_TIMEOUT_MS);
   // The current Claude generation, against the library default above.
@@ -884,6 +935,8 @@ begin
     if ATarget.BaseUrl <> '' then
       LModel.BaseUrl := ATarget.BaseUrl;
     LModel.ResponseTimeoutMs := ATarget.ResponseTimeoutMs;
+    if FNoCache then
+      Result.Claude.PromptCaching := False;
     // The library opens the prompt with the name and now, and composes the
     // field with the rule that governs it.
     if ATarget.Variant >= 1 then
@@ -992,9 +1045,18 @@ var
 begin
   Result := Default(TBenchResult);
   Result.Question := AQuestion.Id;
+  TMonitor.Enter(FUsageLock);
+  try
+    FUsage := Default(TBenchResult);
+  finally
+    TMonitor.Exit(FUsageLock);
+  end;
   FCalls.Clear;
   FFirstTokenTicks := 0;
-  AEngine.Clear;
+  // One conversation per question, unless the suite keeps it: then only the
+  // warm-up starts from nothing (and is cleared after, see Run).
+  if not FKeepConversation or (AQuestion.Id = 'warm-up') then
+    AEngine.Clear;
 
   LCtx := Default(THelpChatContext);
   LCtx.ScreenName := 'MainForm';
@@ -1033,6 +1095,16 @@ begin
   else
     Result.FirstTokenMs := -1;
   Result.Actions := FCalls.ToArray;
+  TMonitor.Enter(FUsageLock);
+  try
+    Result.Requests := FUsage.Requests;
+    Result.InputTokens := FUsage.InputTokens;
+    Result.CacheWriteTokens := FUsage.CacheWriteTokens;
+    Result.CacheReadTokens := FUsage.CacheReadTokens;
+    Result.OutputTokens := FUsage.OutputTokens;
+  finally
+    TMonitor.Exit(FUsageLock);
+  end;
 end;
 
 procedure TBenchRunner.Score(const AQuestion: TBenchQuestion; var AResult: TBenchResult);
@@ -1108,6 +1180,12 @@ var
   LIssue: string;
   LClass: THelpChatProviderClass;
 begin
+  HelpChatOnTokenUsage :=
+    procedure(const AUsage: THelpChatTokenUsage)
+    begin
+      AddUsage(AUsage);
+    end;
+  try
   for T in FTargets do
   begin
     Log('=== ' + T.Name + ' (' + T.Provider + ')');
@@ -1156,6 +1234,9 @@ begin
         Log('  the provider failed on the warm-up; skipping its questions');
         Continue;
       end;
+      // The conversation starts with the first question, not with "Hello".
+      if FKeepConversation then
+        LEngine.Clear;
 
       for Q in FQuestions do
       begin
@@ -1163,10 +1244,13 @@ begin
         R.Target := T.Name;
         Score(Q, R);
         FResults.Add(R);
-        Log(Format('  %s: %d ms (first token %d ms)  cite=%s facts=%d/%d actions=%d%s  %s',
+        Log(Format('  %s: %d ms (first token %d ms)  cite=%s facts=%d/%d actions=%d%s%s  %s',
           [Q.Id, R.ElapsedMs, R.FirstTokenMs, BoolToStr(R.CitationOk, True),
            R.FactsFound, R.FactsTotal, Length(R.Actions),
-           IfThen(R.ActionOk, '', '(wrong)'), IfThen(R.IsError, 'ERROR: ' + R.Answer, '')]));
+           IfThen(R.ActionOk, '', '(wrong)'),
+           IfThen(R.Requests > 0, Format('  tokens in=%d write=%d read=%d out=%d',
+             [R.InputTokens, R.CacheWriteTokens, R.CacheReadTokens, R.OutputTokens]), ''),
+           IfThen(R.IsError, 'ERROR: ' + R.Answer, '')]));
       end;
     finally
       LEngine.Stop;
@@ -1174,6 +1258,110 @@ begin
       LInvoker := nil;
     end;
   end;
+  finally
+    HelpChatOnTokenUsage := nil;
+  end;
+end;
+
+procedure TBenchRunner.AppendTokens(const ASb: TStringBuilder);
+var
+  T: TBenchTarget;
+  R: TBenchResult;
+  LReq, LIn, LWrite, LRead, LOut: Int64;
+begin
+  // Only the providers that report their usage (claude) have a row.
+  ASb.AppendLine('### Tokens');
+  ASb.AppendLine;
+  ASb.AppendLine(IfThen(FNoCache, 'Prompt cache **off** (`--nocache`).',
+    'Prompt cache on (`Claude.PromptCaching`, the default).') +
+    ' The questions, warm-up excluded, of each target in a row, as one session would ask them.');
+  ASb.AppendLine;
+  ASb.AppendLine('| Target | Requests | Input | Cache write | Cache read | Output | Input as billed |');
+  ASb.AppendLine('|---|---:|---:|---:|---:|---:|---:|');
+  for T in FTargets do
+  begin
+    LReq := 0; LIn := 0; LWrite := 0; LRead := 0; LOut := 0;
+    for R in FResults do
+      if (R.Target = T.Name) and (R.Question <> 'warm-up') and (R.Question <> '-') then
+      begin
+        Inc(LReq, R.Requests);
+        Inc(LIn, R.InputTokens);
+        Inc(LWrite, R.CacheWriteTokens);
+        Inc(LRead, R.CacheReadTokens);
+        Inc(LOut, R.OutputTokens);
+      end;
+    if LReq = 0 then
+      Continue;
+    // The multipliers are Anthropic's: the other services price their
+    // automatic cache in their own way.
+    if SameText(T.Provider, 'claude') then
+      ASb.AppendFormat('| %s | %d | %d | %d | %d | %d | %d |',
+        [T.Name, LReq, LIn, LWrite, LRead, LOut, Round(LIn + 1.25 * LWrite + 0.1 * LRead)])
+    else
+      ASb.AppendFormat('| %s | %d | %d | %d | %d | %d | - |',
+        [T.Name, LReq, LIn, LWrite, LRead, LOut]);
+    ASb.AppendLine;
+  end;
+  ASb.AppendLine;
+  ASb.AppendLine('"Input": tokens at the full price. "Input as billed", claude only: input + 1.25 x ' +
+    'cache write + 0.1 x cache read, the multipliers of Haiku (Sonnet and Opus 5.5 read at 0.05), ' +
+    'in tokens of the full price. OpenAI and Gemini cache by themselves, at prices of their own; ' +
+    'a local server reports its prefix cache, which costs nothing.');
+  ASb.AppendLine;
+  AppendTokensPerQuestion(ASb);
+end;
+
+procedure TBenchRunner.AppendTokensPerQuestion(const ASb: TStringBuilder);
+var
+  T: TBenchTarget;
+  Q: TBenchQuestion;
+  R: TBenchResult;
+  LCells: TStringBuilder;
+  LAny: Boolean;
+  LTotal: Int64;
+begin
+  // Each question as a share of its prompt read from the cache: in one
+  // conversation it should grow with the history.
+  ASb.AppendLine('### Tokens per question');
+  ASb.AppendLine;
+  ASb.AppendLine('Read from the cache / the whole input of the requests of each question' +
+    IfThen(FKeepConversation, ', the questions of a target in one conversation.',
+    ', each question in a new conversation.'));
+  ASb.AppendLine;
+  ASb.Append('| Target |');
+  for Q in FQuestions do
+    ASb.Append(' ' + Q.Id + ' |');
+  ASb.AppendLine;
+  ASb.Append('|---|');
+  for Q in FQuestions do
+    ASb.Append('---:|');
+  ASb.AppendLine;
+  LCells := TStringBuilder.Create;
+  try
+    for T in FTargets do
+    begin
+      LCells.Clear;
+      LAny := False;
+      for Q in FQuestions do
+      begin
+        LTotal := -1;
+        for R in FResults do
+          if (R.Target = T.Name) and (R.Question = Q.Id) and (R.Requests > 0) then
+          begin
+            LTotal := R.InputTokens + R.CacheWriteTokens + R.CacheReadTokens;
+            LCells.AppendFormat(' %d / %d |', [R.CacheReadTokens, LTotal]);
+            LAny := True;
+          end;
+        if LTotal < 0 then
+          LCells.Append(' - |');
+      end;
+      if LAny then
+        ASb.AppendLine('| ' + T.Name + ' |' + LCells.ToString);
+    end;
+  finally
+    LCells.Free;
+  end;
+  ASb.AppendLine;
 end;
 
 function TBenchRunner.Report: string;
@@ -1220,9 +1408,11 @@ begin
     LSb.AppendLine;
     LSb.AppendFormat('Run on %s. Grounding: `CRM Demo\Help\help-index.json`, %d pages x %d chars; ' +
       'two actions registered (`open_screen`, `create_lead`, the second confirmed with Yes); ' +
-      'a new conversation per question; language rule English.',
+      '%s; language rule English.',
       [FormatDateTime('yyyy-mm-dd hh:nn', Now), HELPCHAT_MODEL_DEF_GROUNDING,
-       HELPCHAT_MODEL_DEF_GROUNDING_CHARS]);
+       HELPCHAT_MODEL_DEF_GROUNDING_CHARS,
+       IfThen(FKeepConversation, '**the questions of a target in one conversation**, the history ' +
+         'never cleared (`--suite=conversation`)', 'a new conversation per question')]);
     LSb.AppendLine.AppendLine;
 
     LSb.AppendLine('## Summary');
@@ -1272,6 +1462,7 @@ begin
       LSb.AppendLine;
     end;
     LSb.AppendLine;
+    AppendTokens(LSb);
     LSb.AppendLine('"Citations ok": the answer names one of the expected pages (`Page.md`), or none when ' +
       'nothing was expected. "Facts found": expected substrings present in the answer. ' +
       '"Actions ok": the expected action was invoked with the expected argument and no other ' +

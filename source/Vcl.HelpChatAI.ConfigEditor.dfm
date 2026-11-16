@@ -2,8 +2,8 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
   Left = 0
   Top = 0
   Caption = 'HelpChatAI configuration'
-  ClientHeight = 620
-  ClientWidth = 900
+  ClientHeight = 680
+  ClientWidth = 1100
   Color = clBtnFace
   Constraints.MinHeight = 560
   Constraints.MinWidth = 820
@@ -959,258 +959,511 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
     ActivePage = SettingsTab
     Align = alClient
     TabOrder = 1
-    object SettingsTab: TTabSheet
-      Caption = 'Settings'
-      object ProfilePanel: TPanel
-        Left = 0
+    OnChange = PageControlChange
+    object AppearanceTab: TTabSheet
+      Caption = 'Appearance'
+      object PreviewPanel: TPanel
+        Left = 652
         Top = 0
-        Width = 892
-        Height = 40
-        Align = alTop
+        Width = 440
+        Height = 544
+        Align = alRight
         BevelOuter = bvNone
         ShowCaption = False
         TabOrder = 0
-        object ProfileLabel: TLabel
-          Left = 8
-          Top = 12
-          Width = 121
-          Height = 15
-          Caption = 'Profile of this assistant:'
-        end
-        object ProfileHintLabel: TLabel
-          Left = 380
-          Top = 12
-          Width = 336
-          Height = 15
-          Caption = 
-            'Empty = the default assistant. It is the Profile of the componen' +
-            't.'
-        end
-        object ProfileCombo: TComboBox
-          Left = 164
-          Top = 8
-          Width = 200
-          Height = 23
+        object PreviewTopPanel: TPanel
+          Left = 0
+          Top = 0
+          Width = 440
+          Height = 100
+          Align = alTop
+          BevelOuter = bvNone
+          ShowCaption = False
           TabOrder = 0
-          OnChange = ProfileComboChange
+          DesignSize = (
+            440
+            100)
+          object PreviewLabel: TLabel
+            Left = 6
+            Top = 10
+            Width = 200
+            Height = 15
+            Caption = 'Preview of the chat'
+            Font.Charset = DEFAULT_CHARSET
+            Font.Color = clWindowText
+            Font.Height = -12
+            Font.Name = 'Segoe UI'
+            Font.Style = [fsBold]
+            ParentFont = False
+          end
+          object StyleSheetLabel: TLabel
+            Left = 6
+            Top = 38
+            Width = 240
+            Height = 15
+            Caption = 'Style sheet of the panel (PanelStyleSheet):'
+          end
+          object StyleSheetErrorLabel: TLabel
+            Left = 6
+            Top = 82
+            Width = 428
+            Height = 15
+            Anchors = [akLeft, akTop, akRight]
+            AutoSize = False
+            Font.Charset = DEFAULT_CHARSET
+            Font.Color = clRed
+            Font.Height = -12
+            Font.Name = 'Segoe UI'
+            Font.Style = []
+            ParentFont = False
+          end
+          object ThemeSwitch: TToggleSwitch
+            Left = 330
+            Top = 6
+            Width = 104
+            Height = 20
+            Anchors = [akTop, akRight]
+            StateCaptions.CaptionOn = 'Dark'
+            StateCaptions.CaptionOff = 'Light'
+            TabOrder = 0
+            OnClick = ThemeSwitchClick
+          end
+          object StyleSheetEdit: TEdit
+            Left = 6
+            Top = 56
+            Width = 280
+            Height = 23
+            Anchors = [akLeft, akTop, akRight]
+            TabOrder = 1
+          end
+          object StyleSheetBrowseButton: TButton
+            Left = 290
+            Top = 55
+            Width = 30
+            Height = 25
+            Anchors = [akTop, akRight]
+            Caption = '...'
+            TabOrder = 2
+            OnClick = StyleSheetBrowseButtonClick
+          end
+          object StyleSheetApplyButton: TButton
+            Left = 324
+            Top = 55
+            Width = 110
+            Height = 25
+            Anchors = [akTop, akRight]
+            Caption = 'To the component'
+            TabOrder = 3
+            OnClick = StyleSheetApplyButtonClick
+          end
+        end
+        object PreviewHost: TPanel
+          AlignWithMargins = True
+          Left = 6
+          Top = 100
+          Width = 428
+          Height = 438
+          Margins.Left = 6
+          Margins.Top = 0
+          Margins.Right = 6
+          Margins.Bottom = 6
+          Align = alClient
+          BevelOuter = bvNone
+          ShowCaption = False
+          TabOrder = 1
+          object PreviewMessageLabel: TLabel
+            AlignWithMargins = True
+            Left = 3
+            Top = 3
+            Width = 422
+            Height = 15
+            Align = alTop
+            WordWrap = True
+          end
         end
       end
-      object SettingsList: TListView
-        Left = 0
-        Top = 40
-        Width = 892
-        Height = 274
-        Align = alClient
-        Columns = <
-          item
-            Caption = 'Setting'
-            Width = 180
-          end
-          item
-            Caption = 'In use'
-            Width = 220
-          end
-          item
-            Caption = 'From'
-            Width = 220
-          end
-          item
-            Caption = 'This file, root'
-            Width = 125
-          end
-          item
-            Caption = 'This file, profile'
-            Width = 125
-          end>
-        HideSelection = False
-        ReadOnly = True
-        RowSelect = True
-        TabOrder = 1
-        ViewStyle = vsReport
-        OnCustomDrawItem = SettingsListCustomDrawItem
-        OnCustomDrawSubItem = SettingsListCustomDrawSubItem
-        OnSelectItem = SettingsListSelectItem
+      object AppearanceSplitter: TSplitter
+        Left = 648
+        Top = 0
+        Width = 4
+        Height = 544
+        Align = alRight
       end
-      object EditPanel: TPanel
+      object AppearanceLeftPanel: TPanel
         Left = 0
-        Top = 314
-        Width = 892
-        Height = 170
-        Align = alBottom
+        Top = 0
+        Width = 648
+        Height = 544
+        Align = alClient
         BevelOuter = bvNone
         ShowCaption = False
-        TabOrder = 2
-        DesignSize = (
-          892
-          170)
-        object SettingLabel: TLabel
-          Left = 8
-          Top = 6
-          Width = 86
-          Height = 15
-          Caption = 'Select a setting'
-          Font.Charset = DEFAULT_CHARSET
-          Font.Color = clWindowText
-          Font.Height = -12
-          Font.Name = 'Segoe UI'
-          Font.Style = [fsBold]
-          ParentFont = False
+        TabOrder = 1
+        object IconPanel: TPanel
+          Left = 0
+          Top = 0
+          Width = 1092
+          Height = 132
+          Align = alTop
+          BevelOuter = bvNone
+          ShowCaption = False
+          TabOrder = 0
+          DesignSize = (
+            1092
+            132)
+          object IconLabel: TLabel
+            Left = 8
+            Top = 8
+            Width = 300
+            Height = 15
+            Caption = 'Icon of the assistant (the bubble and the header of the panel)'
+            Font.Charset = DEFAULT_CHARSET
+            Font.Color = clWindowText
+            Font.Height = -12
+            Font.Name = 'Segoe UI'
+            Font.Style = [fsBold]
+            ParentFont = False
+          end
+          object IconHintLabel: TLabel
+            Left = 8
+            Top = 112
+            Width = 1076
+            Height = 15
+            Anchors = [akLeft, akTop, akRight]
+            AutoSize = False
+          end
+          object IconList: TListView
+            Left = 8
+            Top = 28
+            Width = 1076
+            Height = 80
+            Anchors = [akLeft, akTop, akRight]
+            Columns = <>
+            HideSelection = False
+            IconOptions.AutoArrange = True
+            ReadOnly = True
+            ShowColumnHeaders = False
+            TabOrder = 0
+            OnSelectItem = IconListSelectItem
+          end
         end
-        object HintLabel: TLabel
-          Left = 8
-          Top = 26
-          Width = 494
-          Height = 15
-          Anchors = [akLeft, akTop, akRight]
-          AutoSize = False
+      end
+    end
+    object SettingsTab: TTabSheet
+      Caption = 'Settings'
+      object GridPanel: TPanel
+        Left = 0
+        Top = 0
+        Width = 1092
+        Height = 544
+        Align = alClient
+        BevelOuter = bvNone
+        ShowCaption = False
+        TabOrder = 0
+        object ProfilePanel: TPanel
+          Left = 0
+          Top = 0
+          Width = 892
+          Height = 40
+          Align = alTop
+          BevelOuter = bvNone
+          ShowCaption = False
+          TabOrder = 0
+          object ProfileLabel: TLabel
+            Left = 8
+            Top = 12
+            Width = 121
+            Height = 15
+            Caption = 'Profile of this assistant:'
+          end
+          object ProfileHintLabel: TLabel
+            Left = 380
+            Top = 12
+            Width = 336
+            Height = 15
+            Caption = 
+              'Empty = the default assistant. It is the Profile of the componen' +
+              't.'
+          end
+          object ProfileCombo: TComboBox
+            Left = 164
+            Top = 8
+            Width = 200
+            Height = 23
+            TabOrder = 0
+            OnChange = ProfileComboChange
+          end
         end
-        object ValueMemo: TMemo
-          Left = 8
-          Top = 48
-          Width = 494
-          Height = 112
-          Anchors = [akLeft, akTop, akRight, akBottom]
+        object SettingsList: TListView
+          Left = 0
+          Top = 40
+          Width = 892
+          Height = 274
+          Align = alClient
+          Columns = <
+            item
+              Caption = 'Property'
+              Width = 170
+            end
+            item
+              Caption = 'Description'
+              Width = 170
+            end
+            item
+              Caption = 'In use'
+              Width = 230
+            end
+            item
+              Caption = 'From'
+              Width = 210
+            end
+            item
+              Caption = 'This file, root'
+              Width = 125
+            end
+            item
+              Caption = 'This file, profile'
+              Width = 125
+            end>
+          HideSelection = False
+          ReadOnly = True
+          RowSelect = True
+          TabOrder = 1
+          ViewStyle = vsReport
+          OnCustomDrawItem = SettingsListCustomDrawItem
+          OnCustomDrawSubItem = SettingsListCustomDrawSubItem
+          OnSelectItem = SettingsListSelectItem
+        end
+        object EditPanel: TPanel
+          Left = 0
+          Top = 314
+          Width = 892
+          Height = 170
+          Align = alBottom
+          BevelOuter = bvNone
+          ShowCaption = False
+          TabOrder = 2
+          DesignSize = (
+            892
+            170)
+          object SettingLabel: TLabel
+            Left = 8
+            Top = 6
+            Width = 86
+            Height = 15
+            Caption = 'Select a setting'
+            Font.Charset = DEFAULT_CHARSET
+            Font.Color = clWindowText
+            Font.Height = -12
+            Font.Name = 'Segoe UI'
+            Font.Style = [fsBold]
+            ParentFont = False
+          end
+          object HintLabel: TLabel
+            Left = 8
+            Top = 26
+            Width = 494
+            Height = 15
+            Anchors = [akLeft, akTop, akRight]
+            AutoSize = False
+          end
+          object ValueMemo: TMemo
+            Left = 8
+            Top = 48
+            Width = 494
+            Height = 112
+            Anchors = [akLeft, akTop, akRight, akBottom]
+            ScrollBars = ssVertical
+            TabOrder = 0
+          end
+          object SecretEdit: TEdit
+            Left = 8
+            Top = 48
+            Width = 414
+            Height = 23
+            Anchors = [akLeft, akTop, akRight]
+            PasswordChar = '*'
+            TabOrder = 1
+            Visible = False
+          end
+          object ShowSecretCheck: TCheckBox
+            Left = 434
+            Top = 51
+            Width = 68
+            Height = 17
+            Anchors = [akTop, akRight]
+            Caption = 'Show'
+            TabOrder = 2
+            Visible = False
+            OnClick = ShowSecretCheckClick
+          end
+          object ValueEdit: TEdit
+            Left = 8
+            Top = 48
+            Width = 494
+            Height = 23
+            Anchors = [akLeft, akTop, akRight]
+            TabOrder = 3
+            Visible = False
+          end
+          object ValueCombo: TComboBox
+            Left = 8
+            Top = 48
+            Width = 240
+            Height = 23
+            TabOrder = 4
+            Visible = False
+          end
+          object ValueCheck: TCheckBox
+            Left = 8
+            Top = 51
+            Width = 240
+            Height = 17
+            Caption = 'Yes'
+            TabOrder = 5
+            Visible = False
+          end
+          object NumberEdit: TEdit
+            Left = 8
+            Top = 48
+            Width = 120
+            Height = 23
+            NumbersOnly = True
+            TabOrder = 6
+            Text = '0'
+            Visible = False
+          end
+          object NumberUpDown: TUpDown
+            Left = 128
+            Top = 48
+            Width = 16
+            Height = 23
+            Associate = NumberEdit
+            Max = 10000000
+            TabOrder = 7
+            Thousands = False
+            Visible = False
+          end
+          object ValueChecks: TCheckListBox
+            Left = 8
+            Top = 48
+            Width = 240
+            Height = 112
+            Anchors = [akLeft, akTop, akBottom]
+            ItemHeight = 17
+            TabOrder = 8
+            Visible = False
+          end
+          object ToProfileButton: TButton
+            Left = 510
+            Top = 48
+            Width = 184
+            Height = 25
+            Anchors = [akTop, akRight]
+            Caption = 'Write to the profile'
+            TabOrder = 9
+            OnClick = ToProfileButtonClick
+          end
+          object ToRootButton: TButton
+            Left = 510
+            Top = 76
+            Width = 184
+            Height = 25
+            Anchors = [akTop, akRight]
+            Caption = 'Write to the root of the file'
+            TabOrder = 10
+            OnClick = ToRootButtonClick
+          end
+          object ToComponentButton: TButton
+            Left = 510
+            Top = 104
+            Width = 184
+            Height = 25
+            Anchors = [akTop, akRight]
+            Caption = 'Write to the component (DFM)'
+            TabOrder = 11
+            OnClick = ToComponentButtonClick
+          end
+          object RemoveProfileButton: TButton
+            Left = 700
+            Top = 48
+            Width = 184
+            Height = 25
+            Anchors = [akTop, akRight]
+            Caption = 'Remove from the profile'
+            TabOrder = 12
+            OnClick = RemoveProfileButtonClick
+          end
+          object RemoveRootButton: TButton
+            Left = 700
+            Top = 76
+            Width = 184
+            Height = 25
+            Anchors = [akTop, akRight]
+            Caption = 'Remove from the root'
+            TabOrder = 13
+            OnClick = RemoveRootButtonClick
+          end
+          object RemoveComponentButton: TButton
+            Left = 700
+            Top = 104
+            Width = 184
+            Height = 25
+            Anchors = [akTop, akRight]
+            Caption = 'Remove from the component'
+            TabOrder = 14
+            OnClick = RemoveComponentButtonClick
+          end
+        end
+      end
+    end
+    object PromptTab: TTabSheet
+      Caption = 'Prompt'
+      object PromptPanel: TPanel
+        Left = 652
+        Top = 0
+        Width = 440
+        Height = 544
+        Align = alRight
+        BevelOuter = bvNone
+        ShowCaption = False
+        TabOrder = 0
+        object PromptLabel: TLabel
+          AlignWithMargins = True
+          Left = 6
+          Top = 8
+          Width = 428
+          Height = 30
+          Margins.Left = 6
+          Margins.Top = 8
+          Margins.Right = 6
+          Align = alTop
+          Caption = 
+            'The system prompt this assistant sends, for a sample question ' +
+            'on a sample screen. OnBuildSystemPrompt does not run in the IDE.'
+          WordWrap = True
+        end
+        object PromptMemo: TRichEdit
+          AlignWithMargins = True
+          Left = 6
+          Top = 44
+          Width = 428
+          Height = 494
+          Margins.Left = 6
+          Margins.Right = 6
+          Margins.Bottom = 6
+          Align = alClient
+          HideSelection = True
+          ReadOnly = True
           ScrollBars = ssVertical
           TabOrder = 0
         end
-        object SecretEdit: TEdit
-          Left = 8
-          Top = 48
-          Width = 414
-          Height = 23
-          Anchors = [akLeft, akTop, akRight]
-          PasswordChar = '*'
-          TabOrder = 1
-          Visible = False
-        end
-        object ShowSecretCheck: TCheckBox
-          Left = 434
-          Top = 51
-          Width = 68
-          Height = 17
-          Anchors = [akTop, akRight]
-          Caption = 'Show'
-          TabOrder = 2
-          Visible = False
-          OnClick = ShowSecretCheckClick
-        end
-        object ValueEdit: TEdit
-          Left = 8
-          Top = 48
-          Width = 494
-          Height = 23
-          Anchors = [akLeft, akTop, akRight]
-          TabOrder = 3
-          Visible = False
-        end
-        object ValueCombo: TComboBox
-          Left = 8
-          Top = 48
-          Width = 240
-          Height = 23
-          TabOrder = 4
-          Visible = False
-        end
-        object ValueCheck: TCheckBox
-          Left = 8
-          Top = 51
-          Width = 240
-          Height = 17
-          Caption = 'Yes'
-          TabOrder = 5
-          Visible = False
-        end
-        object NumberEdit: TEdit
-          Left = 8
-          Top = 48
-          Width = 120
-          Height = 23
-          NumbersOnly = True
-          TabOrder = 6
-          Text = '0'
-          Visible = False
-        end
-        object NumberUpDown: TUpDown
-          Left = 128
-          Top = 48
-          Width = 16
-          Height = 23
-          Associate = NumberEdit
-          Max = 10000000
-          TabOrder = 7
-          Thousands = False
-          Visible = False
-        end
-        object ValueChecks: TCheckListBox
-          Left = 8
-          Top = 48
-          Width = 240
-          Height = 112
-          Anchors = [akLeft, akTop, akBottom]
-          ItemHeight = 17
-          TabOrder = 8
-          Visible = False
-        end
-        object ToProfileButton: TButton
-          Left = 510
-          Top = 48
-          Width = 184
-          Height = 25
-          Anchors = [akTop, akRight]
-          Caption = 'Write to the profile'
-          TabOrder = 9
-          OnClick = ToProfileButtonClick
-        end
-        object ToRootButton: TButton
-          Left = 510
-          Top = 76
-          Width = 184
-          Height = 25
-          Anchors = [akTop, akRight]
-          Caption = 'Write to the root of the file'
-          TabOrder = 10
-          OnClick = ToRootButtonClick
-        end
-        object ToComponentButton: TButton
-          Left = 510
-          Top = 104
-          Width = 184
-          Height = 25
-          Anchors = [akTop, akRight]
-          Caption = 'Write to the component (DFM)'
-          TabOrder = 11
-          OnClick = ToComponentButtonClick
-        end
-        object RemoveProfileButton: TButton
-          Left = 700
-          Top = 48
-          Width = 184
-          Height = 25
-          Anchors = [akTop, akRight]
-          Caption = 'Remove from the profile'
-          TabOrder = 12
-          OnClick = RemoveProfileButtonClick
-        end
-        object RemoveRootButton: TButton
-          Left = 700
-          Top = 76
-          Width = 184
-          Height = 25
-          Anchors = [akTop, akRight]
-          Caption = 'Remove from the root'
-          TabOrder = 13
-          OnClick = RemoveRootButtonClick
-        end
-        object RemoveComponentButton: TButton
-          Left = 700
-          Top = 104
-          Width = 184
-          Height = 25
-          Anchors = [akTop, akRight]
-          Caption = 'Remove from the component'
-          TabOrder = 14
-          OnClick = RemoveComponentButtonClick
-        end
+      end
+      object PromptSplitter: TSplitter
+        Left = 648
+        Top = 0
+        Width = 4
+        Height = 544
+        Align = alRight
       end
     end
     object ModelsTab: TTabSheet
@@ -1475,6 +1728,9 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
         TabOrder = 3
         OnClick = ProfileDeleteButtonClick
       end
+    end
+    object DocumentsTab: TTabSheet
+      Caption = 'Documents'
     end
   end
   object BottomPanel: TPanel

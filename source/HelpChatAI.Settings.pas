@@ -42,6 +42,7 @@ uses
   System.SysUtils,
   System.Classes,
   System.JSON,
+  HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Attachments,
   HelpChatAI.Pdf;
@@ -118,13 +119,21 @@ const
   /// <see cref="HELPCHAT_MODEL_DEF_IDENTITY_RULE" />.</summary>
   HELPCHAT_MODEL_DEF_DATE_RULE = 'Today is %s.';
   /// <summary>The first sentence of the system prompt: the name of the
-  /// assistant (%0:s) and now (%1:s: "Saturday, 14 November 2026, 15:40
-  /// (UTC+01:00)", written out in English). A model has no calendar and no
-  /// clock: without them a document is dated "today", and "can I call New
-  /// York now?" has no answer. Measured in Test\LLMBench (expertise suite):
-  /// with the time, the models that answered that question went from none to
-  /// six out of seven.</summary>
-  HELPCHAT_MODEL_DEF_IDENTITY_RULE = 'Your name is %0:s. Now it is %1:s.';
+  /// assistant (%0:s). Until 1.12 it carried now as well (%1:s), which a
+  /// rule written by an application may still do: it gets now as before, and
+  /// <see cref="HELPCHAT_MODEL_DEF_NOW_RULE" /> is then not added - but a
+  /// system prompt that changes every minute cannot be kept in the prompt
+  /// cache.</summary>
+  HELPCHAT_MODEL_DEF_IDENTITY_RULE = 'Your name is %0:s.';
+  /// <summary>Now (%s: "Saturday, 14 November 2026, 15:40 (UTC+01:00)",
+  /// written out in English). A model has no calendar and no clock: without
+  /// them a document is dated "today", and "can I call New York now?" has no
+  /// answer. Measured in Test\LLMBench (expertise suite): with the time, the
+  /// models that answered that question went from none to six out of seven.
+  /// It changes every minute, so it travels with the question and not in the
+  /// system prompt, where it would make the prompt cache useless (claude);
+  /// the other providers still read it right after the identity.</summary>
+  HELPCHAT_MODEL_DEF_NOW_RULE = 'Now it is %s.';
   /// <summary>What the field of the assistant (%s, its <c>Expertise</c>)
   /// becomes in the system prompt: right after its name, before the rules.</summary>
   HELPCHAT_MODEL_DEF_EXPERTISE = 'Your field of expertise is %s.';
@@ -243,6 +252,19 @@ type
   /// </summary>
   THelpChatSecretEvent = procedure(Sender: TObject; const AName, AValue: string;
     var AResult: string; var AHandled: Boolean) of object;
+
+  /// <summary>
+  ///  The last word on the system prompt of a request: <c>APrompt</c> is what
+  ///  the settings built - name and time, the rules, the language, the screen
+  ///  and the documentation excerpts - and the handler may change it or
+  ///  replace it. <c>AContext</c> is the screen the question was asked from,
+  ///  <c>ALanguage</c> the language of the reply. The rule about the actions
+  ///  is added afterwards and cannot be touched: it is what keeps a tool from
+  ///  being called because a text asked for it. Like the secret handler it
+  ///  runs on a worker thread, and calls are serialized.
+  /// </summary>
+  THelpChatBuildPromptEvent = procedure(Sender: TObject; const AContext: THelpChatContext;
+    const ALanguage: THelpChatLanguage; var APrompt: string) of object;
 
   /// <summary>
   ///  What every model provider needs, and in practice the only thing that
@@ -384,6 +406,7 @@ type
   THelpChatClaudeSettings = class(THelpChatModelSettings)
   private
     FApiVersion: string;
+    FPromptCaching: Boolean;
   public
     class function DefaultModel: string; override;
     class function DefaultBaseUrl: string; override;
@@ -399,6 +422,12 @@ type
   published
     /// <summary>Value of the anthropic-version header.</summary>
     property ApiVersion: string read FApiVersion write FApiVersion stored IsApiVersionStored;
+    /// <summary>Marks the parts of a request that repeat - the tools, and
+    /// the conversation while the actions of a reply run - for the prompt
+    /// cache of the service, which then bills them at a tenth of the price
+    /// and reads them faster. On by default; off for a proxy or a
+    /// compatible service that refuses <c>cache_control</c>.</summary>
+    property PromptCaching: Boolean read FPromptCaching write FPromptCaching default True;
   end;
 
   /// <summary>
@@ -688,6 +717,12 @@ type
     FSystemPrompt: string;
     FExpertise: string;
     FInstructions: string;
+    FIdentityRule: string;
+    FNowRule: string;
+    FLanguageRule: string;
+    FDocLanguageRule: string;
+    FExpertiseIntro: string;
+    FExpertiseRule: string;
     FProvider: string;
     // The provider as the configuration has it, kept while the model in use
     // names another one: see ConfiguredProvider.
@@ -710,6 +745,7 @@ type
     FDocIndexFile: string;
     FDocAreas: string;
     FAllowedActions: string;
+    FSkills: string;
     FDocBaseUrl: string;
     FDocFolder: string;
     FPersistConversation: Boolean;
@@ -723,6 +759,8 @@ type
     FPdf: THelpChatPdfSettings;
     FOnDecryptSecret: THelpChatSecretEvent;
     FSecretSender: TObject;
+    FOnBuildSystemPrompt: THelpChatBuildPromptEvent;
+    FPromptSender: TObject;
     procedure SetClaude(const Value: THelpChatClaudeSettings);
     procedure SetOpenAI(const Value: THelpChatOpenAISettings);
     procedure SetGemini(const Value: THelpChatGeminiSettings);
@@ -781,6 +819,48 @@ type
     /// <summary>Form files keep <c>Models</c> only when it has entries: a
     /// collection is otherwise written even empty, as <c>&lt;&gt;</c>.</summary>
     function IsModelsStored: Boolean;
+    /// <summary>Form files keep a text of the prompt only when it is not
+    /// empty and not the one of the library: the default is the constant,
+    /// so a form never freezes the rules of the version it was saved with.</summary>
+    function IsSystemPromptStored: Boolean;
+    function IsIdentityRuleStored: Boolean;
+    function IsNowRuleStored: Boolean;
+    function IsLanguageRuleStored: Boolean;
+    function IsDocLanguageRuleStored: Boolean;
+    function IsExpertiseIntroStored: Boolean;
+    function IsExpertiseRuleStored: Boolean;
+
+    /// <summary>Installs the handler that has the last word on the system
+    /// prompt, and the object it sees as <c>Sender</c>. Copied by
+    /// <c>Assign</c> like the secret handler, for the same reason.</summary>
+    procedure SetPromptHandler(const AHandler: THelpChatBuildPromptEvent;
+      const ASender: TObject = nil);
+    /// <summary>APrompt as <see cref="OnBuildSystemPrompt" /> leaves it;
+    /// unchanged with no handler. Thread-safe: calls are serialized.</summary>
+    function CustomizePrompt(const AContext: THelpChatContext;
+      const ALanguage: THelpChatLanguage; const APrompt: string): string;
+    /// <summary>See <see cref="THelpChatBuildPromptEvent" />.</summary>
+    property OnBuildSystemPrompt: THelpChatBuildPromptEvent read FOnBuildSystemPrompt
+      write FOnBuildSystemPrompt;
+    /// <summary>What the prompt handler sees as <c>Sender</c>.</summary>
+    property PromptSender: TObject read FPromptSender;
+
+    /// <summary>The first sentence of the prompt: <c>IdentityRule</c> with
+    /// the name of the assistant (and now, for a rule written when it still
+    /// carried it).</summary>
+    function ResolveIdentityRule(const AName, ANow: string): string;
+    /// <summary>True when <c>IdentityRule</c> still says now (<c>%1</c>):
+    /// then <c>NowRule</c> is not added, and the system prompt changes every
+    /// minute.</summary>
+    function IdentityRuleSaysNow: Boolean;
+    /// <summary><c>NowRule</c> with now; empty when <c>IdentityRule</c>
+    /// already says it.</summary>
+    function ResolveNowRule(const ANow: string): string;
+    /// <summary><c>LanguageRule</c> with the name of the language of the chat.</summary>
+    function ResolveLanguageRule(const AChat: THelpChatLanguage): string;
+    /// <summary><c>DocLanguageRule</c> with the language of the manual and of
+    /// the chat; empty when they are the same or the manual's is not stated.</summary>
+    function ResolveDocLanguageRule(const AChat: THelpChatLanguage): string;
 
     /// <summary>Installs the handler that turns a stored secret into the value
     /// to use, and the object the handler will see as <c>Sender</c> (the
@@ -810,6 +890,8 @@ type
     function ResolveDocAreas: TArray<string>;
     /// <summary><c>AllowedActions</c> as a list, trimmed, without empty items.</summary>
     function ResolveAllowedActions: TArray<string>;
+    /// <summary><c>Skills</c> as a list, trimmed, without empty items.</summary>
+    function ResolveSkills: TArray<string>;
     /// <summary>What the model is told it is: the field of the assistant
     /// (<c>Expertise</c>), then <c>SystemPrompt</c> when set, else
     /// <see cref="HELPCHAT_MODEL_DEF_SYSTEMPROMPT" />, then the rule that
@@ -921,12 +1003,41 @@ type
     /// provider is in use, this reads as that provider - it is what the
     /// engine calls; writing it sets the configured one again.</summary>
     property Provider: string read FProvider write SetProvider stored IsProviderStored;
-    /// <summary>Replaces the built-in system prompt
-    /// (<see cref="HELPCHAT_MODEL_DEF_SYSTEMPROMPT" />) when not empty. Rarely
-    /// what you want: the built-in one carries the rules about the excerpts
-    /// and the citations. To say what this assistant is expert in, write
-    /// <c>Instructions</c> instead.</summary>
-    property SystemPrompt: string read FSystemPrompt write FSystemPrompt;
+    /// <summary>The rules of the assistant: by default
+    /// <see cref="HELPCHAT_MODEL_DEF_SYSTEMPROMPT" />, and an empty value goes
+    /// back to it. Change them with care: they carry the rules about the
+    /// excerpts and the citations. To say what this assistant does, write
+    /// <c>Instructions</c>; what it is expert in, <c>Expertise</c>.</summary>
+    property SystemPrompt: string read FSystemPrompt write FSystemPrompt
+      stored IsSystemPromptStored;
+    /// <summary>The sentence that opens the prompt: %0:s the name of the
+    /// assistant, %1:s now (date, time and UTC offset, in English). Default
+    /// <see cref="HELPCHAT_MODEL_DEF_IDENTITY_RULE" />; empty = the default.</summary>
+    property IdentityRule: string read FIdentityRule write FIdentityRule
+      stored IsIdentityRuleStored;
+    /// <summary>Now: %s the date, the time and the UTC offset, in English.
+    /// It goes with the question, not in the system prompt (claude), because
+    /// it changes every minute. Default
+    /// <see cref="HELPCHAT_MODEL_DEF_NOW_RULE" />; empty = the default.</summary>
+    property NowRule: string read FNowRule write FNowRule stored IsNowRuleStored;
+    /// <summary>The language of the reply: %0:s the name of the language of
+    /// the chat. Default <see cref="HELPCHAT_MODEL_DEF_LANGUAGE_RULE" />.</summary>
+    property LanguageRule: string read FLanguageRule write FLanguageRule
+      stored IsLanguageRuleStored;
+    /// <summary>Added when <c>DocLanguage</c> differs from the language of the
+    /// chat: %0:s the language of the manual, %1:s the one of the chat.
+    /// Default <see cref="HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE" />.</summary>
+    property DocLanguageRule: string read FDocLanguageRule write FDocLanguageRule
+      stored IsDocLanguageRuleStored;
+    /// <summary>What <c>Expertise</c> (%s) becomes at the start of the prompt.
+    /// Default <see cref="HELPCHAT_MODEL_DEF_EXPERTISE" />.</summary>
+    property ExpertiseIntro: string read FExpertiseIntro write FExpertiseIntro
+      stored IsExpertiseIntroStored;
+    /// <summary>Added after the rules when there is an <c>Expertise</c>: the
+    /// expertise explains concepts, the manual alone says how the application
+    /// works. Default <see cref="HELPCHAT_MODEL_DEF_EXPERTISE_RULE" />.</summary>
+    property ExpertiseRule: string read FExpertiseRule write FExpertiseRule
+      stored IsExpertiseRuleStored;
     /// <summary>The field this assistant is an expert of ("general
     /// accounting", "warehouse management"): what it knows beyond the manual,
     /// to understand what the user means and explain the concepts the manual
@@ -986,6 +1097,15 @@ type
     /// component and on <c>HelpChatSharedActions</c>. A configuration narrows
     /// what the code registered: it can never add an action.</summary>
     property AllowedActions: string read FAllowedActions write FAllowedActions;
+    /// <summary>The skills of this assistant, separated by commas ("forms,
+    /// pages"); in JSON a string or an array. A skill is a set of actions the
+    /// library writes once - the VCL ones are <c>forms</c> (describe and fill
+    /// the form the user is on), <c>commands</c> (press its buttons),
+    /// <c>records</c> (count and find its records) and <c>pages</c> (show
+    /// one of its tabs) - which the assistant gets without registering
+    /// anything (<c>HelpChatAI.Skills</c>). Naming a skill allows its
+    /// actions, whatever <c>AllowedActions</c> says. Empty = none.</summary>
+    property Skills: string read FSkills write FSkills;
     /// <summary>Prefix of the documentation links produced from the index.</summary>
     property DocBaseUrl: string read FDocBaseUrl write FDocBaseUrl;
     /// <summary>Folder of the Markdown documentation: when set, a link to one of
@@ -1026,12 +1146,20 @@ function HelpChatAppDataFolder: string;
 /// OpenAI, Gemini, else the registered name.</summary>
 function HelpChatProviderDisplayName(const AProvider: string): string;
 
+/// <summary>A text of the prompt with its values: ARule, or ADefault when
+/// ARule is empty - and ADefault as well when ARule does not fit the values
+/// (a %s too many, a %d where a name goes): a rule written wrong must cost
+/// the developer a warning of the configuration check, never a request.</summary>
+function HelpChatFormatRule(const ARule, ADefault: string; const AArgs: array of const): string;
+/// <summary>Why ARule cannot be formatted with ACount names; empty when it
+/// can. What the configuration check reports.</summary>
+function HelpChatRuleIssue(const ARule: string; const ACount: Integer): string;
+
 implementation
 
 uses
   System.IOUtils,
-  System.SyncObjs,
-  HelpChatAI.Types;
+  System.SyncObjs;
 
 var
   // The secret handler belongs to the application and is called from the
@@ -1069,6 +1197,42 @@ begin
     Result := RevealSecretOf(AOwner, AName, LEncrypted)
   else
     Result := LClear;
+end;
+
+function HelpChatFormatRule(const ARule, ADefault: string; const AArgs: array of const): string;
+begin
+  if Trim(ARule) <> '' then
+    try
+      Exit(Format(Trim(ARule), AArgs));
+    except
+      on EConvertError do
+        ; // the default below
+    end;
+  Result := Format(ADefault, AArgs);
+end;
+
+function HelpChatRuleIssue(const ARule: string; const ACount: Integer): string;
+var
+  LArgs: array of TVarRec;
+  LName: string;
+  I: Integer;
+begin
+  Result := '';
+  if Trim(ARule) = '' then
+    Exit;
+  LName := 'x';
+  SetLength(LArgs, ACount);
+  for I := 0 to ACount - 1 do
+  begin
+    LArgs[I].VType := vtUnicodeString;
+    LArgs[I].VUnicodeString := Pointer(LName);
+  end;
+  try
+    Format(Trim(ARule), LArgs);
+  except
+    on E: EConvertError do
+      Result := E.Message;
+  end;
 end;
 
 // ---- JSON helpers: tolerant, case-insensitive readers (missing key = keep value)
@@ -1457,13 +1621,17 @@ begin
   FModel := HELPCHAT_CLAUDE_DEF_MODEL;
   FBaseUrl := HELPCHAT_CLAUDE_DEF_BASEURL;
   FApiVersion := HELPCHAT_CLAUDE_DEF_VERSION;
+  FPromptCaching := True;
 end;
 
 procedure THelpChatClaudeSettings.Assign(Source: TPersistent);
 begin
   inherited Assign(Source);
   if Source is THelpChatClaudeSettings then
+  begin
     FApiVersion := THelpChatClaudeSettings(Source).FApiVersion;
+    FPromptCaching := THelpChatClaudeSettings(Source).FPromptCaching;
+  end;
 end;
 
 procedure THelpChatClaudeSettings.LoadFromJSONObject(const AObject: TJSONObject);
@@ -1472,12 +1640,14 @@ begin
   if AObject = nil then
     Exit;
   FApiVersion := JsonStr(AObject, 'ApiVersion', FApiVersion);
+  FPromptCaching := JsonBool(AObject, 'PromptCaching', FPromptCaching);
 end;
 
 procedure THelpChatClaudeSettings.SaveToJSONObject(const AObject: TJSONObject);
 begin
   inherited SaveToJSONObject(AObject);
   AObject.AddPair('ApiVersion', FApiVersion);
+  AObject.AddPair('PromptCaching', TJSONBool.Create(FPromptCaching));
 end;
 
 { THelpChatOpenAISettings }
@@ -1906,6 +2076,15 @@ begin
   FModels := THelpChatModelEntries.Create(Self);
   FCatalogue := THelpChatModelEntries.Create(nil);
   FProvider := HELPCHAT_DEF_PROVIDER;
+  // The texts of the prompt start as the library's: the Object Inspector
+  // shows them, and the stored functions keep them out of the form file.
+  FSystemPrompt := HELPCHAT_MODEL_DEF_SYSTEMPROMPT;
+  FIdentityRule := HELPCHAT_MODEL_DEF_IDENTITY_RULE;
+  FNowRule := HELPCHAT_MODEL_DEF_NOW_RULE;
+  FLanguageRule := HELPCHAT_MODEL_DEF_LANGUAGE_RULE;
+  FDocLanguageRule := HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE;
+  FExpertiseIntro := HELPCHAT_MODEL_DEF_EXPERTISE;
+  FExpertiseRule := HELPCHAT_MODEL_DEF_EXPERTISE_RULE;
   FPoolSize := HELPCHAT_DEF_POOLSIZE;
   FMessageMaxLength := HELPCHAT_DEF_MSGMAXLEN;
   FHistoryMaxMessages := HELPCHAT_DEF_HISTMAXMSG;
@@ -2086,6 +2265,116 @@ begin
   Result := FModels.Count > 0;
 end;
 
+function TextOrDefault(const AValue, ADefault: string): string;
+begin
+  Result := Trim(AValue);
+  if Result = '' then
+    Result := ADefault;
+end;
+
+function IsTextStored(const AValue, ADefault: string): Boolean;
+begin
+  Result := (Trim(AValue) <> '') and (AValue <> ADefault);
+end;
+
+function THelpChatSettings.IsSystemPromptStored: Boolean;
+begin
+  Result := IsTextStored(FSystemPrompt, HELPCHAT_MODEL_DEF_SYSTEMPROMPT);
+end;
+
+function THelpChatSettings.IsIdentityRuleStored: Boolean;
+begin
+  Result := IsTextStored(FIdentityRule, HELPCHAT_MODEL_DEF_IDENTITY_RULE);
+end;
+
+function THelpChatSettings.IsNowRuleStored: Boolean;
+begin
+  Result := IsTextStored(FNowRule, HELPCHAT_MODEL_DEF_NOW_RULE);
+end;
+
+function THelpChatSettings.IsLanguageRuleStored: Boolean;
+begin
+  Result := IsTextStored(FLanguageRule, HELPCHAT_MODEL_DEF_LANGUAGE_RULE);
+end;
+
+function THelpChatSettings.IsDocLanguageRuleStored: Boolean;
+begin
+  Result := IsTextStored(FDocLanguageRule, HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE);
+end;
+
+function THelpChatSettings.IsExpertiseIntroStored: Boolean;
+begin
+  Result := IsTextStored(FExpertiseIntro, HELPCHAT_MODEL_DEF_EXPERTISE);
+end;
+
+function THelpChatSettings.IsExpertiseRuleStored: Boolean;
+begin
+  Result := IsTextStored(FExpertiseRule, HELPCHAT_MODEL_DEF_EXPERTISE_RULE);
+end;
+
+procedure THelpChatSettings.SetPromptHandler(const AHandler: THelpChatBuildPromptEvent;
+  const ASender: TObject);
+begin
+  FOnBuildSystemPrompt := AHandler;
+  FPromptSender := ASender;
+end;
+
+function THelpChatSettings.CustomizePrompt(const AContext: THelpChatContext;
+  const ALanguage: THelpChatLanguage; const APrompt: string): string;
+var
+  LSender: TObject;
+begin
+  Result := APrompt;
+  // Inside the IDE the handler is code of the application, which does not
+  // run there: what the Object Inspector holds is not a callable method.
+  if not Assigned(FOnBuildSystemPrompt) or HelpChatDesignTime then
+    Exit;
+  LSender := FPromptSender;
+  if LSender = nil then
+    LSender := Self;
+  // The same lock as the secret handler: both belong to the application and
+  // are called from a worker, one at a time.
+  FSecretLock.Enter;
+  try
+    FOnBuildSystemPrompt(LSender, AContext, ALanguage, Result);
+  finally
+    FSecretLock.Leave;
+  end;
+end;
+
+function THelpChatSettings.ResolveIdentityRule(const AName, ANow: string): string;
+begin
+  // Now is passed too: a rule written before 1.12 may still say it (%1:s),
+  // and Format ignores an argument nobody asks for.
+  Result := HelpChatFormatRule(FIdentityRule, HELPCHAT_MODEL_DEF_IDENTITY_RULE, [AName, ANow]);
+end;
+
+function THelpChatSettings.IdentityRuleSaysNow: Boolean;
+begin
+  Result := Pos('%1', ResolveIdentityRule('%0', '%1')) > 0;
+end;
+
+function THelpChatSettings.ResolveNowRule(const ANow: string): string;
+begin
+  if IdentityRuleSaysNow then
+    Exit('');
+  Result := HelpChatFormatRule(FNowRule, HELPCHAT_MODEL_DEF_NOW_RULE, [ANow]);
+end;
+
+function THelpChatSettings.ResolveLanguageRule(const AChat: THelpChatLanguage): string;
+begin
+  Result := HelpChatFormatRule(FLanguageRule, HELPCHAT_MODEL_DEF_LANGUAGE_RULE,
+    [HelpChatLanguageName(AChat)]);
+end;
+
+function THelpChatSettings.ResolveDocLanguageRule(const AChat: THelpChatLanguage): string;
+begin
+  if (FDocLanguage = hclAuto) or (FDocLanguage = AChat) then
+    Exit('');
+  Result := HelpChatFormatRule(FDocLanguageRule, HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE,
+    [HelpChatLanguageName(FDocLanguage), HelpChatLanguageName(AChat)]);
+end;
+
 function THelpChatSettings.ConfiguredProvider: string;
 begin
   if FProviderFromModel then
@@ -2223,6 +2512,14 @@ begin
       FSystemPrompt := LSource.FSystemPrompt;
       FExpertise := LSource.FExpertise;
       FInstructions := LSource.FInstructions;
+      FIdentityRule := LSource.FIdentityRule;
+      FNowRule := LSource.FNowRule;
+      FLanguageRule := LSource.FLanguageRule;
+      FDocLanguageRule := LSource.FDocLanguageRule;
+      FExpertiseIntro := LSource.FExpertiseIntro;
+      FExpertiseRule := LSource.FExpertiseRule;
+      FOnBuildSystemPrompt := LSource.FOnBuildSystemPrompt;
+      FPromptSender := LSource.FPromptSender;
       FProvider := LSource.FProvider;
       FConfiguredProvider := LSource.FConfiguredProvider;
       FProviderFromModel := LSource.FProviderFromModel;
@@ -2237,6 +2534,7 @@ begin
       FDocIndexFile := LSource.FDocIndexFile;
       FDocAreas := LSource.FDocAreas;
       FAllowedActions := LSource.FAllowedActions;
+      FSkills := LSource.FSkills;
       FDocBaseUrl := LSource.FDocBaseUrl;
       FDocFolder := LSource.FDocFolder;
       FPersistConversation := LSource.FPersistConversation;
@@ -2312,6 +2610,11 @@ begin
   Result := SplitList(FAllowedActions);
 end;
 
+function THelpChatSettings.ResolveSkills: TArray<string>;
+begin
+  Result := SplitList(FSkills);
+end;
+
 function THelpChatSettings.ResolveGreeting: string;
 begin
   Result := Trim(FGreeting);
@@ -2384,8 +2687,8 @@ begin
   // The field first, then the rules, then the rule that governs the field:
   // in that order, and with that rule, or the expertise changes nothing.
   if LExpertise <> '' then
-    Result := Format(HELPCHAT_MODEL_DEF_EXPERTISE, [LExpertise]) + ' ' + LRules + ' ' +
-      HELPCHAT_MODEL_DEF_EXPERTISE_RULE
+    Result := HelpChatFormatRule(FExpertiseIntro, HELPCHAT_MODEL_DEF_EXPERTISE, [LExpertise]) +
+      ' ' + LRules + ' ' + TextOrDefault(FExpertiseRule, HELPCHAT_MODEL_DEF_EXPERTISE_RULE)
   else
     Result := LRules;
   if Trim(FInstructions) <> '' then
@@ -2458,6 +2761,12 @@ begin
   FSystemPrompt := JsonStr(AObject, 'SystemPrompt', FSystemPrompt);
   FExpertise := JsonStr(AObject, 'Expertise', FExpertise);
   FInstructions := JsonStr(AObject, 'Instructions', FInstructions);
+  FIdentityRule := JsonStr(AObject, 'IdentityRule', FIdentityRule);
+  FNowRule := JsonStr(AObject, 'NowRule', FNowRule);
+  FLanguageRule := JsonStr(AObject, 'LanguageRule', FLanguageRule);
+  FDocLanguageRule := JsonStr(AObject, 'DocLanguageRule', FDocLanguageRule);
+  FExpertiseIntro := JsonStr(AObject, 'ExpertiseIntro', FExpertiseIntro);
+  FExpertiseRule := JsonStr(AObject, 'ExpertiseRule', FExpertiseRule);
   // Through the setter, and only when the key is there: a configuration
   // that names the provider resets the one a model in use had put on top.
   if JsonFind(AObject, 'Provider') <> nil then
@@ -2475,6 +2784,7 @@ begin
   FDocIndexFile := JsonStr(AObject, 'DocIndexFile', FDocIndexFile);
   FDocAreas := JsonStrings(JsonFind(AObject, 'DocAreas'), FDocAreas);
   FAllowedActions := JsonStrings(JsonFind(AObject, 'AllowedActions'), FAllowedActions);
+  FSkills := JsonStrings(JsonFind(AObject, 'Skills'), FSkills);
   FDocBaseUrl := JsonStr(AObject, 'DocBaseUrl', FDocBaseUrl);
   FDocFolder := JsonStr(AObject, 'DocFolder', FDocFolder);
   FPersistConversation := JsonBool(AObject, 'PersistConversation', FPersistConversation);
@@ -2502,9 +2812,24 @@ begin
   try
     if FAssistantName <> '' then
       LRoot.AddPair('AssistantName', FAssistantName);
-    LRoot.AddPair('SystemPrompt', FSystemPrompt);
+    // The texts of the prompt only when they are not the library's: a file
+    // that froze them would never see the rules of a newer version.
+    if IsSystemPromptStored then
+      LRoot.AddPair('SystemPrompt', FSystemPrompt);
     LRoot.AddPair('Expertise', FExpertise);
     LRoot.AddPair('Instructions', FInstructions);
+    if IsIdentityRuleStored then
+      LRoot.AddPair('IdentityRule', FIdentityRule);
+    if IsNowRuleStored then
+      LRoot.AddPair('NowRule', FNowRule);
+    if IsLanguageRuleStored then
+      LRoot.AddPair('LanguageRule', FLanguageRule);
+    if IsDocLanguageRuleStored then
+      LRoot.AddPair('DocLanguageRule', FDocLanguageRule);
+    if IsExpertiseIntroStored then
+      LRoot.AddPair('ExpertiseIntro', FExpertiseIntro);
+    if IsExpertiseRuleStored then
+      LRoot.AddPair('ExpertiseRule', FExpertiseRule);
     // The configured provider: what the model in use put on top is an
     // override, and an override is never saved.
     LRoot.AddPair('Provider', ConfiguredProvider);
@@ -2517,6 +2842,7 @@ begin
     LRoot.AddPair('DocIndexFile', FDocIndexFile);
     LRoot.AddPair('DocAreas', FDocAreas);
     LRoot.AddPair('AllowedActions', FAllowedActions);
+    LRoot.AddPair('Skills', FSkills);
     LRoot.AddPair('DocBaseUrl', FDocBaseUrl);
     LRoot.AddPair('DocFolder', FDocFolder);
     LRoot.AddPair('PoolSize', TJSONNumber.Create(FPoolSize));

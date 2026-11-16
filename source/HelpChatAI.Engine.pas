@@ -865,6 +865,8 @@ type
     function HolderCount: Integer;
     procedure Decrypt(Sender: TObject; const AName, AValue: string;
       var AResult: string; var AHandled: Boolean);
+    procedure BuildPrompt(Sender: TObject; const AContext: THelpChatContext;
+      const ALanguage: THelpChatLanguage; var APrompt: string);
   end;
 
 var
@@ -956,6 +958,29 @@ begin
   Result := nil;
 end;
 
+procedure TSharedEngine.BuildPrompt(Sender: TObject; const AContext: THelpChatContext;
+  const ALanguage: THelpChatLanguage; var APrompt: string);
+var
+  LSettings: THelpChatSettings;
+  LSender: TObject;
+begin
+  // As for the secrets: the handler of an assistant still holding the engine.
+  GSharedLock.Enter;
+  try
+    for LSettings in FHolderSettings do
+      if Assigned(LSettings.OnBuildSystemPrompt) then
+      begin
+        LSender := LSettings.PromptSender;
+        if LSender = nil then
+          LSender := LSettings;
+        LSettings.OnBuildSystemPrompt(LSender, AContext, ALanguage, APrompt);
+        Exit;
+      end;
+  finally
+    GSharedLock.Leave;
+  end;
+end;
+
 class function THelpChatEngines.Acquire(const AHolder: TObject;
   const ASettings: THelpChatSettings): THelpChatEngine;
 var
@@ -977,6 +1002,7 @@ begin
       LSettings := THelpChatSettings.Create;
       LSettings.Assign(ASettings);
       LSettings.SetSecretHandler(LEntry.Decrypt, nil);
+      LSettings.SetPromptHandler(LEntry.BuildPrompt, nil);
       LEntry.Engine := THelpChatEngine.Create(LSettings, True);
     end;
     LEntry.AddHolder(AHolder, ASettings);

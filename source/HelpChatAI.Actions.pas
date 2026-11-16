@@ -174,6 +174,16 @@ type
   THelpChatActionProc = reference to procedure(const AArgs: THelpChatActionArgs;
     var AResult: string);
 
+  /// <summary>What the confirmation of an action shows, when the parameters
+  /// as the model sent them would not say it well (a JSON object of field
+  /// values, say): <c>ASummary</c> arrives as the description of the action
+  /// and <c>AValues</c> as the labelled parameters, and either may be
+  /// replaced. Runs on the thread that confirms - the main thread of the
+  /// application - so it may read the screen. The values are made safe for
+  /// display afterwards, like the others.</summary>
+  THelpChatActionDisplayProc = reference to procedure(const AArgs: THelpChatActionArgs;
+    var ASummary: string; var AValues: TArray<TPair<string, string>>);
+
   /// <summary>One registered action: its name, what the model is told about
   /// it, its parameters, whether it asks first, and the handler. Owned by the
   /// broker it was added to; a shared action is owned by
@@ -186,10 +196,14 @@ type
     FParams: TArray<THelpChatActionParam>;
     FConfirm: Boolean;
     FHandler: THelpChatActionProc;
+    FOnDisplay: THelpChatActionDisplayProc;
   public
     constructor Create(const AName, ADescription: string;
       const AParams: TArray<THelpChatActionParam>; const AHandler: THelpChatActionProc;
       const AConfirm: Boolean);
+    /// <summary>The sentence a confirmation shows above the values: the
+    /// description, unless <see cref="OnDisplay" /> says otherwise.</summary>
+    function DisplaySummary(const AArgs: THelpChatActionArgs): string;
     /// <summary>The JSON schema of this action as an Anthropic tool
     /// (<c>name</c>, <c>description</c>, <c>input_schema</c>): the neutral
     /// form of the library, which the other providers translate into their
@@ -214,6 +228,11 @@ type
     /// <summary>What runs, on the main thread of the application. It must
     /// return at once: a worker is waiting for it.</summary>
     property Handler: THelpChatActionProc read FHandler;
+    /// <summary>Optional: what a confirmation shows instead of the
+    /// description and of the parameters as they were sent. Read by
+    /// <see cref="DisplaySummary" /> and by
+    /// <see cref="THelpChatActionArgs.ToDisplayPairs" />.</summary>
+    property OnDisplay: THelpChatActionDisplayProc read FOnDisplay write FOnDisplay;
   end;
 
   /// <summary>How an action call ended. Anything but <c>aoDone</c> is reported
@@ -334,13 +353,15 @@ type
 
     /// <summary>Declares an action the assistant may call. It asks the user
     /// before running unless <c>AConfirm</c> is False: that is for an action
-    /// that changes nothing, or that asks in its own way.</summary>
-    procedure Add(const AName, ADescription: string;
+    /// that changes nothing, or that asks in its own way.
+    /// It returns the action, owned by the broker, for what is set after the
+    /// registration (<see cref="THelpChatAction.OnDisplay" />).</summary>
+    function Add(const AName, ADescription: string;
       const AParams: array of THelpChatActionParam;
-      const AHandler: THelpChatActionProc; const AConfirm: Boolean = True); overload;
+      const AHandler: THelpChatActionProc; const AConfirm: Boolean = True): THelpChatAction; overload;
     /// <summary>An action without parameters.</summary>
-    procedure Add(const AName, ADescription: string;
-      const AHandler: THelpChatActionProc; const AConfirm: Boolean = True); overload;
+    function Add(const AName, ADescription: string;
+      const AHandler: THelpChatActionProc; const AConfirm: Boolean = True): THelpChatAction; overload;
     /// <summary>Takes an action of this broker away (a shared one is removed
     /// from <see cref="HelpChatSharedActions" />, or kept out with
     /// <c>Allowed</c>).</summary>
@@ -693,6 +714,15 @@ begin
       if not LSeen.Contains(LKey) then
         LList.Add(TPair<string, string>.Create(LKey, DisplayValue(FValues[LKey])));
     Result := LList.ToArray;
+    if Assigned(AAction) and Assigned(AAction.OnDisplay) then
+    begin
+      LKey := AAction.Description;
+      AAction.OnDisplay(Self, LKey, Result);
+      // Whoever wrote them, they are shown as values: made safe the same way.
+      for I := 0 to High(Result) do
+        Result[I] := TPair<string, string>.Create(DisplayValue(Result[I].Key),
+          DisplayValue(Result[I].Value));
+    end;
   finally
     LSeen.Free;
     LList.Free;
@@ -726,6 +756,18 @@ begin
   FParams := AParams;
   FHandler := AHandler;
   FConfirm := AConfirm;
+end;
+
+function THelpChatAction.DisplaySummary(const AArgs: THelpChatActionArgs): string;
+var
+  LValues: TArray<TPair<string, string>>;
+begin
+  Result := FDescription;
+  if Assigned(FOnDisplay) and Assigned(AArgs) then
+  begin
+    LValues := nil;
+    FOnDisplay(AArgs, Result, LValues);
+  end;
 end;
 
 function THelpChatAction.ParamLabel(const AName: string): string;
@@ -849,9 +891,9 @@ begin
   inherited;
 end;
 
-procedure THelpChatActionBroker.Add(const AName, ADescription: string;
+function THelpChatActionBroker.Add(const AName, ADescription: string;
   const AParams: array of THelpChatActionParam; const AHandler: THelpChatActionProc;
-  const AConfirm: Boolean);
+  const AConfirm: Boolean): THelpChatAction;
 var
   LParams: TArray<THelpChatActionParam>;
   LKey: string;
@@ -869,17 +911,17 @@ begin
   try
     if not FActions.ContainsKey(LKey) then
       FOrder.Add(LKey);
-    FActions.AddOrSetValue(LKey, THelpChatAction.Create(AName.Trim, ADescription,
-      LParams, AHandler, AConfirm));
+    Result := THelpChatAction.Create(AName.Trim, ADescription, LParams, AHandler, AConfirm);
+    FActions.AddOrSetValue(LKey, Result);
   finally
     FLock.Leave;
   end;
 end;
 
-procedure THelpChatActionBroker.Add(const AName, ADescription: string;
-  const AHandler: THelpChatActionProc; const AConfirm: Boolean);
+function THelpChatActionBroker.Add(const AName, ADescription: string;
+  const AHandler: THelpChatActionProc; const AConfirm: Boolean): THelpChatAction;
 begin
-  Add(AName, ADescription, [], AHandler, AConfirm);
+  Result := Add(AName, ADescription, [], AHandler, AConfirm);
 end;
 
 procedure THelpChatActionBroker.Remove(const AName: string);

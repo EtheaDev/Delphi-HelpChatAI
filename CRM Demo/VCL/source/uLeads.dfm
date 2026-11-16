@@ -7,7 +7,6 @@ object LeadsForm: TLeadsForm
   ClientHeight = 631
   ClientWidth = 1069
   Color = clBtnFace
-  CustomTitleBar.Height = 31
   Constraints.MinHeight = 575
   Constraints.MinWidth = 700
   DoubleBuffered = True
@@ -16,7 +15,6 @@ object LeadsForm: TLeadsForm
   Font.Height = -11
   Font.Name = 'Segoe UI'
   Font.Style = []
-  GlassFrame.Top = 31
   StyleElements = [seFont, seClient]
   Position = poMainFormCenter
   TextHeight = 13

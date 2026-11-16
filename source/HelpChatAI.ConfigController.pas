@@ -53,7 +53,8 @@ uses
   System.Classes,
   System.JSON,
   System.Generics.Collections,
-  HelpChatAI.Settings;
+  HelpChatAI.Settings,
+  HelpChatAI.Commands;
 
 const
   /// <summary>The page of the online documentation about the component
@@ -84,12 +85,21 @@ type
   /// a set - one tick per item of <c>Choices</c> -, <c>cvkNumber</c> a whole
   /// number, <c>cvkChoice</c> a line with the usual values offered
   /// (<c>Choices</c>) and any other accepted - a provider of the application,
-  /// a model of a file read later.</summary>
+  /// a model of a file read later -, <c>cvkSet</c> a set like
+  /// <c>cvkLanguages</c> whose items have a caption and a hint of their own
+  /// (<c>ChoiceCaptions</c>, <c>ChoiceHints</c>: the skills).</summary>
   THelpChatConfigValueKind = (cvkText, cvkMemo, cvkBoolean, cvkList, cvkLanguage, cvkSecret,
-    cvkLanguages, cvkNumber, cvkChoice);
+    cvkLanguages, cvkNumber, cvkChoice, cvkSet);
 
   /// <summary>Where in a file a value is written.</summary>
   THelpChatConfigScope = (ccsRoot, ccsProfile);
+
+  /// <summary>The pages of the editor a setting is listed on: what the chat
+  /// looks like, how it works, what the model is told, the documents it
+  /// writes. A setting may be on more than one (the name of the assistant is
+  /// what the panel shows and how the prompt opens).</summary>
+  THelpChatConfigPage = (ccpAppearance, ccpSettings, ccpPrompt, ccpDocuments);
+  THelpChatConfigPages = set of THelpChatConfigPage;
 
   /// <summary>Who set the value in use, in three kinds: what a view shows at
   /// a glance, the way the Object Inspector does - <c>Origin</c> says the
@@ -98,11 +108,19 @@ type
 
   /// <summary>One setting as the editor lists it.</summary>
   THelpChatConfigEntry = record
-    /// <summary>The JSON path: <c>DocAreas</c>, <c>Claude.Model</c>.</summary>
+    /// <summary>The JSON path: <c>DocAreas</c>, <c>Claude.Model</c>. It is
+    /// also the name of the property under <c>Settings</c> - what the list
+    /// shows first and is sorted by, as in the Object Inspector.</summary>
     Path: string;
+    /// <summary>What the setting is, in a few words.</summary>
     Caption: string;
     Hint: string;
     Kind: THelpChatConfigValueKind;
+    /// <summary>The pages of the editor that list it.</summary>
+    Pages: THelpChatConfigPages;
+    /// <summary>A setting of one provider (<c>Claude.*</c>, <c>OpenAI.*</c>,
+    /// <c>Gemini.*</c>): listed after those of the component.</summary>
+    IsModel: Boolean;
     /// <summary>The value the component uses, as text, never empty: what is
     /// configured, else what an empty value resolves to - the default model
     /// of the provider, the localized greeting, the language of the OS - or,
@@ -110,19 +128,36 @@ type
     /// ("(none)", "(the whole manual)"). A secret is masked.</summary>
     InUse: string;
     /// <summary>The value in use as it would be written - no masking, no
-    /// word in parentheses: empty when nothing is configured. What a view
-    /// puts in its edit control when the file being edited does not say the
-    /// value itself. Always empty for a secret: a key is shown only from the
-    /// file that holds it.</summary>
+    /// word in parentheses: what a view puts in its edit control when the
+    /// file being edited does not say the value itself. When nothing is
+    /// configured it is what replaces the empty value - the localized
+    /// greeting, the default model, the text of the library - so that a
+    /// small correction is a correction and not a value typed from scratch;
+    /// empty only where nothing replaces it. Always empty for a secret: a
+    /// key is shown only from the file that holds it.</summary>
     Value: string;
     /// <summary>What a view offers for a <c>cvkLanguage</c>,
     /// <c>cvkLanguages</c> or <c>cvkChoice</c>: the language codes (with
     /// <c>auto</c> for a single language), the providers registered in this
     /// process, the names of the models in force. Empty for the other
-    /// kinds.</summary>
+    /// kinds. For a <c>cvkSet</c>, the names registered in this process
+    /// followed by those the file being edited names and nobody registered
+    /// here (a skill of the application): ticked, so that saving keeps
+    /// them.</summary>
     Choices: TArray<string>;
-    /// <summary>Who set it: "Library default", "Component", or the caption
-    /// of a file with "root" or "profile X".</summary>
+    /// <summary>For a <c>cvkSet</c>, what the view shows for each item of
+    /// <c>Choices</c> (the name and the actions of a skill), in the same
+    /// order; empty for the other kinds, where the item is its own
+    /// caption. What a view writes back is always the item of
+    /// <c>Choices</c>.</summary>
+    ChoiceCaptions: TArray<string>;
+    /// <summary>For a <c>cvkSet</c>, what each item of <c>Choices</c> is, in
+    /// a sentence or two: what a view shows when the item is
+    /// selected.</summary>
+    ChoiceHints: TArray<string>;
+    /// <summary>Who set it: "Library default", the property of the
+    /// component that holds it ("Component: Settings.Expertise"), or the
+    /// caption of a file with "root" or "profile X".</summary>
     Origin: string;
     /// <summary><c>Origin</c> as one of three kinds.</summary>
     Source: THelpChatConfigSource;
@@ -174,6 +209,11 @@ type
     FLastError: string;
     FLoadError: string;
     FComponentAssistantName: string;
+    /// <summary>Path -> text, filled by PromptPreview.</summary>
+    FFragments: TDictionary<string, string>;
+    /// <summary>The executable of the project: its folder is where a relative
+    /// file of the component is looked for.</summary>
+    FExeFile: string;
     procedure SetTargetIndex(const Value: Integer);
     /// <summary>What <c>InUse</c> says for APath, given the settings with
     /// every layer applied and ARaw, the value they hold as text.</summary>
@@ -189,6 +229,13 @@ type
     function TextToValue(const APath, AText: string): TJSONValue;
     function ProfilesObject(const ACreate: Boolean): TJSONObject;
     function DocumentOf(const AIndex: Integer): TJSONObject;
+    /// <summary>What each setting writes into APrompt, built from ASettings.</summary>
+    procedure FillFragments(const ASettings: THelpChatSettings; const APrompt: string);
+    /// <summary>The settings this assistant runs with: the component, then
+    /// each file (the one being edited as it is in memory), root and
+    /// profile. The caller frees them. Raises what a file raises, with its
+    /// name.</summary>
+    function LayeredSettings: THelpChatSettings;
   public
     /// <summary>ASettings are the component's (its DFM values), not owned:
     /// SetComponentValue writes into them. AExeFile is the executable of the
@@ -236,8 +283,45 @@ type
     function Validate: string;
 
     /// <summary>The settings, their value in force and its origin, and what
-    /// the file being edited says of each at its root and in the profile.</summary>
+    /// the file being edited says of each at its root and in the profile.
+    /// Those of the component first, by name, then those of the providers.</summary>
     function Entries: TArray<THelpChatConfigEntry>;
+    /// <summary>The settings of AEntries listed on APage, in the order the
+    /// page shows them: by name, the providers last - and on the Prompt
+    /// page in the order the prompt is written, so that the list reads
+    /// like the text beside it (<c>PROMPT_ORDER</c>).</summary>
+    class function EntriesOfPage(const AEntries: TArray<THelpChatConfigEntry>;
+      const APage: THelpChatConfigPage): TArray<THelpChatConfigEntry>; static;
+    /// <summary>The system prompt this assistant would send, built from the
+    /// settings in force - the component, the files as the editor has them,
+    /// the profile - for a sample question asked from a sample screen, with a
+    /// sample excerpt of the manual: what the Prompt page shows. The rule
+    /// about the actions, which nobody may change, is named at the end
+    /// rather than copied. <c>OnBuildSystemPrompt</c> does not run in the
+    /// IDE, so whatever it would change is not in it.</summary>
+    function PromptPreview: string;
+    /// <summary>The part of the last <see cref="PromptPreview" /> that the
+    /// setting at APath writes: the sentence of a rule, the instructions, the
+    /// excerpts of the manual for the grounding of a provider. Empty when
+    /// the setting writes nothing there (or nothing now: a rule of the
+    /// expertise with no expertise). What the Prompt page shows in bold.</summary>
+    function PromptFragment(const APath: string): string;
+    /// <summary>
+    ///  The panel as this assistant would show it, for the Appearance page:
+    ///  the page of the library with the greeting, a question, a short answer
+    ///  and the answer of <c>/help</c>, in the language, with the name and the
+    ///  greeting the settings in force give.
+    ///  <para><c>ADark</c> picks the built-in dark theme, else the light one;
+    ///  <c>AIconDataUri</c> is the icon of the component (the view draws it:
+    ///  an image list is the framework's); <c>AStyleSheetFile</c> its
+    ///  <c>PanelStyleSheet</c>, relative to the folder of the executable of
+    ///  the project. A style sheet that cannot be read is left out and
+    ///  <c>AStyleSheetError</c> says why: the preview must not fail where the
+    ///  application would refuse to start, it must say so.</para>
+    /// </summary>
+    function AppearancePreview(const ADark: Boolean; const AIconDataUri,
+      AStyleSheetFile: string; const ACommands: THelpChatCommands;
+      out AStyleSheetError: string): string;
     /// <summary>What the file being edited says at APath, at its root or in
     /// the profile: False when the key is not there (which is not the same as
     /// an empty value). A secret comes back in clear: the caller masks
@@ -330,82 +414,273 @@ implementation
 
 uses
   System.IOUtils,
+  System.StrUtils,
+  System.TypInfo,
+  System.Variants,
   HelpChatAI.Types,
+  HelpChatAI.Html,
+  HelpChatAI.Panel,
+  HelpChatAI.Theme,
   HelpChatAI.Messages,
-  HelpChatAI.Provider;
+  HelpChatAI.Provider,
+  HelpChatAI.Skills;
+
+const
+  SKILL_NOT_REGISTERED_CAPTION = '%s (not registered here)';
+  SKILL_NOT_REGISTERED_HINT = 'No skill of this name is registered in the IDE: it may be one ' +
+    'the application registers, or a typo. It stays in the file as it is; untick it to remove it.';
+
+/// <summary>Completes an entry of kind cvkSet: the names the file being
+/// edited or the settings in force name and nobody registered here are added
+/// to the choices, and every choice gets its caption and its hint.</summary>
+procedure CompleteSetEntry(var AEntry: THelpChatConfigEntry);
+
+  procedure AddNamesOf(const AText: string);
+  var
+    LName: string;
+  begin
+    for LName in AText.Split([',', ';']) do
+      if (Trim(LName) <> '') and not MatchText(Trim(LName), AEntry.Choices) then
+        AEntry.Choices := AEntry.Choices + [Trim(LName)];
+  end;
+
+var
+  I: Integer;
+  LActions: TArray<string>;
+begin
+  if not SameText(AEntry.Path, 'Skills') then
+    Exit;
+  AddNamesOf(AEntry.Value);
+  AddNamesOf(AEntry.RootValue);
+  AddNamesOf(AEntry.ProfileValue);
+  SetLength(AEntry.ChoiceCaptions, Length(AEntry.Choices));
+  SetLength(AEntry.ChoiceHints, Length(AEntry.Choices));
+  for I := 0 to High(AEntry.Choices) do
+    if HelpChatIsSkillRegistered(AEntry.Choices[I]) then
+    begin
+      LActions := HelpChatSkillActionNames(AEntry.Choices[I]);
+      AEntry.ChoiceCaptions[I] := AEntry.Choices[I] + ' - ' + string.Join(', ', LActions);
+      AEntry.ChoiceHints[I] := HelpChatSkillDescription(AEntry.Choices[I], hclEnglish);
+    end
+    else
+    begin
+      AEntry.ChoiceCaptions[I] := Format(SKILL_NOT_REGISTERED_CAPTION, [AEntry.Choices[I]]);
+      AEntry.ChoiceHints[I] := SKILL_NOT_REGISTERED_HINT;
+    end;
+end;
+
+/// <summary>Adds to the hint of AllowedActions the actions the skills add to
+/// it: naming a skill allows its actions, which a list of allowed actions
+/// does not show.</summary>
+procedure NoteSkillActions(const ASettings: THelpChatSettings; var AEntry: THelpChatConfigEntry);
+var
+  LSkill, LAction: string;
+  LActions: TArray<string>;
+begin
+  if not SameText(AEntry.Path, 'AllowedActions') or
+     (Length(ASettings.ResolveAllowedActions) = 0) then
+    Exit;
+  LActions := nil;
+  for LSkill in ASettings.ResolveSkills do
+    for LAction in HelpChatSkillActionNames(LSkill) do
+      if not MatchText(LAction, LActions) then
+        LActions := LActions + [LAction];
+  if Length(LActions) > 0 then
+    AEntry.Hint := AEntry.Hint + '; the skills add their own: ' + string.Join(', ', LActions);
+end;
 
 type
   TCatalogueItem = record
     Path: string;
     Caption: string;
     Kind: THelpChatConfigValueKind;
+    Pages: THelpChatConfigPages;
     Hint: string;
   end;
 
 const
-  CATALOGUE_ITEMS: array[0..35] of TCatalogueItem = (
+  CATALOGUE_ITEMS: array[0..79] of TCatalogueItem = (
     (Path: 'AssistantName'; Caption: 'Name of the assistant'; Kind: cvkText;
-      Hint: 'What the panel calls it; prevails over the property of the component'),
+      Pages: [ccpAppearance, ccpPrompt]; Hint: 'What the panel calls it and how the prompt opens; prevails over the property of the component'),
+    (Path: 'Greeting'; Caption: 'Greeting'; Kind: cvkText;
+      Pages: [ccpAppearance]; Hint: 'The first bubble; empty = the localized one'),
     (Path: 'Expertise'; Caption: 'Field of expertise'; Kind: cvkMemo;
-      Hint: 'What it knows beyond the manual ("general accounting"): opens the system prompt'),
+      Pages: [ccpPrompt]; Hint: 'What it knows beyond the manual ("general accounting"): opens the system prompt'),
     (Path: 'Instructions'; Caption: 'Instructions'; Kind: cvkMemo;
-      Hint: 'What this assistant does in detail: added after the built-in rules'),
-    (Path: 'SystemPrompt'; Caption: 'System prompt'; Kind: cvkMemo;
-      Hint: 'Replaces the built-in rules altogether: rarely what you want'),
+      Pages: [ccpPrompt]; Hint: 'What this assistant does in detail: added after the rules'),
+    (Path: 'SystemPrompt'; Caption: 'Rules of the assistant'; Kind: cvkMemo;
+      Pages: [ccpPrompt]; Hint: 'The built-in rules about the excerpts and the citations: change them with care; empty = the librarys'),
+    (Path: 'IdentityRule'; Caption: 'Opening sentence'; Kind: cvkMemo;
+      Pages: [ccpPrompt]; Hint: '%0:s the name of the assistant; empty = the librarys'),
+    (Path: 'NowRule'; Caption: 'Date and time'; Kind: cvkMemo;
+      Pages: [ccpPrompt]; Hint: '%s now; it goes with the question (claude), not in the system prompt; empty = the librarys'),
+    (Path: 'LanguageRule'; Caption: 'Language of the reply'; Kind: cvkMemo;
+      Pages: [ccpPrompt]; Hint: '%0:s the language of the chat; empty = the librarys'),
+    (Path: 'DocLanguageRule'; Caption: 'Manual in another language'; Kind: cvkMemo;
+      Pages: [ccpPrompt]; Hint: 'When DocLanguage differs from the chat: %0:s the manuals, %1:s the chats; empty = the librarys'),
+    (Path: 'ExpertiseIntro'; Caption: 'Field of expertise, as said'; Kind: cvkMemo;
+      Pages: [ccpPrompt]; Hint: 'What Expertise (%s) becomes in the prompt; empty = the librarys'),
+    (Path: 'ExpertiseRule'; Caption: 'Rule of the expertise'; Kind: cvkMemo;
+      Pages: [ccpPrompt]; Hint: 'Added after the rules when there is an Expertise; empty = the librarys'),
     (Path: 'Provider'; Caption: 'Provider'; Kind: cvkChoice;
-      Hint: 'stub, docsearch, claude, openai, gemini or one of yours'),
+      Pages: [ccpSettings]; Hint: 'stub, docsearch, claude, openai, gemini or one of yours'),
     (Path: 'SelectedModel'; Caption: 'Model in use at start'; Kind: cvkChoice;
-      Hint: 'A name of the Models list'),
-    (Path: 'Greeting'; Caption: 'Greeting'; Kind: cvkText; Hint: 'Empty = the localized one'),
+      Pages: [ccpSettings]; Hint: 'A name of the Models list'),
     (Path: 'Language'; Caption: 'Language of the chat'; Kind: cvkLanguage;
-      Hint: 'auto, en, it, es, fr, de, pt'),
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'auto, en, it, es, fr, de, pt'),
     (Path: 'Languages'; Caption: 'Languages offered'; Kind: cvkLanguages;
-      Hint: 'What the flag of the panel offers; fewer than two = no flag'),
+      Pages: [ccpSettings]; Hint: 'What the flag of the panel offers; fewer than two = no flag'),
     (Path: 'DocLanguage'; Caption: 'Language of the manual'; Kind: cvkLanguage;
-      Hint: 'auto = not stated'),
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'auto = not stated'),
     (Path: 'DocIndexFile'; Caption: 'Documentation index'; Kind: cvkText;
-      Hint: 'Relative to the executable'),
-    (Path: 'DocFolder'; Caption: 'Pages folder'; Kind: cvkText; Hint: 'Relative to the executable'),
-    (Path: 'DocBaseUrl'; Caption: 'Base URL of the pages'; Kind: cvkText; Hint: ''),
+      Pages: [ccpSettings]; Hint: 'Relative to the executable'),
+    (Path: 'DocFolder'; Caption: 'Pages folder'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Relative to the executable'),
+    (Path: 'DocBaseUrl'; Caption: 'Base URL of the pages'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: ''),
     (Path: 'DocAreas'; Caption: 'Areas of the manual'; Kind: cvkList;
-      Hint: 'The sub-folders this assistant knows; empty = the whole manual'),
+      Pages: [ccpSettings]; Hint: 'The sub-folders this assistant knows; empty = the whole manual'),
     (Path: 'AllowedActions'; Caption: 'Allowed actions'; Kind: cvkList;
-      Hint: 'Narrows what the code registers; empty = all of them'),
-    (Path: 'PersistConversation'; Caption: 'Save the conversation'; Kind: cvkBoolean; Hint: ''),
-    (Path: 'Attachments.Enabled'; Caption: 'Attachments allowed'; Kind: cvkBoolean;
-      Hint: 'What the user attaches leaves the machine'),
+      Pages: [ccpSettings]; Hint: 'Narrows what the code registers; empty = all of them'),
+    (Path: 'Skills'; Caption: 'Skills'; Kind: cvkSet;
+      Pages: [ccpSettings]; Hint: 'Sets of actions the library writes: tick the ones this assistant has'),
+    (Path: 'PersistConversation'; Caption: 'Save the conversation'; Kind: cvkBoolean;
+      Pages: [ccpSettings]; Hint: ''),
+    (Path: 'ConversationFile'; Caption: 'Conversation file'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Empty = in the per-user folder of the application'),
     (Path: 'ConversationMaxAgeDays'; Caption: 'Days a saved conversation lasts'; Kind: cvkNumber;
-      Hint: 'An older one is discarded at load; 0 = never'),
+      Pages: [ccpSettings]; Hint: 'An older one is discarded at load; 0 = never'),
     (Path: 'MessageMaxLength'; Caption: 'Longest question'; Kind: cvkNumber;
-      Hint: 'In characters, longer ones are cut; 0 = no limit'),
+      Pages: [ccpSettings]; Hint: 'In characters, longer ones are cut; 0 = no limit'),
     (Path: 'HistoryMaxMessages'; Caption: 'Messages sent with a question'; Kind: cvkNumber;
-      Hint: 'The most recent ones of the conversation; 0 = all'),
+      Pages: [ccpSettings]; Hint: 'The most recent ones of the conversation; 0 = all'),
     (Path: 'MaxStoredMessages'; Caption: 'Messages kept'; Kind: cvkNumber;
-      Hint: 'Older ones are pruned; 0 = unlimited'),
+      Pages: [ccpSettings]; Hint: 'Older ones are pruned; 0 = unlimited'),
     (Path: 'PoolSize'; Caption: 'Replies at the same time'; Kind: cvkNumber;
-      Hint: 'Worker threads producing replies, 1 or more'),
-    (Path: 'Claude.ApiKey'; Caption: 'Claude: API key'; Kind: cvkSecret;
-      Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
-    (Path: 'Claude.Model'; Caption: 'Claude: model'; Kind: cvkText; Hint: 'Empty = the default'),
-    (Path: 'Claude.BaseUrl'; Caption: 'Claude: endpoint'; Kind: cvkText; Hint: 'Empty = the default'),
-    (Path: 'Claude.MaxTokens'; Caption: 'Claude: longest reply'; Kind: cvkNumber; Hint: 'In tokens'),
-    (Path: 'OpenAI.ApiKey'; Caption: 'OpenAI: API key'; Kind: cvkSecret;
-      Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
-    (Path: 'OpenAI.Model'; Caption: 'OpenAI: model'; Kind: cvkText; Hint: 'Empty = the default'),
-    (Path: 'OpenAI.BaseUrl'; Caption: 'OpenAI: endpoint'; Kind: cvkText;
-      Hint: 'Ollama, LM Studio, Azure, Groq...'),
-    (Path: 'OpenAI.MaxTokens'; Caption: 'OpenAI: longest reply'; Kind: cvkNumber; Hint: 'In tokens'),
-    (Path: 'Gemini.ApiKey'; Caption: 'Gemini: API key'; Kind: cvkSecret;
-      Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
-    (Path: 'Gemini.Model'; Caption: 'Gemini: model'; Kind: cvkText; Hint: 'Empty = the default'),
-    (Path: 'Gemini.BaseUrl'; Caption: 'Gemini: endpoint'; Kind: cvkText; Hint: 'Empty = the default'),
-    (Path: 'Gemini.MaxTokens'; Caption: 'Gemini: longest reply'; Kind: cvkNumber; Hint: 'In tokens'),
+      Pages: [ccpSettings]; Hint: 'Worker threads producing replies, 1 or more'),
+    (Path: 'Attachments.Enabled'; Caption: 'Attachments allowed'; Kind: cvkBoolean;
+      Pages: [ccpSettings]; Hint: 'What the user attaches leaves the machine'),
+    (Path: 'Attachments.MaxCount'; Caption: 'Attachments at most'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'Documents in one conversation'),
+    (Path: 'Attachments.MaxSizeKB'; Caption: 'Largest attachment'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In KB'),
+    (Path: 'Attachments.MaxTotalKB'; Caption: 'All attachments together'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In KB'),
     (Path: 'Remote.BaseUrl'; Caption: 'Remote server'; Kind: cvkText;
-      Hint: 'Empty = the engine runs in the application'),
-    (Path: 'Remote.AppKey'; Caption: 'Remote: application key'; Kind: cvkSecret; Hint: ''));
+      Pages: [ccpSettings]; Hint: 'Empty = the engine runs in the application'),
+    (Path: 'Remote.AppKey'; Caption: 'Remote: application key'; Kind: cvkSecret;
+      Pages: [ccpSettings]; Hint: ''),
+    (Path: 'Remote.UserId'; Caption: 'Remote: user'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Who the server keeps the conversation of'),
+    (Path: 'Remote.UserToken'; Caption: 'Remote: user token'; Kind: cvkSecret;
+      Pages: [ccpSettings]; Hint: ''),
+    (Path: 'Remote.UseHostChannel'; Caption: 'Remote: host channel'; Kind: cvkBoolean;
+      Pages: [ccpSettings]; Hint: 'The page reaches the application through a local channel'),
+    (Path: 'Remote.TimeoutMs'; Caption: 'Remote: timeout'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In milliseconds'),
+    (Path: 'Pdf.Enabled'; Caption: 'PDF from the panel'; Kind: cvkBoolean;
+      Pages: [ccpDocuments]; Hint: 'The buttons that save an answer, the conversation or a page as PDF'),
+    (Path: 'Pdf.Action'; Caption: 'PDF on request'; Kind: cvkBoolean;
+      Pages: [ccpDocuments]; Hint: 'The assistant may write a document when the user asks for one'),
+    (Path: 'Pdf.Paper'; Caption: 'Paper'; Kind: cvkChoice;
+      Pages: [ccpDocuments]; Hint: 'a4 or letter'),
+    (Path: 'Pdf.Orientation'; Caption: 'Orientation'; Kind: cvkChoice;
+      Pages: [ccpDocuments]; Hint: 'portrait or landscape'),
+    (Path: 'Pdf.MarginMm'; Caption: 'Margins'; Kind: cvkNumber;
+      Pages: [ccpDocuments]; Hint: 'In millimetres'),
+    (Path: 'Pdf.PrintBackgrounds'; Caption: 'Print backgrounds'; Kind: cvkBoolean;
+      Pages: [ccpDocuments]; Hint: ''),
+    (Path: 'Pdf.HeaderFooter'; Caption: 'Header and footer'; Kind: cvkBoolean;
+      Pages: [ccpDocuments]; Hint: 'The bands of PdfHeaderFile and PdfFooterFile, or the librarys'),
+    (Path: 'Pdf.BandMm'; Caption: 'Height of the bands'; Kind: cvkNumber;
+      Pages: [ccpDocuments]; Hint: 'In millimetres, added to the margin'),
+    (Path: 'Claude.ApiKey'; Caption: 'Claude: API key'; Kind: cvkSecret;
+      Pages: [ccpSettings]; Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
+    (Path: 'Claude.Model'; Caption: 'Claude: model'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Empty = the default'),
+    (Path: 'Claude.BaseUrl'; Caption: 'Claude: endpoint'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Empty = the default'),
+    (Path: 'Claude.MaxTokens'; Caption: 'Claude: longest reply'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In tokens'),
+    (Path: 'Claude.GroundingMaxPages'; Caption: 'Claude: pages of the manual'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'Excerpts sent with a question; 0 = none'),
+    (Path: 'Claude.GroundingMaxChars'; Caption: 'Claude: length of an excerpt'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters'),
+    (Path: 'Claude.ConnectTimeoutMs'; Caption: 'Claude: connection timeout'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In milliseconds'),
+    (Path: 'Claude.ResponseTimeoutMs'; Caption: 'Claude: response timeout'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In milliseconds'),
+    (Path: 'Claude.MaxToolRounds'; Caption: 'Claude: rounds of actions'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'Model, actions, model again: how many times at most'),
+    (Path: 'Claude.ApiVersion'; Caption: 'Claude: API version'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Empty = the default'),
+    (Path: 'Claude.PromptCaching'; Caption: 'Claude: prompt caching'; Kind: cvkBoolean;
+      Pages: [ccpSettings]; Hint: 'What repeats is billed at a tenth; off for a proxy that refuses it'),
+    (Path: 'OpenAI.ApiKey'; Caption: 'OpenAI: API key'; Kind: cvkSecret;
+      Pages: [ccpSettings]; Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
+    (Path: 'OpenAI.Model'; Caption: 'OpenAI: model'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Empty = the default'),
+    (Path: 'OpenAI.BaseUrl'; Caption: 'OpenAI: endpoint'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Ollama, LM Studio, Azure, Groq...'),
+    (Path: 'OpenAI.MaxTokens'; Caption: 'OpenAI: longest reply'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In tokens'),
+    (Path: 'OpenAI.GroundingMaxPages'; Caption: 'OpenAI: pages of the manual'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'Excerpts sent with a question; 0 = none'),
+    (Path: 'OpenAI.GroundingMaxChars'; Caption: 'OpenAI: length of an excerpt'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters'),
+    (Path: 'OpenAI.ConnectTimeoutMs'; Caption: 'OpenAI: connection timeout'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In milliseconds'),
+    (Path: 'OpenAI.ResponseTimeoutMs'; Caption: 'OpenAI: response timeout'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In milliseconds'),
+    (Path: 'OpenAI.MaxToolRounds'; Caption: 'OpenAI: rounds of actions'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'Model, actions, model again: how many times at most'),
+    (Path: 'OpenAI.Api'; Caption: 'OpenAI: API'; Kind: cvkChoice;
+      Pages: [ccpSettings]; Hint: 'responses or chat; empty = Responses on api.openai.com, chat elsewhere'),
+    (Path: 'OpenAI.Organization'; Caption: 'OpenAI: organization'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: ''),
+    (Path: 'OpenAI.AzureDeployment'; Caption: 'OpenAI: Azure deployment'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Moves the path to /openai/deployments/<name>'),
+    (Path: 'OpenAI.AzureApiVersion'; Caption: 'OpenAI: Azure API version'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Empty = the default'),
+    (Path: 'Gemini.ApiKey'; Caption: 'Gemini: API key'; Kind: cvkSecret;
+      Pages: [ccpSettings]; Hint: 'The clear key of the developer; the application writes ApiKeyEncrypted'),
+    (Path: 'Gemini.Model'; Caption: 'Gemini: model'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Empty = the default'),
+    (Path: 'Gemini.BaseUrl'; Caption: 'Gemini: endpoint'; Kind: cvkText;
+      Pages: [ccpSettings]; Hint: 'Empty = the default'),
+    (Path: 'Gemini.MaxTokens'; Caption: 'Gemini: longest reply'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In tokens'),
+    (Path: 'Gemini.GroundingMaxPages'; Caption: 'Gemini: pages of the manual'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'Excerpts sent with a question; 0 = none'),
+    (Path: 'Gemini.GroundingMaxChars'; Caption: 'Gemini: length of an excerpt'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters'),
+    (Path: 'Gemini.ConnectTimeoutMs'; Caption: 'Gemini: connection timeout'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In milliseconds'),
+    (Path: 'Gemini.ResponseTimeoutMs'; Caption: 'Gemini: response timeout'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'In milliseconds'),
+    (Path: 'Gemini.MaxToolRounds'; Caption: 'Gemini: rounds of actions'; Kind: cvkNumber;
+      Pages: [ccpSettings]; Hint: 'Model, actions, model again: how many times at most'));
 
   ORIGIN_DEFAULT = 'Library default';
   ORIGIN_COMPONENT = 'Component';
+  /// <summary>The sections of the providers: their settings are listed last.</summary>
+  MODEL_SECTIONS: array[0..2] of string = ('Claude', 'OpenAI', 'Gemini');
+  /// <summary>The settings of the Prompt page in the order the prompt is
+  /// written (BuildSystemPrompt and ResolveSystemPrompt): the opening
+  /// sentence with the name, the field of expertise, the rules, the rule of
+  /// the expertise, the instructions, the language of the reply, the
+  /// language of the manual, then the excerpts the grounding of each
+  /// provider decides. A setting not listed goes after them.</summary>
+  PROMPT_ORDER: array[0..17] of string = ('AssistantName', 'IdentityRule', 'Expertise',
+    'ExpertiseIntro', 'SystemPrompt', 'ExpertiseRule', 'Instructions', 'Language',
+    'LanguageRule', 'DocLanguage', 'DocLanguageRule', 'NowRule',
+    'Claude.GroundingMaxPages', 'Claude.GroundingMaxChars',
+    'OpenAI.GroundingMaxPages', 'OpenAI.GroundingMaxChars',
+    'Gemini.GroundingMaxPages', 'Gemini.GroundingMaxChars');
+  /// <summary>The texts of the prompt whose default is a constant of the
+  /// library: a file or a form that does not name them follows it.</summary>
+  PROMPT_TEXTS: array[0..6] of string = ('SystemPrompt', 'IdentityRule', 'NowRule',
+    'LanguageRule', 'DocLanguageRule', 'ExpertiseIntro', 'ExpertiseRule');
 
 { THelpChatConfigFile }
 
@@ -479,6 +754,18 @@ begin
   end;
 end;
 
+var
+  GDefaults: THelpChatSettings;
+
+/// <summary>Settings nobody touched: the defaults of the library, read by
+/// RTTI. Main thread, design time.</summary>
+function DefaultsSettings: THelpChatSettings;
+begin
+  if GDefaults = nil then
+    GDefaults := THelpChatSettings.Create;
+  Result := GDefaults;
+end;
+
 { THelpChatConfigController }
 
 constructor THelpChatConfigController.Create(const AComponentSettings: THelpChatSettings;
@@ -487,6 +774,7 @@ begin
   inherited Create;
   FComponentSettings := AComponentSettings;
   FProfile := Trim(AProfile);
+  FExeFile := AExeFile;
   FFiles := FilesFor(AExeFile, AConfigFileName);
   // The file to edit first: the one the configuration of this assistant
   // comes from. Always the application's, it opened on an empty file next to
@@ -497,13 +785,79 @@ end;
 
 destructor THelpChatConfigController.Destroy;
 begin
+  FFragments.Free;
   FDoc.Free;
   inherited;
 end;
 
+function IsModelPath(const APath: string): Boolean;
+var
+  LSection: string;
+begin
+  for LSection in MODEL_SECTIONS do
+    if APath.StartsWith(LSection + '.', True) then
+      Exit(True);
+  Result := False;
+end;
+
+function IsPromptText(const APath: string): Boolean;
+var
+  LName: string;
+begin
+  for LName in PROMPT_TEXTS do
+    if SameText(LName, APath) then
+      Exit(True);
+  Result := False;
+end;
+
+/// <summary>The value of a published property of ASettings at APath
+/// (<c>Claude.Model</c>) as text, through RTTI: what the settings hold even
+/// when their JSON leaves it out.</summary>
+function PropText(const ASettings: THelpChatSettings; const APath: string): string;
+var
+  LObject: TObject;
+  LParts: TArray<string>;
+  I: Integer;
+begin
+  Result := '';
+  LObject := ASettings;
+  LParts := APath.Split(['.']);
+  for I := 0 to High(LParts) - 1 do
+  begin
+    if not IsPublishedProp(LObject, LParts[I]) then
+      Exit;
+    LObject := GetObjectProp(LObject, LParts[I]);
+    if LObject = nil then
+      Exit;
+  end;
+  if IsPublishedProp(LObject, LParts[High(LParts)]) then
+    Result := VarToStr(GetPropValue(LObject, LParts[High(LParts)], True));
+end;
+
+/// <summary>InUse without the note a view reads and a file must not get:
+/// "Assistant (localized)" is the name Assistant.</summary>
+function StripNote(const AText: string): string;
+begin
+  Result := AText;
+  if Result.EndsWith(' (localized)') then
+    Result := Result.Substring(0, Result.Length - Length(' (localized)'))
+  else if Result.EndsWith(' (auto)') then
+    Result := Result.Substring(0, Result.Length - Length(' (auto)'));
+end;
+
 class function THelpChatConfigController.Catalogue: TArray<THelpChatConfigEntry>;
 var
-  I: Integer;
+  I, J: Integer;
+  LEntry: THelpChatConfigEntry;
+
+  function Before(const A, B: THelpChatConfigEntry): Boolean;
+  begin
+    // The component's settings first, by name; those of the providers last.
+    if A.IsModel <> B.IsModel then
+      Exit(B.IsModel);
+    Result := CompareText(A.Path, B.Path) < 0;
+  end;
+
 begin
   SetLength(Result, Length(CATALOGUE_ITEMS));
   for I := 0 to High(CATALOGUE_ITEMS) do
@@ -513,6 +867,58 @@ begin
     Result[I].Caption := CATALOGUE_ITEMS[I].Caption;
     Result[I].Hint := CATALOGUE_ITEMS[I].Hint;
     Result[I].Kind := CATALOGUE_ITEMS[I].Kind;
+    Result[I].Pages := CATALOGUE_ITEMS[I].Pages;
+    Result[I].IsModel := IsModelPath(CATALOGUE_ITEMS[I].Path);
+  end;
+  // An insertion sort: a few dozen items, once per refresh.
+  for I := 1 to High(Result) do
+  begin
+    LEntry := Result[I];
+    J := I - 1;
+    while (J >= 0) and Before(LEntry, Result[J]) do
+    begin
+      Result[J + 1] := Result[J];
+      Dec(J);
+    end;
+    Result[J + 1] := LEntry;
+  end;
+end;
+
+class function THelpChatConfigController.EntriesOfPage(
+  const AEntries: TArray<THelpChatConfigEntry>;
+  const APage: THelpChatConfigPage): TArray<THelpChatConfigEntry>;
+
+  function Rank(const APath: string): Integer;
+  var
+    I: Integer;
+  begin
+    for I := 0 to High(PROMPT_ORDER) do
+      if SameText(PROMPT_ORDER[I], APath) then
+        Exit(I);
+    Result := Length(PROMPT_ORDER);
+  end;
+
+var
+  LEntry: THelpChatConfigEntry;
+  I, J: Integer;
+begin
+  Result := nil;
+  for LEntry in AEntries do
+    if APage in LEntry.Pages then
+      Result := Result + [LEntry];
+  if APage <> ccpPrompt then
+    Exit; // Entries already gives them by name, the providers last
+  // A stable insertion sort by the place in the prompt.
+  for I := 1 to High(Result) do
+  begin
+    LEntry := Result[I];
+    J := I - 1;
+    while (J >= 0) and (Rank(Result[J].Path) > Rank(LEntry.Path)) do
+    begin
+      Result[J + 1] := Result[J];
+      Dec(J);
+    end;
+    Result[J + 1] := LEntry;
   end;
 end;
 
@@ -879,7 +1285,7 @@ begin
       Result := TJSONBool.Create(SameText(Trim(AText), 'true') or (Trim(AText) = '1'));
     cvkNumber:
       Result := TJSONNumber.Create(StrToIntDef(Trim(AText), 0));
-    cvkList, cvkLanguages:
+    cvkList, cvkLanguages, cvkSet:
       begin
         LArray := TJSONArray.Create;
         for LItem in AText.Split([',', ';']) do
@@ -1032,7 +1438,16 @@ begin
         Result := THelpChatProviderRegistry.ProviderNames
       else if SameText(APath, 'SelectedModel') then
         for LModel in ASettings.ResolveModels do
-          Result := Result + [LModel.Name];
+          Result := Result + [LModel.Name]
+      else if SameText(APath, 'Pdf.Paper') then
+        Result := ['a4', 'letter']
+      else if SameText(APath, 'Pdf.Orientation') then
+        Result := ['portrait', 'landscape']
+      else if SameText(APath, 'OpenAI.Api') then
+        Result := ['responses', 'chat'];
+    cvkSet:
+      if SameText(APath, 'Skills') then
+        Result := HelpChatSkillNames;
   end;
 end;
 
@@ -1048,8 +1463,10 @@ begin
   try
     LFlat := Flatten(LDefaults);
     try
+      // A text of the prompt is not in the JSON when it is the library's:
+      // the property itself says what it is.
       if not LFlat.TryGetValue(APath, LText) then
-        LText := '';
+        LText := PropText(LDefaults, APath);
     finally
       LFlat.Free;
     end;
@@ -1100,6 +1517,15 @@ begin
   end;
   if ARaw <> '' then
     Exit(ARaw);
+  // A text of the prompt left to the library: the text itself, as the
+  // property holds it - "(the built-in rules)" told nothing.
+  if IsPromptText(APath) then
+  begin
+    Result := PropText(ASettings, APath);
+    if Trim(Result) = '' then
+      Result := PropText(DefaultsSettings, APath);
+    Exit;
+  end;
   // Empty: what takes its place, or a word that says nothing does.
   if Assigned(LSection) and SameText(LName, 'Model') then
     Result := LSection.ResolveModel
@@ -1113,8 +1539,12 @@ begin
     Result := 'stub'
   else if SameText(APath, 'SelectedModel') then
     Result := ASettings.ActiveModelName
-  else if SameText(APath, 'SystemPrompt') then
-    Result := '(the built-in rules)'
+  else if SameText(APath, 'ConversationFile') then
+    Result := ASettings.ResolveConversationFile
+  else if SameText(APath, 'Instructions') then
+    Result := '(none: the rules alone)'
+  else if SameText(APath, 'Expertise') then
+    Result := '(none: the application and nothing else)'
   else if SameText(APath, 'DocIndexFile') then
     Result := HELPCHAT_DEF_DOCINDEX_FILENAME
   else if SameText(APath, 'DocFolder') then
@@ -1235,6 +1665,13 @@ begin
       Result[I].InUse := InUseText(LSettings, Result[I].Path, LValue);
       if Result[I].Kind <> cvkSecret then
         Result[I].Value := LValue;
+      // Nothing configured: the edit box starts from what replaces it - the
+      // text of the library, the localized greeting, the default model - so
+      // that correcting it does not mean typing it again. Not a word in
+      // parentheses, which says that nothing replaces it.
+      if (Result[I].Value = '') and (Result[I].Kind in [cvkText, cvkMemo, cvkChoice]) and
+         not Result[I].InUse.StartsWith('(') then
+        Result[I].Value := StripNote(Result[I].InUse);
       Result[I].Choices := ChoicesOf(LSettings, Result[I].Path, Result[I].Kind);
       if not LOrigins.TryGetValue(Result[I].Path, Result[I].Origin) then
         Result[I].Origin := ORIGIN_DEFAULT;
@@ -1244,6 +1681,13 @@ begin
         Result[I].Source := csrComponent
       else
         Result[I].Source := csrFile;
+      // The property of the component that holds it, as the Object
+      // Inspector names it: the name is a property of the component itself.
+      if Result[I].Source = csrComponent then
+        if SameText(Result[I].Path, 'AssistantName') then
+          Result[I].Origin := ORIGIN_COMPONENT + ': AssistantName'
+        else
+          Result[I].Origin := ORIGIN_COMPONENT + ': Settings.' + Result[I].Path;
       Result[I].InComponent := LOwn.Contains(Result[I].Path);
       Result[I].InRoot := GetValue(Result[I].Path, ccsRoot, Result[I].RootValue);
       Result[I].InProfile := GetValue(Result[I].Path, ccsProfile, Result[I].ProfileValue);
@@ -1252,12 +1696,240 @@ begin
         Result[I].RootValue := MaskSecret(Result[I].RootValue);
         Result[I].ProfileValue := MaskSecret(Result[I].ProfileValue);
       end;
+      if Result[I].Kind = cvkSet then
+        CompleteSetEntry(Result[I]);
+      NoteSkillActions(LSettings, Result[I]);
     end;
   finally
     LBefore.Free;
     LSettings.Free;
     LOwn.Free;
     LOrigins.Free;
+  end;
+end;
+
+type
+  /// <summary>One page of a manual, to show how an excerpt reaches the
+  /// prompt; the real index is the application's to load.</summary>
+  TSampleRetriever = class(TInterfacedObject, IHelpChatRetriever)
+  public
+    function IsAvailable: Boolean;
+    function GetBaseUrl: string;
+    function Search(const AQuery, AHint: string; const AMaxPages: Integer): TArray<THelpChatDocPage>;
+  end;
+
+function TSampleRetriever.IsAvailable: Boolean;
+begin
+  Result := True;
+end;
+
+function TSampleRetriever.GetBaseUrl: string;
+begin
+  Result := '';
+end;
+
+function TSampleRetriever.Search(const AQuery, AHint: string;
+  const AMaxPages: Integer): TArray<THelpChatDocPage>;
+var
+  LPage: THelpChatDocPage;
+begin
+  LPage := Default(THelpChatDocPage);
+  LPage.Title := 'Customers';
+  LPage.Summary := '(the summary of the page, from the index)';
+  LPage.Excerpt := '(the passages of the page around the words of the question)';
+  LPage.Url := 'Customers.md';
+  Result := [LPage];
+end;
+
+procedure THelpChatConfigController.FillFragments(const ASettings: THelpChatSettings;
+  const APrompt: string);
+var
+  LLang: THelpChatLanguage;
+  LName, LText, LSection, LExcerpts: string;
+  LStart: Integer;
+begin
+  if FFragments = nil then
+    FFragments := TDictionary<string, string>.Create;
+  FFragments.Clear;
+  // The same calls BuildSystemPrompt makes, on the same settings: each
+  // sentence is found in the prompt as it is.
+  LLang := ASettings.ResolveLanguage;
+  if Trim(ASettings.AssistantName) <> '' then
+    LName := HelpChatPromptField(ASettings.AssistantName)
+  else
+    LName := HelpChatMsg(hcmUiTitle, LLang);
+  LText := ASettings.ResolveIdentityRule(LName, HelpChatNowText);
+  FFragments.Add('identityrule', LText);
+  FFragments.Add('assistantname', LText);
+  FFragments.Add('nowrule', ASettings.ResolveNowRule(HelpChatNowText));
+  LText := Trim(ASettings.SystemPrompt);
+  if LText = '' then
+    LText := HELPCHAT_MODEL_DEF_SYSTEMPROMPT;
+  FFragments.Add('systemprompt', LText);
+  if Trim(ASettings.Expertise) <> '' then
+  begin
+    LText := HelpChatFormatRule(ASettings.ExpertiseIntro, HELPCHAT_MODEL_DEF_EXPERTISE,
+      [Trim(ASettings.Expertise)]);
+    FFragments.Add('expertise', LText);
+    FFragments.Add('expertiseintro', LText);
+    LText := Trim(ASettings.ExpertiseRule);
+    if LText = '' then
+      LText := HELPCHAT_MODEL_DEF_EXPERTISE_RULE;
+    FFragments.Add('expertiserule', LText);
+  end;
+  FFragments.Add('instructions', Trim(ASettings.Instructions));
+  LText := ASettings.ResolveLanguageRule(LLang);
+  FFragments.Add('languagerule', LText);
+  FFragments.Add('language', LText);
+  LText := ASettings.ResolveDocLanguageRule(LLang);
+  FFragments.Add('doclanguagerule', LText);
+  FFragments.Add('doclanguage', LText);
+  // The excerpts, from their heading to the end: what the grounding of the
+  // provider in use decides.
+  LExcerpts := '';
+  LStart := APrompt.IndexOf(HelpChatMsg(hcmRelevantDocs, LLang));
+  if LStart >= 0 then
+    LExcerpts := APrompt.Substring(LStart);
+  for LSection in MODEL_SECTIONS do
+  begin
+    FFragments.Add(LowerCase(LSection + '.GroundingMaxPages'), LExcerpts);
+    FFragments.Add(LowerCase(LSection + '.GroundingMaxChars'), LExcerpts);
+  end;
+end;
+
+function THelpChatConfigController.PromptFragment(const APath: string): string;
+begin
+  if (FFragments = nil) or not FFragments.TryGetValue(LowerCase(APath), Result) then
+    Result := '';
+end;
+
+function THelpChatConfigController.LayeredSettings: THelpChatSettings;
+var
+  LDoc: TJSONObject;
+  I: Integer;
+begin
+  Result := THelpChatSettings.Create;
+  try
+    // The layers as the component applies them, the profile included, the
+    // file being edited as it is in memory.
+    Result.Assign(FComponentSettings);
+    if Result.AssistantName = '' then
+      Result.AssistantName := FComponentAssistantName;
+    Result.Profile := FProfile;
+    for I := 0 to High(FFiles) do
+    begin
+      LDoc := DocumentOf(I);
+      if LDoc = nil then
+        Continue;
+      try
+        try
+          Result.LoadFromJSON(LDoc.ToJSON);
+        except
+          on E: Exception do
+            raise EHelpChatConfigError.CreateFmt('%s: %s',
+              [TPath.GetFileName(FFiles[I].FileName), E.Message]);
+        end;
+      finally
+        LDoc.Free;
+      end;
+    end;
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function THelpChatConfigController.AppearancePreview(const ADark: Boolean;
+  const AIconDataUri, AStyleSheetFile: string; const ACommands: THelpChatCommands;
+  out AStyleSheetError: string): string;
+var
+  LSettings: THelpChatSettings;
+  LOptions: THelpChatPanelOptions;
+  LLang: THelpChatLanguage;
+  LFile, LBody: string;
+  LAnswer: THelpChatMessage;
+begin
+  AStyleSheetError := '';
+  try
+    LSettings := LayeredSettings;
+  except
+    // A file that does not load: the preview of the defaults, and the status
+    // line of the editor already says what is wrong.
+    LSettings := THelpChatSettings.Create;
+  end;
+  try
+    LLang := LSettings.ResolveLanguage;
+    LOptions := THelpChatPanelOptions.Default;
+    LOptions.Language := LLang;
+    LOptions.AssistantName := LSettings.AssistantName;
+    LOptions.AssistantIcon := AIconDataUri;
+    LOptions.PdfEnabled := LSettings.Pdf.Enabled;
+    if ADark then
+      LOptions.Theme := THelpChatTheme.Dark
+    else
+      LOptions.Theme := THelpChatTheme.Light;
+    LFile := Trim(AStyleSheetFile);
+    if LFile <> '' then
+    begin
+      if TPath.IsRelativePath(LFile) and (FExeFile <> '') then
+        LFile := TPath.GetFullPath(TPath.Combine(TPath.GetDirectoryName(FExeFile), LFile));
+      try
+        LOptions.Theme.StyleSheet := THelpChatPanel.PanelCss(LFile);
+      except
+        on E: Exception do
+          AStyleSheetError := E.Message;
+      end;
+    end;
+    // What a conversation shows: the greeting, a question, a short answer
+    // with the formatting a model uses, and the answer of a command.
+    LBody := HelpChatRenderGreeting(LSettings.ResolveGreeting);
+    LAnswer := Default(THelpChatMessage);
+    LAnswer.Id := 'preview-question';
+    LAnswer.Role := hcrUser;
+    LAnswer.Content := 'How do I add a new customer?';
+    LBody := LBody + HelpChatRenderBubble(LAnswer);
+    LAnswer.Id := 'preview-answer';
+    LAnswer.Role := hcrAssistant;
+    LAnswer.Content := 'Open **Customers** and press **New**:' + #10#10 +
+      '1. Fill in the *name* and the `VAT number`.' + #10 +
+      '2. Press **Save**.' + #10#10 + 'Source: [Customers](Customers.md)';
+    LBody := LBody + HelpChatRenderBubble(LAnswer);
+    LBody := LBody + '<div class="hc-chat-msg hc-chat-system"><div class="hc-chat-bubble">' +
+      HelpChatHelpAnswerHtml(ACommands, LLang) + '</div></div>';
+    Result := THelpChatPanel.PreviewPage(LOptions, LBody);
+  finally
+    LSettings.Free;
+  end;
+end;
+
+function THelpChatConfigController.PromptPreview: string;
+var
+  LSettings: THelpChatSettings;
+  LHistory: TArray<THelpChatMessage>;
+  LContext: THelpChatContext;
+begin
+  try
+    LSettings := LayeredSettings;
+  except
+    on E: Exception do
+      Exit(E.Message);
+  end;
+  try
+    SetLength(LHistory, 1);
+    LHistory[0] := Default(THelpChatMessage);
+    LHistory[0].Role := hcrUser;
+    LHistory[0].Content := 'How do I add a customer?';
+    LContext := Default(THelpChatContext);
+    LContext.ScreenLabel := 'Customers';
+    LContext.ScreenType := 'TCustomersForm';
+    Result := THelpChatProviderBase.BuildSystemPrompt(LHistory, LContext, LSettings,
+      TSampleRetriever.Create);
+    FillFragments(LSettings, Result);
+    Result := Result + sLineBreak + sLineBreak +
+      '(When the application registers actions, the rule about them follows here: ' +
+      'it is not customizable.)';
+  finally
+    LSettings.Free;
   end;
 end;
 
@@ -1525,5 +2197,10 @@ begin
   LScope.AddPair('Models', LArray);
   FModified := True;
 end;
+
+initialization
+
+finalization
+  FreeAndNil(GDefaults);
 
 end.

@@ -57,6 +57,7 @@ package HelpChatAI;
 
 requires
   rtl,
+  dbrtl,
   MarkdownProcessor;
 
 contains
@@ -66,6 +67,8 @@ contains
   HelpChatAI.UiState in '..\..\source\HelpChatAI.UiState.pas',
   HelpChatAI.Icons in '..\..\source\HelpChatAI.Icons.pas',
   HelpChatAI.Commands in '..\..\source\HelpChatAI.Commands.pas',
+  HelpChatAI.Skills in '..\..\source\HelpChatAI.Skills.pas',
+  HelpChatAI.Skills.Screen in '..\..\source\HelpChatAI.Skills.Screen.pas',
   HelpChatAI.Settings in '..\..\source\HelpChatAI.Settings.pas',
   HelpChatAI.Actions in '..\..\source\HelpChatAI.Actions.pas',
   HelpChatAI.Attachments in '..\..\source\HelpChatAI.Attachments.pas',

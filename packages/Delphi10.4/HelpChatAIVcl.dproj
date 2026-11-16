@@ -76,6 +76,8 @@
         <DCCReference Include="rtl.dcp"/>
         <DCCReference Include="vcl.dcp"/>
         <DCCReference Include="vcledge.dcp"/>
+        <DCCReference Include="dbrtl.dcp"/>
+        <DCCReference Include="vcldb.dcp"/>
         <DCCReference Include="IndySystem.dcp"/>
         <DCCReference Include="IndyCore.dcp"/>
         <DCCReference Include="IndyProtocols.dcp"/>
@@ -89,6 +91,7 @@
 <DCCReference Include="..\..\source\Vcl.HelpChatAI.Panel.pas"/>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.pas"/>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.Theme.pas"/>
+        <DCCReference Include="..\..\source\Vcl.HelpChatAI.Skills.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

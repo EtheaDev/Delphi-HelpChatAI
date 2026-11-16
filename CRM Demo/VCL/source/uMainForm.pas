@@ -16,7 +16,7 @@ uses
   FireDAC.Stan.StorageJSON, FireDAC.Stan.StorageXML,
   Vcl.WinXPanels, System.Actions, Vcl.ActnList, Vcl.Themes,
   Vcl.BaseImageCollection, Vcl.ImageCollection, System.ImageList, Vcl.ImgList,
-  Vcl.VirtualImageList, Vcl.VirtualImage, System.IOUtils, Vcl.TitleBarCtrls,
+  Vcl.VirtualImageList, Vcl.VirtualImage, System.IOUtils,
   HelpChatAI.Types, HelpChatAI.Actions, Vcl.HelpChatAI,
   // per TProposalLineItem e ParseProposalLineItems, che un'azione
   // passa alla bozza
@@ -127,7 +127,7 @@ type
     LeadsBindProposalSentSourceDB: TBindSourceDB;
     LeadsBindClosedSourceDB: TBindSourceDB;
     LinkGridToDataSourceLeadsBindClosedSourceDB: TLinkGridToDataSource;
-    TitleBarPanel1: TTitleBarPanel;
+    TopPanel: TPanel;
     VCLStylesCB: TComboBox;
     VirtualImageList1: TVirtualImageList;
     ImageCollection1: TImageCollection;
@@ -282,6 +282,7 @@ implementation
 {$R *.dfm}
 
 uses
+  System.Types, System.Math,
   uDataMod, uLeads, uProposal,
   HelpChatAI.Settings,
   // La chiave API non sta in chiaro nella configurazione: uAppSecret la
@@ -1168,8 +1169,20 @@ end;
 procedure TMainForm.FormCreate(Sender: TObject);
 var
   StyleName: string;
+  LWork: TRect;
+  LWidth, LHeight: Integer;
 begin
   Application.OnIdle := AppIdle;
+  // Maximized here, after the restored bounds are centred on the work area:
+  // the default position cascades, so after a few starts "Restore" put the
+  // window past the right edge, and poScreenCenter does nothing to a form
+  // that starts maximized.
+  LWork := Monitor.WorkareaRect;
+  LWidth := Min(Width, LWork.Width);
+  LHeight := Min(Height, LWork.Height);
+  SetBounds(LWork.Left + (LWork.Width - LWidth) div 2,
+    LWork.Top + (LWork.Height - LHeight) div 2, LWidth, LHeight);
+  WindowState := TWindowState.wsMaximized;
 
   for StyleName in TStyleManager.StyleNames do
     VCLStylesCB.Items.Add(StyleName);

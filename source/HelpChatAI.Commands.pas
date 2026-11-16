@@ -76,6 +76,9 @@ type
     /// <summary>The actions this assistant may run: its own and the shared
     /// ones, after the narrowing of its profile.</summary>
     hccActions,
+    /// <summary>The skills of this assistant (<c>Settings.Skills</c>): what
+    /// each does and the actions it brings.</summary>
+    hccSkills,
     /// <summary>The configuration check of the engine, as the IDE shows it.</summary>
     hccCheck,
     /// <summary>Timing of the last answer.</summary>
@@ -180,6 +183,12 @@ function HelpChatRunCommand(const AEngine: THelpChatEngine;
 function HelpChatCommandText(const AEngine: THelpChatEngine;
   const ARequest: THelpChatCommandRequest): string;
 
+/// <summary>The answer of <c>/help</c> for the commands of AEnabled, heading
+/// included, as the panel shows it in a system bubble - without an engine:
+/// what the preview of the configuration editor draws.</summary>
+function HelpChatHelpAnswerHtml(const AEnabled: THelpChatCommands;
+  const ALanguage: THelpChatLanguage): string;
+
 /// <summary>HTML of an answer reduced to text: paragraphs and list items on
 /// lines of their own, items with "- ", entities decoded.</summary>
 function HelpChatCommandHtmlToText(const AHtml: string): string;
@@ -196,22 +205,23 @@ uses
   HelpChatAI.DocIndex,
   HelpChatAI.Html,
   HelpChatAI.Provider,
-  HelpChatAI.Diagnostics;
+  HelpChatAI.Diagnostics,
+  HelpChatAI.Skills;
 
 const
   // The order of THelpChatCommand.
   CommandNames: array[THelpChatCommand] of string = (
     'help', 'who', 'use', 'lang', 'retry', 'search', 'doc', 'pages', 'context', 'actions',
-    'check', 'stats', 'clear', 'pdf', 'copy', 'attach', 'prompt', 'run');
+    'skills', 'check', 'stats', 'clear', 'pdf', 'copy', 'attach', 'prompt', 'run');
   CommandDescriptions: array[THelpChatCommand] of THelpChatMsgId = (
     hcmCmdHelp, hcmCmdWho, hcmCmdUse, hcmCmdLang, hcmCmdRetry, hcmCmdSearch, hcmCmdDoc, hcmCmdPages,
-    hcmCmdContext, hcmCmdActions, hcmCmdCheck, hcmCmdStats, hcmCmdClear, hcmCmdPdf,
+    hcmCmdContext, hcmCmdActions, hcmCmdSkills, hcmCmdCheck, hcmCmdStats, hcmCmdClear, hcmCmdPdf,
     hcmCmdCopy, hcmCmdAttach, hcmCmdPrompt, hcmCmdRun);
   // A command that only does something (clear, pdf...) has no answer to head:
   // its description stands in.
   CommandTitles: array[THelpChatCommand] of THelpChatMsgId = (
     hcmCmdTitleHelp, hcmCmdTitleWho, hcmCmdTitleUse, hcmCmdTitleLang, hcmCmdRetry, hcmCmdTitleSearch,
-    hcmCmdDoc, hcmCmdTitlePages, hcmCmdTitleContext, hcmCmdTitleActions, hcmCmdTitleCheck,
+    hcmCmdDoc, hcmCmdTitlePages, hcmCmdTitleContext, hcmCmdTitleActions, hcmCmdTitleSkills, hcmCmdTitleCheck,
     hcmCmdTitleStats, hcmCmdClear, hcmCmdPdf, hcmCmdCopy, hcmCmdAttach,
     hcmCmdTitlePrompt, hcmCmdTitleRun);
 
@@ -465,6 +475,35 @@ begin
     Result := AEngine.Actions;
 end;
 
+// The skills the configuration names, each with what it does and the actions
+// it brings; a name nobody registered says so.
+function AnswerSkills(const AEngine: THelpChatEngine; const ALang: THelpChatLanguage): string;
+var
+  LName, LAction, LActions: string;
+begin
+  if Length(AEngine.Settings.ResolveSkills) = 0 then
+    Exit(Line(HelpChatMsg(hcmCmdNoSkills, ALang)));
+  Result := '<ul>';
+  for LName in AEngine.Settings.ResolveSkills do
+  begin
+    if not HelpChatIsSkillRegistered(LName) then
+    begin
+      Result := Result + '<li><b>' + Esc(LName) + '</b> - ' +
+        Esc(HelpChatMsg(hcmCmdSkillUnknown, ALang)) + '</li>';
+      Continue;
+    end;
+    LActions := '';
+    for LAction in HelpChatSkillActionNames(LName) do
+      LActions := LActions + IfThen(LActions <> '', ', ') + '<code>' + Esc(LAction) + '</code>';
+    Result := Result + '<li><b>' + Esc(LName) + '</b> - ' +
+      Esc(HelpChatSkillDescription(LName, ALang));
+    if LActions <> '' then
+      Result := Result + '<br>' + LActions;
+    Result := Result + '</li>';
+  end;
+  Result := Result + '</ul>';
+end;
+
 function AnswerActions(const AActions: IHelpChatActionInvoker; const ALang: THelpChatLanguage): string;
 var
   LValue: TJSONValue;
@@ -539,18 +578,31 @@ end;
 function AnswerPrompt(const AEngine: THelpChatEngine; const ARequest: THelpChatCommandRequest): string;
 var
   LHistory: TArray<THelpChatMessage>;
-  LPrompt: string;
+  LPrompt, LContext: string;
+  LClass: THelpChatProviderClass;
 begin
   LHistory := AEngine.Messages(ARequest.ConversationKey);
   if LastQuestion(AEngine, ARequest.ConversationKey) = '' then
     Exit(Line(HelpChatMsg(hcmCmdNoQuestion, ARequest.Language)));
   // Rebuilt the way the provider builds it, for the last question and the
-  // screen of now: the excerpts the retriever picks are the same.
-  LPrompt := THelpChatProviderBase.BuildSystemPrompt(LHistory, ARequest.Context,
-    AEngine.Settings, AEngine.Retriever);
+  // screen of now: the excerpts the retriever picks are the same. A provider
+  // that splits it sends two texts, and both are shown, in their order.
+  LClass := THelpChatProviderRegistry.FindProviderClass(AEngine.Settings.Provider);
+  LContext := '';
+  if Assigned(LClass) and LClass.SplitsPrompt then
+  begin
+    LPrompt := THelpChatProviderBase.BuildStablePrompt(ARequest.Context, AEngine.Settings);
+    LContext := THelpChatProviderBase.BuildQuestionContext(LHistory, ARequest.Context,
+      AEngine.Settings, AEngine.Retriever);
+  end
+  else
+    LPrompt := THelpChatProviderBase.BuildSystemPrompt(LHistory, ARequest.Context,
+      AEngine.Settings, AEngine.Retriever);
   if Assigned(ActionsOf(AEngine, ARequest)) and ActionsOf(AEngine, ARequest).HasActions then
     LPrompt := LPrompt + sLineBreak + sLineBreak + HELPCHAT_MODEL_ACTIONS_RULE;
   Result := '<pre class="hc-chat-prompt">' + Esc(LPrompt) + '</pre>';
+  if LContext <> '' then
+    Result := Result + '<pre class="hc-chat-prompt">' + Esc(LContext) + '</pre>';
 end;
 
 /// <summary>"name k=v k2="v with spaces"" -> the action and its arguments as
@@ -632,6 +684,18 @@ begin
     Result := LastQuestion(AEngine, ARequest.ConversationKey);
 end;
 
+function HelpChatHelpAnswerHtml(const AEnabled: THelpChatCommands;
+  const ALanguage: THelpChatLanguage): string;
+var
+  LRequest: THelpChatCommandRequest;
+begin
+  LRequest := Default(THelpChatCommandRequest);
+  LRequest.Command := hccHelp;
+  LRequest.Enabled := AEnabled;
+  LRequest.Language := ALanguage;
+  Result := Heading(LRequest) + AnswerHelp(LRequest);
+end;
+
 function HelpChatRunCommand(const AEngine: THelpChatEngine;
   const ARequest: THelpChatCommandRequest): string;
 begin
@@ -652,6 +716,7 @@ begin
       hccPages: Result := Result + AnswerPages(AEngine, ARequest.Language);
       hccContext: Result := Result + AnswerContext(ARequest);
       hccActions: Result := Result + AnswerActions(ActionsOf(AEngine, ARequest), ARequest.Language);
+      hccSkills: Result := Result + AnswerSkills(AEngine, ARequest.Language);
       hccCheck: Result := Result + AnswerCheck(AEngine, ActionsOf(AEngine, ARequest));
       hccPrompt: Result := Result + AnswerPrompt(AEngine, ARequest);
       hccRun: Result := Result + AnswerRun(AEngine, ARequest);

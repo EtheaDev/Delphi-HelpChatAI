@@ -46,17 +46,27 @@ uses
   Vcl.ComCtrls,
   Vcl.CheckLst,
   Vcl.Imaging.pngimage,
+  Vcl.ImgList,
+  Vcl.VirtualImageList,
+  Vcl.WinXCtrls,
+  Vcl.Edge,
   HelpChatAI.Settings,
-  HelpChatAI.ConfigController;
+  HelpChatAI.ConfigController,
+  Vcl.HelpChatAI;
 
 type
   /// <summary>
-  ///  The form of the editor: three pages over one controller.
+  ///  The form of the editor: six pages over one controller.
   ///  <list type="bullet">
-  ///   <item><c>Settings</c>: every setting of the catalogue with the value in
-  ///    force and who set it, and three places to write the one selected -
+  ///   <item><c>Appearance</c>, <c>Settings</c>, <c>Prompt</c> and
+  ///    <c>Documents</c>: the settings of the catalogue that belong to that
+  ///    page (<see cref="THelpChatConfigEntry.Pages" />), each with the value
+  ///    in force and who set it, and three places to write the one selected -
   ///    the root of the file being edited, the profile of the assistant in
-  ///    that file, or the component (the form file);</item>
+  ///    that file, or the component (the form file). One list and one edit
+  ///    panel (<c>GridPanel</c>) serve the four pages: it moves to the page
+  ///    shown. The Prompt page shows beside it the prompt those settings
+  ///    build (<see cref="THelpChatConfigController.PromptPreview" />);</item>
   ///   <item><c>Models</c>: the catalogue of models at the root of the file,
   ///    and which of them the profile offers in the panel;</item>
   ///   <item><c>Profiles</c>: the sections under <c>"Profiles"</c> of the
@@ -83,9 +93,47 @@ type
     SaveButton: TButton;
     FileNameLabel: TLabel;
     PageControl: TPageControl;
+    AppearanceTab: TTabSheet;
+    /// <summary>The right of the Appearance page: the chat as it would look,
+    /// with the switch between the light and the dark theme and the style
+    /// sheet of the component.</summary>
+    PreviewPanel: TPanel;
+    PreviewTopPanel: TPanel;
+    PreviewLabel: TLabel;
+    ThemeSwitch: TToggleSwitch;
+    StyleSheetLabel: TLabel;
+    StyleSheetEdit: TEdit;
+    StyleSheetBrowseButton: TButton;
+    StyleSheetApplyButton: TButton;
+    StyleSheetErrorLabel: TLabel;
+    /// <summary>Where the browser of the preview is created, in code: the
+    /// WebView2 loader must be reachable first.</summary>
+    PreviewHost: TPanel;
+    PreviewMessageLabel: TLabel;
+    AppearanceSplitter: TSplitter;
+    /// <summary>The left of the Appearance page: the icon, then the list.</summary>
+    AppearanceLeftPanel: TPanel;
+    /// <summary>The icon of the assistant: the images of the component's
+    /// <c>Images</c>, else the built-in ones; a click writes
+    /// <c>ImageIndex</c> or <c>ImageName</c> into the component.</summary>
+    IconPanel: TPanel;
+    IconLabel: TLabel;
+    IconList: TListView;
+    IconHintLabel: TLabel;
     SettingsTab: TTabSheet;
+    /// <summary>The list of the settings and the edit panel, moved to the
+    /// page shown among the four that list settings.</summary>
+    GridPanel: TPanel;
+    PromptTab: TTabSheet;
+    PromptPanel: TPanel;
+    PromptLabel: TLabel;
+    /// <summary>The prompt, with the part the selected setting writes in
+    /// bold: a rich edit, because a memo has one font for everything.</summary>
+    PromptMemo: TRichEdit;
+    PromptSplitter: TSplitter;
     ModelsTab: TTabSheet;
     ProfilesTab: TTabSheet;
+    DocumentsTab: TTabSheet;
     ProfilePanel: TPanel;
     ProfileLabel: TLabel;
     ProfileCombo: TComboBox;
@@ -174,7 +222,29 @@ type
     procedure ProfileDeleteButtonClick(Sender: TObject);
     procedure TestButtonClick(Sender: TObject);
     procedure HelpButtonClick(Sender: TObject);
+    procedure PageControlChange(Sender: TObject);
+    procedure IconListSelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
+    procedure ThemeSwitchClick(Sender: TObject);
+    procedure StyleSheetBrowseButtonClick(Sender: TObject);
+    procedure StyleSheetApplyButtonClick(Sender: TObject);
   strict private
+    /// <summary>The browser of the preview; nil until the Appearance page is
+    /// first shown, and when WebView2 is not available.</summary>
+    FPreviewBrowser: TEdgeBrowser;
+    /// <summary>The page to show once the browser is ready: it navigates
+    /// only after its WebView exists.</summary>
+    FPendingPreview: string;
+    /// <summary>True once the browser was tried, whatever came of it.</summary>
+    FPreviewTried: Boolean;
+    /// <summary>The component being edited, for what is not in its settings
+    /// (the icon); not owned.</summary>
+    FChat: TVclHelpChatAI;
+    /// <summary>The built-in icons as an image list, when the component has
+    /// no <c>Images</c>; owned.</summary>
+    FBuiltInImages: TVirtualImageList;
+    /// <summary>The prompt shown, with LF line breaks: a rich edit counts a
+    /// line break as one character, and so does this string.</summary>
+    FPromptText: string;
     /// <summary>Every rule of the editor. Owned: created by
     /// <see cref="Execute" /> after the form (so <c>FormCreate</c> runs
     /// without it), freed in <c>FormDestroy</c>.</summary>
@@ -182,9 +252,9 @@ type
     /// <summary>The settings of the component being edited; not owned, and
     /// only kept for reference: the controller is what writes into them.</summary>
     FSettings: THelpChatSettings;
-    /// <summary>What <c>SettingsList</c> shows, row for row: the index of a
-    /// list item is the index here. Replaced by every
-    /// <see cref="RefreshEntries" />.</summary>
+    /// <summary>What <c>SettingsList</c> shows, row for row: the settings of
+    /// the page shown, the index of a list item is the index here. Replaced
+    /// by every <see cref="RefreshEntries" />.</summary>
     FEntries: TArray<THelpChatConfigEntry>;
     /// <summary>What <c>ModelsList</c> shows, row for row; the keys in it are
     /// the clear ones, as the file has them.</summary>
@@ -209,6 +279,32 @@ type
     /// <summary>True while the form fills its own combos: their
     /// <c>OnChange</c> must not read that as a choice of the user.</summary>
     FRefreshing: Boolean;
+    /// <summary>What <c>ValueChecks</c> holds, item for item: the value each
+    /// tick writes (the caption shown may say more) and its hint.</summary>
+    FCheckValues: TArray<string>;
+    FCheckHints: TArray<string>;
+    /// <summary>The hint of the setting the ticks belong to, which the hint
+    /// of the selected item follows.</summary>
+    FCheckEntryHint: string;
+    /// <summary>True once the window is shown: the preview waits for it.</summary>
+    FShown: Boolean;
+    /// <summary>Shows the hint of the item selected in <c>ValueChecks</c>
+    /// under the caption of the setting.</summary>
+    procedure ValueChecksClick(Sender: TObject);
+    /// <summary>The page of the catalogue the page shown stands for; False
+    /// for Models and Profiles, which list no settings.</summary>
+    function ShownPage(out APage: THelpChatConfigPage): Boolean;
+    /// <summary>The icons the component can show, the one in use selected.</summary>
+    procedure RefreshIcons;
+    /// <summary>The prompt in plain text, then in bold the part the selected
+    /// setting writes (<see cref="THelpChatConfigController.PromptFragment" />),
+    /// scrolled into view.</summary>
+    procedure HighlightPrompt;
+    /// <summary>The chat as the settings in force, the icon, the theme of the
+    /// switch and the style sheet of the component would show it. Only on
+    /// the Appearance page.</summary>
+    procedure RefreshPreview;
+    procedure PreviewCreated(Sender: TCustomEdgeBrowser; AResult: HResult);
     /// <summary>The colours of the theme on the canvas of a cell, the font
     /// plain: what both custom draw handlers start from.</summary>
     procedure PrepareCell(const AList: TCustomListView);
@@ -253,10 +349,19 @@ type
     /// <summary>After any change made through the controller: the origins,
     /// the status line and the "(modified)" mark all depend on it.</summary>
     procedure Changed;
+  protected
+    /// <summary>The first preview, once the window is on the screen: a
+    /// WebView created and navigated while the form is still hidden shows
+    /// nothing until the next navigation.</summary>
+    procedure DoShow; override;
   public
     /// <summary>
     ///  Opens the editor, modally, on the settings of a component, and
     ///  returns when it is closed. Main thread, inside the IDE.
+    ///  <para><c>AChat</c> is the component itself, for what does not live in
+    ///  its settings - the icon - and may be nil (the Appearance page then
+    ///  offers no icon); <c>AOnComponentChanged</c> is called with the name of
+    ///  the property written there (<c>ImageName</c>, <c>ImageIndex</c>).</para>
     ///  <para><c>ASettings</c> are the component's own (not owned): "To
     ///  component" writes into them at once. <c>AProfile</c> is its
     ///  <c>Profile</c>, empty for the default assistant, and
@@ -280,7 +385,7 @@ type
     ///  Save (closing with unsaved changes asks), the component changes
     ///  as the user goes.</para>
     /// </summary>
-    class procedure Execute(const ASettings: THelpChatSettings;
+    class procedure Execute(const AChat: TVclHelpChatAI; const ASettings: THelpChatSettings;
       const AProfile, AAssistantName, AExeFile, AConfigFileName: string;
       const AOnProfileChanged, AOnComponentChanged: TProc<string>; const AOnTest: TProc);
   end;
@@ -292,6 +397,13 @@ implementation
 uses
   System.UITypes,
   System.StrUtils,
+  System.Math,
+  Winapi.Messages,
+  Winapi.RichEdit,
+  System.IOUtils,
+  HelpChatAI.Commands,
+  Vcl.HelpChatAI.Bubble,
+  Vcl.HelpChatAI.DesignPreview,
   Vcl.Themes,
   Vcl.Dialogs,
   Winapi.Windows,
@@ -305,7 +417,44 @@ const
   // never the key.
   SCOPE_TEXT: array[Boolean] of string = ('', 'set');
 
-class procedure TVclHelpChatConfigEditor.Execute(const ASettings: THelpChatSettings;
+var
+  // Where the editor was when it was closed, for as long as the IDE runs:
+  // the bounds of the normal window, whether it was maximized, and the page.
+  // The way the editor of StyledComponents does it.
+  GSavedBounds: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
+  GSavedWindowState: TWindowState = wsNormal;
+  GSavedPageIndex: Integer = -1;
+
+procedure SaveEditorPlacement(const AEditor: TVclHelpChatConfigEditor);
+begin
+  // The bounds of the normal window only: those of a maximized one, put back
+  // on a normal window, give a window as big as the screen and not maximized.
+  if AEditor.WindowState = wsNormal then
+    GSavedBounds := AEditor.BoundsRect;
+  if AEditor.WindowState = wsMaximized then
+    GSavedWindowState := wsMaximized
+  else
+    GSavedWindowState := wsNormal;
+  GSavedPageIndex := AEditor.PageControl.ActivePageIndex;
+end;
+
+procedure RestoreEditorPlacement(const AEditor: TVclHelpChatConfigEditor);
+begin
+  if GSavedBounds.Width > 0 then
+  begin
+    AEditor.Position := poDesigned;
+    AEditor.SetBounds(GSavedBounds.Left, GSavedBounds.Top, GSavedBounds.Width,
+      GSavedBounds.Height);
+    // Put back inside a monitor that is still there.
+    AEditor.MakeFullyVisible(Screen.MonitorFromRect(GSavedBounds));
+  end;
+  // After the normal bounds, so that Restore goes back to them.
+  if GSavedWindowState = wsMaximized then
+    AEditor.WindowState := wsMaximized;
+end;
+
+class procedure TVclHelpChatConfigEditor.Execute(const AChat: TVclHelpChatAI;
+  const ASettings: THelpChatSettings;
   const AProfile, AAssistantName, AExeFile, AConfigFileName: string;
   const AOnProfileChanged, AOnComponentChanged: TProc<string>; const AOnTest: TProc);
 var
@@ -317,6 +466,7 @@ begin
     // and FormDestroy frees it. Should its constructor raise here, the form
     // goes away with no controller, which FormCloseQuery allows for.
     LForm.FSettings := ASettings;
+    LForm.FChat := AChat;
     LForm.FController := THelpChatConfigController.Create(ASettings, AProfile, AExeFile,
       AConfigFileName);
     LForm.FController.ComponentAssistantName := AAssistantName;
@@ -324,8 +474,21 @@ begin
     LForm.FOnComponentChanged := AOnComponentChanged;
     LForm.FOnTest := AOnTest;
     LForm.TestButton.Enabled := Assigned(AOnTest);
+    // The page it was left on, Appearance the first time; then the list goes
+    // where that page wants it.
+    if (GSavedPageIndex >= 0) and (GSavedPageIndex < LForm.PageControl.PageCount) then
+      LForm.PageControl.ActivePageIndex := GSavedPageIndex
+    else
+      LForm.PageControl.ActivePage := LForm.AppearanceTab;
+    if LForm.PageControl.ActivePage = LForm.AppearanceTab then
+      LForm.GridPanel.Parent := LForm.AppearanceLeftPanel
+    else
+      LForm.GridPanel.Parent := LForm.PageControl.ActivePage;
+    RestoreEditorPlacement(LForm);
     LForm.RefreshAll;
+    LForm.RefreshIcons;
     LForm.ShowModal;
+    SaveEditorPlacement(LForm);
   finally
     LForm.Free;
   end;
@@ -344,6 +507,7 @@ var
   end;
 
 begin
+  ValueChecks.OnClick := ValueChecksClick;
   // The editor lives inside the IDE: it follows its light or dark theme, the
   // way the editors of SVGIconImageList do. Delphi 10.4 does not give its
   // theme font to a form of a package; from 11 on ApplyTheme does.
@@ -373,11 +537,17 @@ begin
   end;
   LWindow := ColorToRGB(FWindowColor);
   SettingsList.Font.Color := FTextColor;
+  // The prompt is drawn in the colours set by hand, like the list: the
+  // theme would repaint the text of a rich edit in its own.
+  PromptMemo.StyleElements := [seBorder];
+  PromptMemo.Color := FWindowColor;
+  PromptMemo.Font.Color := FTextColor;
   if (GetRValue(LWindow) * 299 + GetGValue(LWindow) * 587 + GetBValue(LWindow) * 114) div 1000 < 128 then
     FComponentColor := RGB($6C, $B4, $FF)
   else
     FComponentColor := clBlue;
   PageControl.ActivePage := SettingsTab;
+  GridPanel.Parent := SettingsTab;
   // The profile is taken when it is picked or when the box is left, not at
   // every letter typed into it (the form file says OnChange).
   ProfileCombo.OnChange := nil;
@@ -463,24 +633,62 @@ begin
   end;
 end;
 
+function TVclHelpChatConfigEditor.ShownPage(out APage: THelpChatConfigPage): Boolean;
+begin
+  Result := True;
+  if PageControl.ActivePage = AppearanceTab then
+    APage := ccpAppearance
+  else if PageControl.ActivePage = PromptTab then
+    APage := ccpPrompt
+  else if PageControl.ActivePage = DocumentsTab then
+    APage := ccpDocuments
+  else if PageControl.ActivePage = SettingsTab then
+    APage := ccpSettings
+  else
+    Result := False;
+end;
+
+procedure TVclHelpChatConfigEditor.PageControlChange(Sender: TObject);
+var
+  LPage: THelpChatConfigPage;
+begin
+  // One list for the four pages of settings: it goes where it is needed,
+  // and lists the settings of that page. On Appearance it goes under the
+  // icon, left of the preview.
+  if not ShownPage(LPage) then
+    Exit;
+  if LPage = ccpAppearance then
+    GridPanel.Parent := AppearanceLeftPanel
+  else
+    GridPanel.Parent := PageControl.ActivePage;
+  RefreshEntries;
+end;
+
 procedure TVclHelpChatConfigEditor.RefreshEntries;
 var
   LEntry: THelpChatConfigEntry;
   LItem: TListItem;
-  LSelected: Integer;
+  LSelectedPath: string;
   LError: string;
+  LPage: THelpChatConfigPage;
+  I: Integer;
 begin
-  LSelected := -1;
-  if Assigned(SettingsList.Selected) then
-    LSelected := SettingsList.Selected.Index;
-  FEntries := FController.Entries;
+  LSelectedPath := '';
+  if Assigned(SettingsList.Selected) and (SettingsList.Selected.Index <= High(FEntries)) then
+    LSelectedPath := FEntries[SettingsList.Selected.Index].Path;
+  if not ShownPage(LPage) then
+    LPage := ccpSettings;
+  FEntries := THelpChatConfigController.EntriesOfPage(FController.Entries, LPage);
   SettingsList.Items.BeginUpdate;
   try
     SettingsList.Items.Clear;
     for LEntry in FEntries do
     begin
       LItem := SettingsList.Items.Add;
-      LItem.Caption := LEntry.Caption;
+      // The name of the property first, as the Object Inspector lists it,
+      // then what it is.
+      LItem.Caption := LEntry.Path;
+      LItem.SubItems.Add(LEntry.Caption);
       LItem.SubItems.Add(LEntry.InUse);
       LItem.SubItems.Add(LEntry.Origin);
       if LEntry.InRoot then
@@ -495,9 +703,20 @@ begin
   finally
     SettingsList.Items.EndUpdate;
   end;
-  if (LSelected >= 0) and (LSelected < SettingsList.Items.Count) then
-    SettingsList.Items[LSelected].Selected := True;
+  // What these settings tell the model, rebuilt with every change; the
+  // selection below puts the part of the selected one in bold.
+  if LPage = ccpPrompt then
+    FPromptText := FController.PromptPreview.Replace(#13#10, #10);
+  for I := 0 to High(FEntries) do
+    if SameText(FEntries[I].Path, LSelectedPath) then
+    begin
+      SettingsList.Items[I].Selected := True;
+      SettingsList.Items[I].MakeVisible(False);
+      Break;
+    end;
   ShowSelected;
+  if LPage = ccpAppearance then
+    RefreshPreview;
   // What the component would raise at activation with these files, else
   // what the controller met while reading them.
   LError := FController.Validate;
@@ -542,6 +761,8 @@ begin
     SettingLabel.Caption := 'Select a setting';
     HintLabel.Caption := '';
     EditPanel.Enabled := False;
+    if PageControl.ActivePage = PromptTab then
+      HighlightPrompt;
     Exit;
   end;
   EditPanel.Enabled := True;
@@ -601,17 +822,29 @@ begin
           ValueCombo.Text := LText;
         ValueCombo.Visible := True;
       end;
-    cvkLanguages:
+    cvkLanguages, cvkSet:
       begin
+        // The items are the choices; a set shows a caption of its own for
+        // each (a skill and its actions) and its hint when it is selected.
         LTicked := LText.Split([',', ';']);
+        FCheckValues := LEntry.Choices;
+        FCheckHints := LEntry.ChoiceHints;
+        FCheckEntryHint := LEntry.Hint;
         ValueChecks.Items.Clear;
-        for LChoice in LEntry.Choices do
+        for I := 0 to High(LEntry.Choices) do
         begin
-          I := ValueChecks.Items.Add(LChoice);
+          LChoice := LEntry.Choices[I];
+          if I < Length(LEntry.ChoiceCaptions) then
+            ValueChecks.Items.Add(LEntry.ChoiceCaptions[I])
+          else
+            ValueChecks.Items.Add(LChoice);
           for LText in LTicked do
             if SameText(Trim(LText), LChoice) then
               ValueChecks.Checked[I] := True;
         end;
+        // A caption with the actions does not fit the narrow list of the
+        // form file: as wide as the room left of the buttons.
+        ValueChecks.Width := ToProfileButton.Left - 2 * ValueChecks.Left;
         ValueChecks.Visible := True;
       end;
   else
@@ -621,10 +854,26 @@ begin
   end;
   ToProfileButton.Enabled := LHasProfile;
   RemoveProfileButton.Enabled := LHasProfile and LEntry.InProfile;
+  if PageControl.ActivePage = PromptTab then
+    HighlightPrompt;
   RemoveRootButton.Enabled := LEntry.InRoot;
   // A key belongs to a file, never to the form file.
   ToComponentButton.Enabled := not LSecret;
   RemoveComponentButton.Enabled := LEntry.InComponent and not LSecret;
+end;
+
+procedure TVclHelpChatConfigEditor.ValueChecksClick(Sender: TObject);
+var
+  I: Integer;
+begin
+  I := ValueChecks.ItemIndex;
+  if (I >= 0) and (I < Length(FCheckHints)) and (FCheckHints[I] <> '') then
+    HintLabel.Caption := FCheckValues[I] + ': ' + FCheckHints[I]
+  else
+    HintLabel.Caption := FCheckEntryHint;
+  // One line of label: the whole sentence as its tooltip too.
+  HintLabel.Hint := HintLabel.Caption;
+  HintLabel.ShowHint := True;
 end;
 
 function TVclHelpChatConfigEditor.EditedValue: string;
@@ -641,13 +890,14 @@ begin
     cvkBoolean: Result := LowerCase(BoolToStr(ValueCheck.Checked, True));
     cvkNumber: Result := IntToStr(StrToIntDef(Trim(NumberEdit.Text), 0));
     cvkLanguage, cvkChoice: Result := Trim(ValueCombo.Text);
-    cvkLanguages:
+    cvkLanguages, cvkSet:
+      // The choice, not the caption shown for it.
       for I := 0 to ValueChecks.Items.Count - 1 do
-        if ValueChecks.Checked[I] then
+        if ValueChecks.Checked[I] and (I < Length(FCheckValues)) then
         begin
           if Result <> '' then
             Result := Result + ', ';
-          Result := Result + ValueChecks.Items[I];
+          Result := Result + FCheckValues[I];
         end;
   else
     Result := Trim(ValueEdit.Text);
@@ -759,7 +1009,7 @@ begin
   // the Object Inspector does: bold for a value of a configuration file,
   // bold and blue for one of the form file, plain for the library's.
   PrepareCell(Sender);
-  if (SubItem <> 1) or (Item.Index > High(FEntries)) then
+  if (SubItem <> 2) or (Item.Index > High(FEntries)) then
     Exit;
   case FEntries[Item.Index].Source of
     csrFile:
@@ -1048,6 +1298,239 @@ begin
   RefreshFile;
   if Assigned(FOnTest) then
     FOnTest();
+end;
+
+procedure TVclHelpChatConfigEditor.HighlightPrompt;
+var
+  LEntry: THelpChatConfigEntry;
+  LFragment: string;
+  LStart: Integer;
+begin
+  PromptMemo.Lines.BeginUpdate;
+  try
+    // Plain first, in the colours of the theme: a rich edit keeps the
+    // attributes of the text it had.
+    PromptMemo.Text := FPromptText.Replace(#10, sLineBreak);
+    PromptMemo.SelectAll;
+    PromptMemo.SelAttributes.Style := [];
+    PromptMemo.SelAttributes.Color := FTextColor;
+    LStart := -1;
+    LFragment := '';
+    if SelectedEntry(LEntry) then
+      LFragment := FController.PromptFragment(LEntry.Path).Replace(#13#10, #10);
+    if LFragment <> '' then
+      LStart := FPromptText.IndexOf(LFragment);
+    if LStart >= 0 then
+    begin
+      PromptMemo.SelStart := LStart;
+      PromptMemo.SelLength := LFragment.Length;
+      PromptMemo.SelAttributes.Style := [fsBold];
+    end;
+    PromptMemo.SelStart := Max(LStart, 0);
+    PromptMemo.SelLength := 0;
+  finally
+    PromptMemo.Lines.EndUpdate;
+  end;
+  PromptMemo.Perform(EM_SCROLLCARET, 0, 0);
+end;
+
+procedure TVclHelpChatConfigEditor.RefreshIcons;
+var
+  LImages: TCustomImageList;
+  LItem: TListItem;
+  LName: string;
+  LSelected, I: Integer;
+begin
+  FRefreshing := True;
+  IconList.Items.BeginUpdate;
+  try
+    IconList.Items.Clear;
+    IconPanel.Enabled := Assigned(FChat);
+    StyleSheetEdit.Enabled := Assigned(FChat);
+    StyleSheetBrowseButton.Enabled := Assigned(FChat);
+    StyleSheetApplyButton.Enabled := Assigned(FChat);
+    if not Assigned(FChat) then
+    begin
+      IconHintLabel.Caption := '';
+      Exit;
+    end;
+    StyleSheetEdit.Text := FChat.PanelStyleSheet;
+    // The application's image list wins, as at run time; with none, the
+    // built-in icons, at the size of the list on this monitor.
+    if Assigned(FChat.Images) then
+    begin
+      LImages := FChat.Images;
+      IconHintLabel.Caption := Format('From the Images of the component (%s): a click sets ' +
+        'ImageIndex, and ImageName follows.', [FChat.Images.Name]);
+    end
+    else
+    begin
+      if FBuiltInImages = nil then
+      begin
+        FBuiltInImages := TVirtualImageList.Create(Self);
+        FBuiltInImages.ImageCollection := HelpChatAssistantIcons;
+        FBuiltInImages.Width := ScaleValue(48);
+        FBuiltInImages.Height := ScaleValue(48);
+        FBuiltInImages.AutoFill := True;
+      end;
+      LImages := FBuiltInImages;
+      IconHintLabel.Caption := 'The built-in icons (the component has no Images): a click ' +
+        'sets ImageName, and ImageIndex follows.';
+    end;
+    IconList.LargeImages := LImages;
+    LSelected := -1;
+    for I := 0 to LImages.Count - 1 do
+    begin
+      LName := LImages.GetNameByIndex(I);
+      LItem := IconList.Items.Add;
+      LItem.Caption := LName;
+      LItem.ImageIndex := I;
+      if Assigned(FChat.Images) then
+      begin
+        if I = FChat.ImageIndex then
+          LSelected := I;
+      end
+      else if SameText(LName, FChat.ImageName) or ((FChat.ImageName = '') and (I = FChat.ImageIndex)) then
+        LSelected := I;
+    end;
+    if LSelected >= 0 then
+      IconList.Items[LSelected].Selected := True;
+  finally
+    IconList.Items.EndUpdate;
+    FRefreshing := False;
+  end;
+end;
+
+procedure TVclHelpChatConfigEditor.IconListSelectItem(Sender: TObject; Item: TListItem;
+  Selected: Boolean);
+begin
+  if not Selected or not Assigned(FChat) or FRefreshing then
+    Exit;
+  // Into the component, now, like "Write to the component": the setter keeps
+  // the other half in step.
+  if Assigned(FChat.Images) then
+  begin
+    if FChat.ImageIndex = Item.Index then
+      Exit;
+    FChat.ImageIndex := Item.Index;
+    if Assigned(FOnComponentChanged) then
+      FOnComponentChanged('ImageIndex');
+  end
+  else
+  begin
+    if SameText(FChat.ImageName, Item.Caption) then
+      Exit;
+    FChat.ImageName := Item.Caption;
+    if Assigned(FOnComponentChanged) then
+      FOnComponentChanged('ImageName');
+  end;
+  RefreshPreview;
+end;
+
+procedure TVclHelpChatConfigEditor.DoShow;
+begin
+  inherited;
+  if FShown then
+    Exit;
+  FShown := True;
+  // Queued: DoShow runs before the window is made visible, and the WebView
+  // must be created in a window that is.
+  TThread.ForceQueue(nil,
+    procedure
+    begin
+      RefreshPreview;
+    end);
+end;
+
+procedure TVclHelpChatConfigEditor.RefreshPreview;
+var
+  LFrom, LError, LIcon, LStyleSheet: string;
+  LCommands: THelpChatCommands;
+begin
+  if not FShown or (PageControl.ActivePage <> AppearanceTab) then
+    Exit;
+  if not FPreviewTried then
+  begin
+    // Once: the loader by full path (nothing ships it next to bds.exe),
+    // then a browser of our own - not the panel of the component, which
+    // lets nothing but its server navigate it.
+    FPreviewTried := True;
+    if HelpChatDesignEnsureWebView2Loader(HelpChatDesignBaseFolder, LFrom) then
+    begin
+      FPreviewBrowser := TEdgeBrowser.Create(Self);
+      FPreviewBrowser.Parent := PreviewHost;
+      FPreviewBrowser.Align := alClient;
+      FPreviewBrowser.UserDataFolder := TPath.Combine(HelpChatAppDataFolder, 'WebView2');
+      FPreviewBrowser.OnCreateWebViewCompleted := PreviewCreated;
+      PreviewMessageLabel.Visible := False;
+    end
+    else
+      PreviewMessageLabel.Caption := 'The preview needs WebView2Loader.dll: put it in the ' +
+        'output folder of the project, or install the library with its Redist folder.';
+  end;
+  if FPreviewBrowser = nil then
+    Exit;
+  LIcon := '';
+  LStyleSheet := '';
+  LCommands := HELPCHAT_DEF_COMMANDS;
+  if Assigned(FChat) then
+  begin
+    LIcon := HelpChatIconDataUri(FChat.Images, FChat.ImageIndex, FChat.ImageName);
+    LStyleSheet := FChat.PanelStyleSheet;
+    LCommands := FChat.EnabledCommands;
+  end;
+  FPendingPreview := FController.AppearancePreview(ThemeSwitch.State = tssOn, LIcon,
+    LStyleSheet, LCommands, LError);
+  StyleSheetErrorLabel.Caption := LError;
+  if FPreviewBrowser.WebViewCreated then
+    FPreviewBrowser.NavigateToString(FPendingPreview)
+  else
+    FPreviewBrowser.CreateWebView;
+end;
+
+procedure TVclHelpChatConfigEditor.PreviewCreated(Sender: TCustomEdgeBrowser; AResult: HResult);
+begin
+  if Succeeded(AResult) then
+    Sender.NavigateToString(FPendingPreview)
+  else
+  begin
+    PreviewMessageLabel.Caption := Format('WebView2 could not start (0x%.8x).', [AResult]);
+    PreviewMessageLabel.Visible := True;
+  end;
+end;
+
+procedure TVclHelpChatConfigEditor.ThemeSwitchClick(Sender: TObject);
+begin
+  RefreshPreview;
+end;
+
+procedure TVclHelpChatConfigEditor.StyleSheetBrowseButtonClick(Sender: TObject);
+var
+  LDialog: TOpenDialog;
+begin
+  LDialog := TOpenDialog.Create(Self);
+  try
+    LDialog.Filter := 'Style sheets (*.css)|*.css|All files (*.*)|*.*';
+    LDialog.FileName := StyleSheetEdit.Text;
+    if LDialog.Execute then
+    begin
+      StyleSheetEdit.Text := LDialog.FileName;
+      StyleSheetApplyButtonClick(Sender);
+    end;
+  finally
+    LDialog.Free;
+  end;
+end;
+
+procedure TVclHelpChatConfigEditor.StyleSheetApplyButtonClick(Sender: TObject);
+begin
+  if not Assigned(FChat) or (FChat.PanelStyleSheet = Trim(StyleSheetEdit.Text)) then
+    Exit;
+  // Into the component, now: the form file keeps it, and empty removes it.
+  FChat.PanelStyleSheet := Trim(StyleSheetEdit.Text);
+  if Assigned(FOnComponentChanged) then
+    FOnComponentChanged('PanelStyleSheet');
+  RefreshPreview;
 end;
 
 procedure TVclHelpChatConfigEditor.HelpButtonClick(Sender: TObject);

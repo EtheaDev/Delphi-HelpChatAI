@@ -282,7 +282,32 @@ type
     hcmPdfUnavailable,
     /// <summary>What the assistant is told after it asked for a document:
     /// the work is done, the user is choosing where to put it.</summary>
-    hcmPdfHandedOver);
+    hcmPdfHandedOver,
+    /// <summary>The confirmation of <c>fill_form</c> (skill "forms"): %s is
+    /// the form.</summary>
+    hcmSkillFill,
+    /// <summary>The confirmation of <c>press_command</c> (skill "commands"):
+    /// %0:s the button, %1:s the form.</summary>
+    hcmSkillPress,
+    /// <summary>The confirmation of <c>cancel_edit</c> (skill "forms"): %s is
+    /// the form.</summary>
+    hcmSkillCancel,
+    /// <summary>Description of <c>/skills</c>.</summary>
+    hcmCmdSkills,
+    /// <summary>Heading of the answer of <c>/skills</c>.</summary>
+    hcmCmdTitleSkills,
+    /// <summary><c>/skills</c> when <c>Settings.Skills</c> names none.</summary>
+    hcmCmdNoSkills,
+    /// <summary><c>/skills</c>, next to a name no skill of the application has.</summary>
+    hcmCmdSkillUnknown,
+    /// <summary>What the skill "forms" does, as the user reads it in <c>/skills</c>.</summary>
+    hcmSkillForms,
+    /// <summary>What the skill "commands" does, for <c>/skills</c>.</summary>
+    hcmSkillCommands,
+    /// <summary>What the skill "records" does, for <c>/skills</c>.</summary>
+    hcmSkillRecords,
+    /// <summary>What the skill "pages" does, for <c>/skills</c>.</summary>
+    hcmSkillPages);
 
 /// <summary>Returns the string <c>AId</c> in <c>ALanguage</c> (<c>hclAuto</c> =
 /// <see cref="HelpChatDefaultLanguage" />, resolved against the OS locale).
@@ -295,6 +320,20 @@ function HelpChatMsg(const AId: THelpChatMsgId;
 /// <c>Format</c> raises <c>EConvertError</c>.</summary>
 function HelpChatMsgFmt(const AId: THelpChatMsgId; const AArgs: array of const;
   const ALanguage: THelpChatLanguage = hclAuto): string;
+
+/// <summary>Replaces the string <c>AId</c> for the whole process: in
+/// <c>ALanguage</c>, or in every language with <c>hclAuto</c> (a text for one
+/// language wins over one for all). An empty <c>AText</c> takes the
+/// replacement away. What <see cref="HelpChatMsg" /> answers from then on -
+/// the labels of the panel too, which are read through it when the page is
+/// rendered. A string with placeholders must keep them: a <c>%s</c> lost or
+/// added makes <c>Format</c> raise where the string is used. Safe from any
+/// thread.</summary>
+procedure HelpChatSetMsg(const AId: THelpChatMsgId; const AText: string;
+  const ALanguage: THelpChatLanguage = hclAuto);
+
+/// <summary>Takes every replacement of <see cref="HelpChatSetMsg" /> away.</summary>
+procedure HelpChatClearMsgs;
 
 /// <summary>Resolves <c>hclAuto</c> to a concrete language:
 /// <see cref="HelpChatDefaultLanguage" /> when that is set, the OS user
@@ -341,6 +380,9 @@ var
   HelpChatDefaultLanguage: THelpChatLanguage = hclAuto;
 
 implementation
+
+uses
+  System.SyncObjs;
 
 resourcestring
   // ---- English -------------------------------------------------------------
@@ -469,6 +511,17 @@ resourcestring
   SEnPdfHandedOver = 'The document is ready: the user is choosing where to save it.';
   SEnAttachedDocuments = 'Documents the user attached to the question';
   SEnAttachedTextFile = 'Content of the attached file "%s"';
+  SEnSkillFill = 'The assistant wants to fill these fields of "%s". Nothing is saved: you review the values and save.';
+  SEnSkillPress = 'The assistant wants to press "%0:s" on "%1:s".';
+  SEnSkillCancel = 'The assistant wants to abandon the changes not saved on "%s".';
+  SEnCmdSkills = 'The skills of the assistant: what it can do on any window';
+  SEnCmdTitleSkills = 'Skills of the assistant';
+  SEnCmdNoSkills = 'This assistant has no skills.';
+  SEnCmdSkillUnknown = 'not available in this application';
+  SEnSkillForms = 'Describes the window in front of you and fills its fields, asking first and never saving.';
+  SEnSkillCommands = 'Lists the buttons of the window and presses one, asking first; never one that saves.';
+  SEnSkillRecords = 'Counts the records of the lists of the window and moves to the one you name.';
+  SEnSkillPages = 'Brings a page (a tab) of the window to the front.';
 
   // ---- Italian -------------------------------------------------------------
   SItGreeting = 'Ciao! Chiedimi qualsiasi cosa su come usare l''applicazione.';
@@ -596,6 +649,17 @@ resourcestring
   SItPdfHandedOver = 'Il documento è pronto: l''utente sta scegliendo dove salvarlo.';
   SItAttachedDocuments = 'Documenti allegati dall''utente alla domanda';
   SItAttachedTextFile = 'Contenuto del file allegato "%s"';
+  SItSkillFill = 'L''assistente vuole compilare questi campi di "%s". Nulla viene salvato: controlli tu i valori e salvi.';
+  SItSkillPress = 'L''assistente vuole premere "%0:s" in "%1:s".';
+  SItSkillCancel = 'L''assistente vuole abbandonare le modifiche non salvate in "%s".';
+  SItCmdSkills = 'Le skill dell''assistente: cosa sa fare su qualsiasi finestra';
+  SItCmdTitleSkills = 'Skill dell''assistente';
+  SItCmdNoSkills = 'Questo assistente non ha skill.';
+  SItCmdSkillUnknown = 'non disponibile in questa applicazione';
+  SItSkillForms = 'Descrive la finestra che hai davanti e ne compila i campi, chiedendo prima e senza mai salvare.';
+  SItSkillCommands = 'Elenca i pulsanti della finestra e ne preme uno, chiedendo prima; mai uno che salva.';
+  SItSkillRecords = 'Conta i record delle liste della finestra e si sposta su quello che nomini.';
+  SItSkillPages = 'Porta in primo piano una pagina (una scheda) della finestra.';
 
   // ---- Spanish -------------------------------------------------------------
   SEsGreeting = '¡Hola! Pregúntame lo que quieras sobre cómo usar la aplicación.';
@@ -723,6 +787,17 @@ resourcestring
   SEsPdfHandedOver = 'El documento está listo: el usuario está eligiendo dónde guardarlo.';
   SEsAttachedDocuments = 'Documentos que el usuario adjuntó a la pregunta';
   SEsAttachedTextFile = 'Contenido del archivo adjunto "%s"';
+  SEsSkillFill = 'El asistente quiere rellenar estos campos de "%s". No se guarda nada: usted revisa los valores y guarda.';
+  SEsSkillPress = 'El asistente quiere pulsar "%0:s" en "%1:s".';
+  SEsSkillCancel = 'El asistente quiere descartar los cambios no guardados en "%s".';
+  SEsCmdSkills = 'Las habilidades del asistente: lo que sabe hacer en cualquier ventana';
+  SEsCmdTitleSkills = 'Habilidades del asistente';
+  SEsCmdNoSkills = 'Este asistente no tiene habilidades.';
+  SEsCmdSkillUnknown = 'no disponible en esta aplicación';
+  SEsSkillForms = 'Describe la ventana que tiene delante y rellena sus campos, preguntando antes y sin guardar nunca.';
+  SEsSkillCommands = 'Enumera los botones de la ventana y pulsa uno, preguntando antes; nunca uno que guarde.';
+  SEsSkillRecords = 'Cuenta los registros de las listas de la ventana y se mueve al que usted nombre.';
+  SEsSkillPages = 'Trae al frente una página (una pestaña) de la ventana.';
 
   // ---- French --------------------------------------------------------------
   SFrGreeting = 'Bonjour ! Posez-moi toutes vos questions sur l''utilisation de l''application.';
@@ -850,6 +925,17 @@ resourcestring
   SFrPdfHandedOver = 'Le document est prêt : l''utilisateur choisit où l''enregistrer.';
   SFrAttachedDocuments = 'Documents que l''utilisateur a joints à la question';
   SFrAttachedTextFile = 'Contenu du fichier joint "%s"';
+  SFrSkillFill = 'L''assistant veut remplir ces champs de "%s". Rien n''est enregistré : vous vérifiez les valeurs et enregistrez.';
+  SFrSkillPress = 'L''assistant veut appuyer sur "%0:s" dans "%1:s".';
+  SFrSkillCancel = 'L''assistant veut abandonner les modifications non enregistrées dans "%s".';
+  SFrCmdSkills = 'Les compétences de l''assistant : ce qu''il sait faire sur n''importe quelle fenêtre';
+  SFrCmdTitleSkills = 'Compétences de l''assistant';
+  SFrCmdNoSkills = 'Cet assistant n''a aucune compétence.';
+  SFrCmdSkillUnknown = 'non disponible dans cette application';
+  SFrSkillForms = 'Décrit la fenêtre devant vous et remplit ses champs, en demandant d''abord et sans jamais enregistrer.';
+  SFrSkillCommands = 'Liste les boutons de la fenêtre et appuie sur l''un d''eux, en demandant d''abord ; jamais un qui enregistre.';
+  SFrSkillRecords = 'Compte les enregistrements des listes de la fenêtre et se place sur celui que vous nommez.';
+  SFrSkillPages = 'Affiche une page (un onglet) de la fenêtre.';
 
   // ---- German --------------------------------------------------------------
   SDeGreeting = 'Hallo! Fragen Sie mich alles zur Bedienung der Anwendung.';
@@ -977,6 +1063,17 @@ resourcestring
   SDePdfHandedOver = 'Das Dokument ist fertig: Der Benutzer wählt gerade aus, wo es gespeichert wird.';
   SDeAttachedDocuments = 'Dokumente, die der Benutzer an die Frage angehängt hat';
   SDeAttachedTextFile = 'Inhalt der angehängten Datei "%s"';
+  SDeSkillFill = 'Der Assistent möchte diese Felder von "%s" ausfüllen. Nichts wird gespeichert: Sie prüfen die Werte und speichern.';
+  SDeSkillPress = 'Der Assistent möchte "%0:s" in "%1:s" drücken.';
+  SDeSkillCancel = 'Der Assistent möchte die nicht gespeicherten Änderungen in "%s" verwerfen.';
+  SDeCmdSkills = 'Die Fähigkeiten des Assistenten: was er in jedem Fenster kann';
+  SDeCmdTitleSkills = 'Fähigkeiten des Assistenten';
+  SDeCmdNoSkills = 'Dieser Assistent hat keine Fähigkeiten.';
+  SDeCmdSkillUnknown = 'in dieser Anwendung nicht verfügbar';
+  SDeSkillForms = 'Beschreibt das Fenster vor Ihnen und füllt seine Felder aus, fragt vorher und speichert nie.';
+  SDeSkillCommands = 'Listet die Schaltflächen des Fensters auf und drückt eine, fragt vorher; nie eine, die speichert.';
+  SDeSkillRecords = 'Zählt die Datensätze der Listen des Fensters und springt zu dem, den Sie nennen.';
+  SDeSkillPages = 'Bringt eine Seite (einen Reiter) des Fensters nach vorne.';
 
   // ---- Portuguese ----------------------------------------------------------
   SPtGreeting = 'Olá! Pergunte-me o que quiser sobre como utilizar a aplicação.';
@@ -1104,6 +1201,17 @@ resourcestring
   SPtPdfHandedOver = 'O documento está pronto: o utilizador está a escolher onde guardá-lo.';
   SPtAttachedDocuments = 'Documentos que o utilizador anexou à pergunta';
   SPtAttachedTextFile = 'Conteúdo do ficheiro anexado "%s"';
+  SPtSkillFill = 'O assistente quer preencher estes campos de "%s". Nada é guardado: reveja os valores e guarde.';
+  SPtSkillPress = 'O assistente quer premir "%0:s" em "%1:s".';
+  SPtSkillCancel = 'O assistente quer abandonar as alterações não guardadas em "%s".';
+  SPtCmdSkills = 'As competências do assistente: o que sabe fazer em qualquer janela';
+  SPtCmdTitleSkills = 'Competências do assistente';
+  SPtCmdNoSkills = 'Este assistente não tem competências.';
+  SPtCmdSkillUnknown = 'não disponível nesta aplicação';
+  SPtSkillForms = 'Descreve a janela à sua frente e preenche os seus campos, perguntando antes e sem nunca guardar.';
+  SPtSkillCommands = 'Lista os botões da janela e prime um, perguntando antes; nunca um que guarde.';
+  SPtSkillRecords = 'Conta os registos das listas da janela e passa para o que indicar.';
+  SPtSkillPages = 'Traz para a frente uma página (um separador) da janela.';
 
 const
   LANGUAGE_CODES: array[THelpChatLanguage] of string = (
@@ -1298,6 +1406,17 @@ begin
     hcmPdfNothing: Result := SEnPdfNothing;
     hcmPdfUnavailable: Result := SEnPdfUnavailable;
     hcmPdfHandedOver: Result := SEnPdfHandedOver;
+    hcmSkillFill: Result := SEnSkillFill;
+    hcmSkillPress: Result := SEnSkillPress;
+    hcmSkillCancel: Result := SEnSkillCancel;
+    hcmCmdSkills: Result := SEnCmdSkills;
+    hcmCmdTitleSkills: Result := SEnCmdTitleSkills;
+    hcmCmdNoSkills: Result := SEnCmdNoSkills;
+    hcmCmdSkillUnknown: Result := SEnCmdSkillUnknown;
+    hcmSkillForms: Result := SEnSkillForms;
+    hcmSkillCommands: Result := SEnSkillCommands;
+    hcmSkillRecords: Result := SEnSkillRecords;
+    hcmSkillPages: Result := SEnSkillPages;
   else
     Result := '';
   end;
@@ -1421,6 +1540,17 @@ begin
     hcmPdfNothing: Result := SItPdfNothing;
     hcmPdfUnavailable: Result := SItPdfUnavailable;
     hcmPdfHandedOver: Result := SItPdfHandedOver;
+    hcmSkillFill: Result := SItSkillFill;
+    hcmSkillPress: Result := SItSkillPress;
+    hcmSkillCancel: Result := SItSkillCancel;
+    hcmCmdSkills: Result := SItCmdSkills;
+    hcmCmdTitleSkills: Result := SItCmdTitleSkills;
+    hcmCmdNoSkills: Result := SItCmdNoSkills;
+    hcmCmdSkillUnknown: Result := SItCmdSkillUnknown;
+    hcmSkillForms: Result := SItSkillForms;
+    hcmSkillCommands: Result := SItSkillCommands;
+    hcmSkillRecords: Result := SItSkillRecords;
+    hcmSkillPages: Result := SItSkillPages;
   else
     Result := '';
   end;
@@ -1544,6 +1674,17 @@ begin
     hcmPdfNothing: Result := SEsPdfNothing;
     hcmPdfUnavailable: Result := SEsPdfUnavailable;
     hcmPdfHandedOver: Result := SEsPdfHandedOver;
+    hcmSkillFill: Result := SEsSkillFill;
+    hcmSkillPress: Result := SEsSkillPress;
+    hcmSkillCancel: Result := SEsSkillCancel;
+    hcmCmdSkills: Result := SEsCmdSkills;
+    hcmCmdTitleSkills: Result := SEsCmdTitleSkills;
+    hcmCmdNoSkills: Result := SEsCmdNoSkills;
+    hcmCmdSkillUnknown: Result := SEsCmdSkillUnknown;
+    hcmSkillForms: Result := SEsSkillForms;
+    hcmSkillCommands: Result := SEsSkillCommands;
+    hcmSkillRecords: Result := SEsSkillRecords;
+    hcmSkillPages: Result := SEsSkillPages;
   else
     Result := '';
   end;
@@ -1667,6 +1808,17 @@ begin
     hcmPdfNothing: Result := SFrPdfNothing;
     hcmPdfUnavailable: Result := SFrPdfUnavailable;
     hcmPdfHandedOver: Result := SFrPdfHandedOver;
+    hcmSkillFill: Result := SFrSkillFill;
+    hcmSkillPress: Result := SFrSkillPress;
+    hcmSkillCancel: Result := SFrSkillCancel;
+    hcmCmdSkills: Result := SFrCmdSkills;
+    hcmCmdTitleSkills: Result := SFrCmdTitleSkills;
+    hcmCmdNoSkills: Result := SFrCmdNoSkills;
+    hcmCmdSkillUnknown: Result := SFrCmdSkillUnknown;
+    hcmSkillForms: Result := SFrSkillForms;
+    hcmSkillCommands: Result := SFrSkillCommands;
+    hcmSkillRecords: Result := SFrSkillRecords;
+    hcmSkillPages: Result := SFrSkillPages;
   else
     Result := '';
   end;
@@ -1790,6 +1942,17 @@ begin
     hcmPdfNothing: Result := SDePdfNothing;
     hcmPdfUnavailable: Result := SDePdfUnavailable;
     hcmPdfHandedOver: Result := SDePdfHandedOver;
+    hcmSkillFill: Result := SDeSkillFill;
+    hcmSkillPress: Result := SDeSkillPress;
+    hcmSkillCancel: Result := SDeSkillCancel;
+    hcmCmdSkills: Result := SDeCmdSkills;
+    hcmCmdTitleSkills: Result := SDeCmdTitleSkills;
+    hcmCmdNoSkills: Result := SDeCmdNoSkills;
+    hcmCmdSkillUnknown: Result := SDeCmdSkillUnknown;
+    hcmSkillForms: Result := SDeSkillForms;
+    hcmSkillCommands: Result := SDeSkillCommands;
+    hcmSkillRecords: Result := SDeSkillRecords;
+    hcmSkillPages: Result := SDeSkillPages;
   else
     Result := '';
   end;
@@ -1913,14 +2076,86 @@ begin
     hcmPdfNothing: Result := SPtPdfNothing;
     hcmPdfUnavailable: Result := SPtPdfUnavailable;
     hcmPdfHandedOver: Result := SPtPdfHandedOver;
+    hcmSkillFill: Result := SPtSkillFill;
+    hcmSkillPress: Result := SPtSkillPress;
+    hcmSkillCancel: Result := SPtSkillCancel;
+    hcmCmdSkills: Result := SPtCmdSkills;
+    hcmCmdTitleSkills: Result := SPtCmdTitleSkills;
+    hcmCmdNoSkills: Result := SPtCmdNoSkills;
+    hcmCmdSkillUnknown: Result := SPtCmdSkillUnknown;
+    hcmSkillForms: Result := SPtSkillForms;
+    hcmSkillCommands: Result := SPtSkillCommands;
+    hcmSkillRecords: Result := SPtSkillRecords;
+    hcmSkillPages: Result := SPtSkillPages;
   else
     Result := '';
   end;
 end;
 
-function HelpChatMsg(const AId: THelpChatMsgId; const ALanguage: THelpChatLanguage): string;
+var
+  // The replacements of HelpChatSetMsg: [AId, hclAuto] is the one for every
+  // language. GMsgCount keeps the lock out of the common case, nobody
+  // having replaced anything.
+  GMsgOverrides: array[THelpChatMsgId, THelpChatLanguage] of string;
+  GMsgCount: Integer = 0;
+  GMsgLock: TCriticalSection;
+
+procedure HelpChatSetMsg(const AId: THelpChatMsgId; const AText: string;
+  const ALanguage: THelpChatLanguage);
 begin
-  case HelpChatResolveLanguage(ALanguage) of
+  GMsgLock.Enter;
+  try
+    if (GMsgOverrides[AId, ALanguage] = '') and (AText <> '') then
+      Inc(GMsgCount)
+    else if (GMsgOverrides[AId, ALanguage] <> '') and (AText = '') then
+      Dec(GMsgCount);
+    GMsgOverrides[AId, ALanguage] := AText;
+  finally
+    GMsgLock.Leave;
+  end;
+end;
+
+procedure HelpChatClearMsgs;
+var
+  LId: THelpChatMsgId;
+  LLanguage: THelpChatLanguage;
+begin
+  GMsgLock.Enter;
+  try
+    for LId := Low(THelpChatMsgId) to High(THelpChatMsgId) do
+      for LLanguage := Low(THelpChatLanguage) to High(THelpChatLanguage) do
+        GMsgOverrides[LId, LLanguage] := '';
+    GMsgCount := 0;
+  finally
+    GMsgLock.Leave;
+  end;
+end;
+
+function OverriddenMsg(const AId: THelpChatMsgId; const ALanguage: THelpChatLanguage;
+  out AText: string): Boolean;
+begin
+  AText := '';
+  if GMsgCount = 0 then
+    Exit(False);
+  GMsgLock.Enter;
+  try
+    AText := GMsgOverrides[AId, ALanguage];
+    if AText = '' then
+      AText := GMsgOverrides[AId, hclAuto];
+  finally
+    GMsgLock.Leave;
+  end;
+  Result := AText <> '';
+end;
+
+function HelpChatMsg(const AId: THelpChatMsgId; const ALanguage: THelpChatLanguage): string;
+var
+  LLanguage: THelpChatLanguage;
+begin
+  LLanguage := HelpChatResolveLanguage(ALanguage);
+  if OverriddenMsg(AId, LLanguage, Result) then
+    Exit;
+  case LLanguage of
     hclItalian: Result := ItalianMsg(AId);
     hclSpanish: Result := SpanishMsg(AId);
     hclFrench: Result := FrenchMsg(AId);
@@ -1936,5 +2171,11 @@ function HelpChatMsgFmt(const AId: THelpChatMsgId; const AArgs: array of const;
 begin
   Result := Format(HelpChatMsg(AId, ALanguage), AArgs);
 end;
+
+initialization
+  GMsgLock := TCriticalSection.Create;
+
+finalization
+  FreeAndNil(GMsgLock);
 
 end.

@@ -430,6 +430,10 @@ the edit on every version, not on the one that happens to be open.
   still happens. Focusing inside the page is not enough when the panel opens: without the
   native focus the window has no caret to give, so `TVclHelpChatAIPanel.FocusInput` focuses the
   browser *and* calls `window.hcFocus`, and `Open` and `OnPageReady` both go through it.
+  The drop-down lists of the header (models, languages: `openList`/`listKeys` in `panel.js`)
+  take the arrows, Home/End, Enter and Escape, and closing one gives the caret back too. The
+  header has a `z-index` above the footer's, or a long list opens under it; its height is
+  capped to the bottom of the window and it scrolls.
 - **Screen context is native.** `TVclHelpChatAI.BuildContext` computes it on the main thread and
   calls `Transport.SetContext`; the page never sends it (a remote client may, as override).
   Deepest `HelpKeyword`/`HelpContext` wins (focused control upwards, form last); the active
@@ -516,14 +520,50 @@ the edit on every version, not on the one that happens to be open.
   key at a time (`HelpChatUiStateWrite`): `"panel"` and `"bubbles"` live in the same
   `helpchatai-ui[-Profile].json`, and the old writer that replaced the whole file would have
   made each forget the other.
+  **The bubble of the main form may float** (`BubbleStayOnTop`, VCL, main form only): an
+  application whose secondary forms open maximized hid it. Then it is no child at all but a
+  `WS_POPUP` owned by the main form (`FloatOver`: `ParentWindow` is the owner,
+  `WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`), placed in screen coordinates
+  whenever the host moves, sizes or recreates its window (the host hook calls `FollowHost`,
+  which fires `OnHostChanged`), `HWND_TOPMOST` while the application is active and below the
+  foreground window when it is not (`WM_ACTIVATEAPP`). `ShowModal` disables every window of
+  the thread, so `WM_ENABLE` False posts `HELPCHAT_CM_REENABLE` and the bubble stays
+  clickable; `WM_MOUSEACTIVATE` answers `MA_NOACTIVATE`. Owned windows hide with a minimized
+  owner by themselves. It may be dragged anywhere on the work area of the monitor of the
+  form, outside the form too: `FromBounds`/`ToPosition` take an `AOutside` (negative
+  distances, read back from the file down to -100000) and the screen position is always
+  clamped to the work area - the first version clamped to the form widened by one bubble,
+  which on a maximized form let it go under the taskbar for good. the DUnitX suite shows no
+  window, so this was checked by a harness that drives real forms (modal, maximized,
+  minimized, a drag by `WM_MOUSEMOVE`). **FMX has it on Windows** (`FMX.HelpChatAI.Bubble`,
+  `TFmxHelpChatBubbleForm`): the `TCircle` fills a borderless form with `Transparency` (a
+  layered window), owned through `GWLP_HWNDPARENT` - `ParentForm` is read-only and comes from
+  a `Parent` that is a form, which would make the bubble a child object of the main form. Its
+  geometry is Win32 pixels throughout (cursor, client rect of the host, work area, DPI): the
+  position of a screen in dp is not defined on Windows with mixed scales. Three FireMonkey
+  traps, each found by its harness: `Show` calls `Activate` after `ShowWindow(SW_SHOWNORMAL)`,
+  which activates whatever the styles say - `Activate` is overridden empty (virtual from
+  Delphi 13; on 12 `WM_ACTIVATE` is swallowed and the activation posted back); minimizing the
+  main form minimizes every visible form through `DefWindowProc(SC_MINIMIZE)`, which no hook
+  sees, so showing the bubble again is `SW_SHOWNOACTIVATE`, which restores it too; and a
+  recreated host window would destroy the window it owns, so `TBeforeDestroyFormHandle` frees
+  the bubble and `TAfterCreateFormHandle` creates it again. The FMX skills skip the bubble
+  form. In a FireMonkey harness `Application.CreateForm` creates nothing until `Run`:
+  `RealCreateForms` first.
 - **The icon follows the Delphi contract, and ships its own fallback.** `Images`, `ImageIndex`
   and `ImageName` live on the bubble and are mirrored by `TVclHelpChatAI`: an image list of the
   application wins. With none, the bubble builds a `TVirtualImageList` over
   `HelpChatAssistantIcons`, one `TImageCollection` per process filled from
   `source/HelpChatAI.Assistant.res` (PNG, nine sizes per icon), so the DPI of the window asks for
-  the size it needs. Adding an icon = the PNGs in `Images\`, an entry in
-  `resources/HelpChatAI.Assistant.rc`, `Tools\BuildResources.cmd`, a name in
-  `HelpChatAssistantIcons`. The image lists come from `vclwinx`, which the VCL package requires.
+  the size it needs. Ten icons, each a member of `THelpChatAssistantIcon` whose ordinal is its
+  `ImageIndex` in the built-in list, its name in `HELPCHAT_ICON_NAMES` and a `HELPCHAT_ICON_*`
+  constant (re-declared in `Vcl.HelpChatAI.Bubble`). Adding an icon = the SVG in `Images\`,
+  its PNGs at the nine sizes of `HELPCHAT_ICON_SIZES` (plus 256 and 512, like the others) with
+  `D:\ETHEA\SVGShellExtensions\Bin64\SVGToPNG.exe convert -in:<svg> -size:16,18,...
+  -out:Images`, the entries in `resources/HelpChatAI.Assistant.rc`, `Tools\BuildResources.cmd`,
+  then a member **at the end** of the enumeration with its name and constant - everything else
+  (bubble, FireMonkey, property editors, configuration editor) reads
+  `HelpChatAssistantIconNames`. The image lists come from `vclwinx`, which the VCL package requires.
   **`ImageIndex` and `ImageName` are kept in step** as the VCL controls do it
   (StyledComponents' `TStyledButtonRender` is the model): setting the index takes the name of
   that image, setting the name goes through `TCustomImageList.CheckIndexAndName` (the name
@@ -721,7 +761,14 @@ the edit on every version, not on the one that happens to be open.
 - **The design-time preview runs a copy, never the component.** `Vcl.HelpChatAI.DesignPreview`
   creates a second `TVclHelpChatAI` owned by nothing (so no `csDesigning`, which is what stops
   `Active`), with bubble, help viewer, F1 and actions off, parented to a modal window, freed
-  when it closes. It opens from the form's `DoShow`, not before: the panel needs a window for
+  when it closes. The copy is made with **`Assign`** (both components: every published
+  property but `Active`, the events, `Name` and `Tag`; `Profile` before `Settings`, `Images`
+  before `ImageIndex`/`ImageName`), then the preview switches off what it must: a copy made by
+  hand forgot the icon, the style sheets and the sizes. `HelpChatAI.Tests.Component` and the
+  `Assign` test of the settings fill every published property through RTTI
+  (`FillPublishedProperties`, `FirstPublishedDifference` in `Tests.Helpers`), so a property
+  added to the component or to `Settings` and forgotten in `Assign` fails a test.
+  It opens from the form's `DoShow`, not before: the panel needs a window for
   its WebView. `WebView2Loader.dll` is loaded by full path first (the output folder of the
   project, then `$(HELPCHATAIDIR)\Redist\WebView2\<arch>`), because nothing ships it next to
   `bds.exe` and the RTL only ever asks for the bare name — once the module is in the process,
@@ -939,6 +986,105 @@ the edit on every version, not on the one that happens to be open.
   action it is not run and the reply says so (`NoteActionsNotRun`, `hcmActionsNotRun`) -
   it used to end as if the action had been done. In `openai` the calls are the signal, not
   `finish_reason`: several compatible servers end a tool turn with "stop".
+  **The assistant turn goes back as the model wrote it** (`THelpChatSseStream.Blocks`,
+  `BuildAssistantTurn`): the Claude 5.5 models think unasked, and their `thinking` blocks
+  (empty text, a signature) must return with the results, unchanged and in place, before the
+  calls - the API accepts a turn without them, but the model then starts each round without
+  the reasoning that chose the calls (found by recording the demo, checked against the real
+  service). A `redacted_thinking` block goes back too; an unsigned one cannot. The same rule
+  as the `thoughtSignature` of Gemini and the encrypted reasoning of the Responses API.
+- **The prompt cache is a prefix match, so the order of the prompt is a cost.** `claude`
+  (`SplitsPrompt`) sends `BuildStablePrompt` as its system prompt - identity, field, rules,
+  `Instructions`, language, then `OnBuildSystemPrompt` on that part only, then the actions
+  rule - and `BuildQuestionContext` (`NowRule`, the screen, the excerpts) as a `system`
+  message right after the question, which never goes back into the history: the next question
+  finds tools, system prompt and conversation byte for byte. A model that refuses a `system`
+  message (Haiku 4.5) gets the context as a second text block of the question, remembered per
+  model for the process (`RefusesSystemMessages`; checked against the real service). With
+  `Claude.PromptCaching` (default on) four breakpoints, the maximum: last tool, system prompt,
+  the question (its last block, before the context), and the automatic one when tools are
+  declared, for the rounds of the loop. `IdentityRule` lost now to `NowRule`; a rule with
+  `%1:s` still gets it, `NowRule` is then skipped (`IdentityRuleSaysNow`) and `/check` warns,
+  because the system prompt changes every minute. `BuildSystemPrompt` still writes the whole,
+  the same text as before (now right after the name), for the preview of the configuration
+  editor and a provider of the application that does not split; `/prompt` shows the two parts
+  for a provider that splits (`SplitsPrompt`: claude, openai, gemini). Measured in `Test\LLMBench` (`--nocache`, the
+  Tokens table, `results/llm-bench-cache-v1-*`, `-v2-on`, `llm-bench-expertise-v3`): -15% with
+  only the tools and the loop marked, -31% split, answers unchanged (the benchmark opens a
+  new conversation per question, so the reread conversation is not even in it).
+  `HelpChatOnTokenUsage` (`HelpChatAI.Provider`, a diagnostic hook on the worker thread) is
+  where the counts come from (`THelpChatSseStream.Usage`). The page is `Prompt-Caching`.
+  **The same split for `openai` and `gemini`**, whose caches are automatic (no marks): the
+  Responses API gets the context as a `developer` message after the question; Chat Completions
+  in front of the question, in its message - a second `system` message is refused by the chat
+  template of several local models, and with the excerpts after the question `qwen3-coder` lost
+  the request (measured); Gemini as a second part of the question. A question without
+  attachments stays a plain string (it is one in the history of the next request). The usage:
+  `prompt_tokens_details.cached_tokens` / `cache_write_tokens` (Chat), `input_tokens_details`
+  (Responses, `response.completed`), `usageMetadata.cachedContentTokenCount` (Gemini; an Ollama
+  reports its prefix cache too). Measured thresholds: OpenAI 1,024; Gemini 3.5 Flash Lite about
+  2,048 and Gemini 4 Argon 4,096 cached tokens on a 6,000-token prompt, Gemini Pro none - so
+  the benchmark prompts (about 2,000) read nothing there, and a real application with skills does.
+  **`--suite=conversation`** (`KeepConversation`) asks the questions of a target in one
+  conversation, the history never cleared, and the report adds **Tokens per question**
+  (read / whole input): Haiku -40% billed against `--nocache`, the read growing from 1,114 to
+  6,592 tokens; the context of each question (~1,900 tokens of excerpts) is never read, by
+  design (`results/llm-bench-conversation-v1*.md`).
+- **A skill is a set of actions the library writes once, and an assistant gets it by name.**
+  `HelpChatAI.Skills` (RTL): `THelpChatSkill` (a class registered by name with
+  `HelpChatRegisterSkill`, like a provider; `Supports(AHost)` lets a VCL and an FMX skill share
+  a name), `THelpChatSkillSet` (one per component: `Attach` at activation after `Allowed`,
+  `Detach` on deactivation and in the except branch), and the framework-neutral half of the
+  screen skills - `THelpChatSkillField` and its description line, the parsers of what the model
+  writes, `HELPCHAT_SKILL_*`. **The four screen skills are written once**, in
+  `HelpChatAI.Skills.Screen` (engine package, RTL + `Data.DB`, so `HelpChatAI` requires
+  `dbrtl`): the skill classes, the action texts, describe/fill/cancel/find_choice, lists and
+  records, pages and commands, `THelpChatDataField` (the `TField`, lookups, choice and check
+  values: read and written here), the `EnterEditing` rule. A framework registers a
+  `THelpChatScreenProvider` (`Supports(AHost)`, `CreateScreen(AHost)`) whose `THelpChatScreen`
+  gives the fields, lists, pages and buttons of the form the user is on, and its field class
+  overrides `ReadValue`/`WriteValue` for the plain controls only. `FMX.HelpChatAI.Skills`
+  (HelpChatAIFmx, linked by `FMX.HelpChatAI`) is the FireMonkey screen: LiveBindings read
+  through RTTI by class name (`TCustomLinkControlToField`, `TCustomLinkFillControlToField` as a
+  lookup, `TCustomLinkGridToDataSource`/`TCustomLinkListControlToField` as lists) so no binding
+  unit is required, tab order from `TabOrder`, visibility up the parents (an inactive tab hides
+  its `Content`), the form activated last from `TFormActivateMessage`, the tabs of a
+  `TTabControl` with `TabPosition = None` left out (a card panel). There is no FMX test in the
+  DUnitX suite (a VCL program): the FMX screen was checked by a FireMonkey harness that builds
+  a form in code. `Settings.Skills` names them (JSON string or array, profiles
+  too). Three rules: **an action of the application wins** (`AddAction` skips a name the
+  broker or its shared broker has, and `Detach` removes only what the skill added); **naming a
+  skill allows it** (its actions are appended to a non-empty `Allowed`); **an unknown name is
+  skipped**, and `HelpChatCheckSettings` warns (`CheckSkills`). `/skills` (`hccSkills`) lists
+  them from the engine's `Settings.Skills`: `SkillDescription(ALanguage)` is for the user and
+  localized (`hcmSkill<Name>`), the actions come from `HelpChatSkillActionNames`, which attaches
+  a throwaway instance to a broker of its own. `Vcl.HelpChatAI.Skills`
+  (HelpChatAIVcl, linked by `Vcl.HelpChatAI`, which is why the package requires `dbrtl` and
+  `vcldb`) holds `forms`, `commands`, `records`, `pages`, every action a public function
+  (`HelpChatVclDescribeForm`, `HelpChatVclFillForm`...) that the tests call on forms built in
+  code. They work on `HelpChatVclWorkingForm` (the active form, else the first eligible of
+  `Screen.CustomForms`, never `TVclHelpChatAIForm` or the confirm dialog; the MDI child),
+  `OnGetTarget` of `HelpChatVclSkills` may change it. A field is a control an adapter accepts
+  (`THelpChatVclFieldAdapter`, asked from the last registered; the data-aware one - any
+  published `DataSource` + `DataField` - before the plain ones), walked in tab order
+  (`GetTabOrderList`); caption: `FocusControl` label, own caption, `DisplayLabel`, nearest
+  label left/above, text hint. **Nothing is saved**: `fill_form` never posts and refuses an
+  insert while a record is in `dsEdit` (Insert would post it), `find_record` refuses a list in
+  edit, `commands` hides what looks like a save (`TDataSetPost`, nbPost, ModalResult OK, the
+  save words, `OnCommand` decides) and the navigator buttons that move while editing.
+  `fill_form`, `cancel_edit`, `press_command` confirm, with `THelpChatAction.OnDisplay` giving
+  the dialog a readable summary and values (localized `hcmSkill*`); `press_command` clicks
+  with `TThread.ForceQueue`, after the action answered, so a modal window does not keep the
+  worker waiting. Five VCL traps, each of which cost a run: **`Showing` is not taken back from
+  the children of a hidden tab sheet** (the visibility is the chain of `Visible`, `IsShown`);
+  **`TPageControl.Change` takes the page back from the old tab index** (set `ActivePage`, call
+  `OnChange` yourself) and **`ChangeActivePage` keeps the page when the focus inside it
+  cannot move** (clear `ActiveControl` first); **a `TRadioGroup` is made of `TRadioButton`s**
+  (`TGroupButton`), so the radio-button adapter skips a parent that is a radio group;
+  **`TNavButton` moved from `Vcl.DBCtrls` to `Vcl.Buttons` and its `Index` changed type**
+  (read through RTTI); `TArray.Contains` is not in 10.4. And in tests: naming a `TEdit` gives
+  it its name as text; `TryISO8601ToDate` with `AReturnUTC = False` shifts a time without
+  offset.
 - **Actions are local for now.** With `Settings.Remote` the model runs on the server and the
   actions live in the client: the definitions and the calls do not travel yet. The broker queue
   is shaped for it (`TakePending`/`Complete` over HTTP, the host channel already exists), but
@@ -986,6 +1132,12 @@ the edit on every version, not on the one that happens to be open.
   whose width its own button changes, which is what `CloseStyle = svcCompact` does. The
   icons of its items are `TGlyph` children and not the `ImageIndex` of the item, because
   that one is sized by the style of the `TListBox`.
+  **The main form of the VCL demo has no custom title bar**: `CustomTitleBar` with
+  `WindowState = wsMaximized` in the DFM gets the restored size scaled twice at high DPI
+  (4572x2582 on a 2560x1600 screen at 200%, measured with a bare form), and the title bar
+  behaves differently from 10.4 to 13. The two combo boxes are in a plain `TopPanel`, and
+  `FormCreate` centres the restored bounds on the work area and then maximizes - the default
+  position cascades, and `poScreenCenter` does nothing to a form that starts maximized.
   Four things the integration taught, each of which cost a run:
   **a provider has to be linked** — `Settings.Provider := 'claude'` with no
   `HelpChatAI.Provider.Claude` in the uses answers "the provider is not available in this
@@ -1123,10 +1275,58 @@ the edit on every version, not on the one that happens to be open.
   not used, and a second example should not use it either: it treats the string as
   AnsiString and encrypts in CFB8bit with a zero IV, so the same key encrypted twice comes
   out the same.
+- **Every text the library writes into the prompt is a property, and the constant is only its
+  default.** `SystemPrompt`, `IdentityRule`, `ExpertiseIntro`, `ExpertiseRule`, `LanguageRule`,
+  `DocLanguageRule` start as the `HELPCHAT_MODEL_DEF_*` text, are stored (form file, and
+  `SaveToJSON`) only when they differ, and an empty one goes back to the default - so nobody
+  freezes the rules of the version they saved with. `BuildSystemPrompt` reads them through
+  `Resolve*` and `HelpChatFormatRule`: a text that does not fit its values (`Format` raises)
+  falls back to the library's, and `HelpChatCheckSettings` warns (`HelpChatRuleIssue`). A new
+  sentence = a property with its stored function, `Assign`, JSON both ways, the catalogue of
+  the configuration controller (page `ccpPrompt`, its place in `PROMPT_ORDER`, a fragment in
+  `FillFragments`). **Three texts stay constants on purpose**: `HELPCHAT_MODEL_ACTIONS_RULE`
+  and the two `HELPCHAT_ACTION_DENIED_*` - they are the defence against a tool called because
+  a text asked for it, and the end of a plan the user refused. `OnBuildSystemPrompt`
+  (`THelpChatBuildPromptEvent`, on the settings like the secret handler: copied by `Assign`,
+  proxied by `TSharedEngine.BuildPrompt`, serialized on `FSecretLock`, skipped while
+  `HelpChatDesignTime` because a design-time method pointer is not code) runs at the end of
+  `BuildSystemPrompt`, before the providers add the actions rule - so it can never remove it.
+  The messages are replaced with `HelpChatSetMsg(Id, Text, Language)` (`hclAuto` = all
+  languages; per process, a lock taken only once something was replaced), never through a
+  configuration file.
+- **The configuration editor shows every published setting, each on its page.** The catalogue
+  of `HelpChatAI.ConfigController` has `Pages` per entry (Appearance, Settings, Prompt,
+  Documents; Models and Profiles are pages of their own) and is sorted by property name with
+  the provider sections last; `EntriesOfPage` filters and, on the Prompt page, orders by
+  `PROMPT_ORDER`, the order `BuildSystemPrompt` writes. A property added to `Settings` without
+  a catalogue entry is invisible in the editor. The views share one list and edit panel and
+  move it (`GridPanel` / `GridLayout`) to the page shown. `Value` is never empty when something
+  replaces the empty value (the localized greeting, the default model, the text of the
+  library): the edit box starts from it. The origin of a value of the form file names the
+  property ("Component: Settings.Expertise"). `PromptPreview` builds the prompt from the layered
+  settings with a sample screen and excerpt; `PromptFragment` is what each setting wrote,
+  computed with the same `Resolve*` calls, which the VCL view bolds in a `TRichEdit` and the
+  FireMonkey one selects. `Execute` receives the component too, for what is not in its
+  settings (the icon, `PanelStyleSheet`). The Appearance page draws the panel with
+  `AppearancePreview` (`THelpChatPanel.PreviewPage`: the page with a sample conversation in
+  place of the history request) in a browser of its own - `TEdgeBrowser` /`TWebBrowser`,
+  created in code once the WebView2 loader is reachable, never the panel of the component,
+  which lets nothing but its server navigate it. **A WebView2 created before the window is
+  shown stays blank**, so the first preview is drawn from `DoShow` with `TThread.ForceQueue`
+  (`FShown`): drawn in `Execute`, the page appeared only after the first change. **A set
+  setting is a `cvkSet`** (`Skills`): the choices are `HelpChatSkillNames` plus the names the
+  files or the component carry that the IDE does not know, kept ticked as "(not registered
+  here)"; `ChoiceCaptions` (the name and its actions) and `ChoiceHints` (the description) are
+  what a view shows, and a view writes the choice, never its caption. The hint of
+  `AllowedActions` lists the actions the skills add. The editors remember page, bounds and
+  maximized state in unit variables for the IDE session, the way StyledComponents' editor
+  does.
 - **Defaults live once** in `HelpChatAI.Settings` constants (`HELPCHAT_DEF_*`). Settings also
   load/save as JSON (`helpchatai.json`: app file next to the exe, then per-user file in
   `%APPDATA%\<Exe>`); a new property must be added to `Assign`, `LoadFromJSON`, `SaveToJSON`
-  and the round-trip test. **Never commit a `helpchatai.json` containing a key** (it is svn-ignored).
+  and the round-trip test (the `Assign` test finds it by itself). A new published property
+  of a component goes into its `Assign`, which the preview runs on.
+  **Never commit a `helpchatai.json` containing a key** (it is svn-ignored).
   **A published string the constructor fills needs a `stored` function**: a string has no
   `default` directive, so Delphi writes every non-empty one - a component just dropped on a
   form wrote `Provider = 'stub'`, the Claude model, endpoint and version, the Azure version

@@ -85,7 +85,7 @@ writes the document and the save dialog opens with it ready.
 
 ![Things done by asking](Images/assistant-actions.png)
 
-Four things the assistant can do in this application, and nothing else:
+Four things the assistant knows how to do in this application:
 
 | Ask for | What happens |
 | - | - |
@@ -98,6 +98,23 @@ The company of a lead must be in the Accounts list. Name one that is not there a
 assistant offers to add it first; name one that matches several accounts and it asks you
 which one.
 
+### On any window: fill it, press it, find it, change page
+
+Beyond those four, the assistant works on **the window in front of you**, whatever it is - the
+detail of a lead, a proposal, one of the screens of the main window:
+
+| Ask for | What happens |
+| - | - |
+| *"change the phone of this lead to 555 0199"*, *"fill in the e-mail and the city"* | It reads the fields of the window - their labels, their rules, what is in them - and fills the ones you named. A record it starts editing stays in edit: you check it and save |
+| *"press Calculate"* | It presses that button, as if you clicked it. A button that saves or confirms is never one it may press |
+| *"how many accounts are there?"*, *"go to the account Hera Blue"* | It counts the records of the list in front of you, as it is filtered, or moves the list to the one you named |
+| *"go to the Sales page"* | It brings that tab to the front |
+
+It sees what you see: the fields and the buttons that are on the screen and enabled, the tab
+that is shown - to fill the fields of another tab it shows that tab first. *"No, leave it"*
+undoes what it filled and abandons a record that was not saved. Typing `/skills` lists these
+abilities, and `/actions` every action the assistant may use.
+
 ### It asks before it writes
 
 Anything that changes data stops and asks first, showing exactly what it is about to do:
@@ -108,7 +125,8 @@ what the action does, and under it, one per line, the values the assistant wrote
 **No** is the default button, and the question closes by itself as a No after thirty
 seconds. Answer **No** and nothing happens: the assistant is told you refused, says so, and
 does not go on with the rest of that request - refuse the company and it will not create
-the lead. Only *open the screen* goes ahead without asking, because it changes nothing.
+the lead. Opening a screen, reading a window, counting, finding a record and changing page go
+ahead without asking, because they change nothing you have not seen.
 
 ### It prepares, you decide
 
@@ -117,7 +135,9 @@ the lead. Only *open the screen* goes ahead without asking, because it changes n
 Notice what the proposal action does **not** do: it fills the draft and leaves it open. The
 total is computed, the window is in front of you, and **Preview** and **Save Proposal** are
 still yours to press. The same with a new lead: it is created, its window opens, and
-correcting what the assistant understood is a normal edit.
+correcting what the assistant understood is a normal edit. And the same on any window it
+fills: it never saves, and it never moves to another record while one is being edited,
+because moving would save it.
 
 ## What it sends, and where
 
@@ -125,10 +145,12 @@ The assistant uses Anthropic's Claude, unless the configuration offers other mod
 picked one in the header. The question you type, the name of the screen you are on, the
 excerpts of this manual that look relevant and the outcome of any action it runs leave your
 machine and reach the service of the model in use - Anthropic, Google, OpenAI - or stay on
-it, when the model runs on this computer. **The content of your database does not**:
-the leads, the accounts, the proposals and the attached documents stay where they are, and
-the assistant cannot read them. Ask it how many leads you have and it will tell you to look
-at the [Dashboard](Dashboard.md).
+it, when the model runs on this computer. **Your database does not**: the assistant cannot
+browse the leads, the accounts or the proposals, and the attached documents stay where they
+are. What it does read is **the window in front of you**, when you ask it to work on it: the
+fields of that window and what is in them, the record it found in a list, how many records a
+list has - those reach the service of the model like your question does. A password field is
+never read.
 
 It needs an API key, and without one the assistant still opens: it answers that the key is
 missing, and everything else in the application works as always — the assistant is help, not

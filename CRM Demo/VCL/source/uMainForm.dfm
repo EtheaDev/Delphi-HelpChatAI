@@ -5,21 +5,6 @@ object MainForm: TMainForm
   ClientHeight = 639
   ClientWidth = 1130
   Color = clBtnFace
-  CustomTitleBar.Control = TitleBarPanel1
-  CustomTitleBar.Enabled = True
-  CustomTitleBar.Height = 31
-  CustomTitleBar.BackgroundColor = 13924352
-  CustomTitleBar.ForegroundColor = clWhite
-  CustomTitleBar.InactiveBackgroundColor = clWhite
-  CustomTitleBar.InactiveForegroundColor = 10066329
-  CustomTitleBar.ButtonForegroundColor = clWhite
-  CustomTitleBar.ButtonBackgroundColor = 13924352
-  CustomTitleBar.ButtonHoverForegroundColor = clWhite
-  CustomTitleBar.ButtonHoverBackgroundColor = 11166464
-  CustomTitleBar.ButtonPressedForegroundColor = clWhite
-  CustomTitleBar.ButtonPressedBackgroundColor = 7028224
-  CustomTitleBar.ButtonInactiveForegroundColor = 10066329
-  CustomTitleBar.ButtonInactiveBackgroundColor = clWhite
   Constraints.MinHeight = 575
   Constraints.MinWidth = 550
   DoubleBuffered = True
@@ -28,13 +13,10 @@ object MainForm: TMainForm
   Font.Height = -11
   Font.Name = 'Segoe UI'
   Font.Style = []
-  GlassFrame.Enabled = True
-  GlassFrame.Top = 31
   StyleElements = [seFont, seClient]
   OnActivate = FormActivate
   OnCreate = FormCreate
   OnResize = FormResize
-  WindowState = wsMaximized
   TextHeight = 13
   object SplitView: TSplitView
     Left = 0
@@ -985,7 +967,7 @@ object MainForm: TMainForm
           Left = 108
           Top = 5
           Width = 164
-          Height = 45
+          Height = 57
           Margins.Top = 5
           Margins.Bottom = 5
           Align = alLeft
@@ -997,6 +979,7 @@ object MainForm: TMainForm
           Font.Style = [fsBold]
           ParentFont = False
           Layout = tlCenter
+          ExplicitHeight = 45
         end
         object VirtualImage1: TVirtualImage
           Left = 0
@@ -1126,12 +1109,12 @@ object MainForm: TMainForm
           end
           object VirtualImage9: TVirtualImage
             AlignWithMargins = True
-            Margins.Right = 8
-            Margins.Bottom = 8
-            Left = 232
-            Top = 1
+            Left = 183
+            Top = 87
             Width = 88
             Height = 88
+            Margins.Right = 8
+            Margins.Bottom = 8
             ImageCollection = ImageCollection1
             ImageWidth = 0
             ImageHeight = 0
@@ -1241,12 +1224,12 @@ object MainForm: TMainForm
           end
           object VirtualImage10: TVirtualImage
             AlignWithMargins = True
-            Margins.Right = 8
-            Margins.Bottom = 8
-            Left = 232
-            Top = 1
+            Left = 183
+            Top = 87
             Width = 88
             Height = 88
+            Margins.Right = 8
+            Margins.Bottom = 8
             Anchors = []
             ImageCollection = ImageCollection1
             ImageWidth = 0
@@ -1357,12 +1340,12 @@ object MainForm: TMainForm
           end
           object VirtualImage11: TVirtualImage
             AlignWithMargins = True
-            Margins.Right = 8
-            Margins.Bottom = 8
-            Left = 232
-            Top = 1
+            Left = 183
+            Top = 87
             Width = 88
             Height = 88
+            Margins.Right = 8
+            Margins.Bottom = 8
             Anchors = []
             ImageCollection = ImageCollection1
             ImageWidth = 0
@@ -1473,12 +1456,12 @@ object MainForm: TMainForm
           end
           object VirtualImage12: TVirtualImage
             AlignWithMargins = True
-            Margins.Right = 8
-            Margins.Bottom = 8
-            Left = 232
-            Top = 1
+            Left = 183
+            Top = 87
             Width = 88
             Height = 88
+            Margins.Right = 8
+            Margins.Bottom = 8
             Anchors = []
             ImageCollection = ImageCollection1
             ImageWidth = 0
@@ -1589,12 +1572,12 @@ object MainForm: TMainForm
           end
           object VirtualImage13: TVirtualImage
             AlignWithMargins = True
-            Margins.Right = 8
-            Margins.Bottom = 8
-            Left = 232
-            Top = 1
+            Left = 183
+            Top = 87
             Width = 88
             Height = 88
+            Margins.Right = 8
+            Margins.Bottom = 8
             Anchors = []
             ImageCollection = ImageCollection1
             ImageWidth = 0
@@ -1705,12 +1688,12 @@ object MainForm: TMainForm
           end
           object VirtualImage14: TVirtualImage
             AlignWithMargins = True
-            Margins.Right = 8
-            Margins.Bottom = 8
-            Left = 232
-            Top = 1
+            Left = 183
+            Top = 87
             Width = 88
             Height = 88
+            Margins.Right = 8
+            Margins.Bottom = 8
             Anchors = []
             ImageCollection = ImageCollection1
             ImageWidth = 0
@@ -2166,7 +2149,7 @@ object MainForm: TMainForm
         object Label27: TLabel
           Left = 1
           Top = 1
-          Width = 30
+          Width = 231
           Height = 19
           Align = alTop
           Alignment = taCenter
@@ -2177,6 +2160,7 @@ object MainForm: TMainForm
           Font.Name = 'Segoe UI'
           Font.Style = [fsBold]
           ParentFont = False
+          ExplicitWidth = 30
         end
         object NewLeadsSG: TStringGrid
           Tag = 3
@@ -2221,7 +2205,7 @@ object MainForm: TMainForm
         object Label28: TLabel
           Left = 1
           Top = 1
-          Width = 42
+          Width = 200
           Height = 19
           Align = alTop
           Alignment = taCenter
@@ -2232,6 +2216,7 @@ object MainForm: TMainForm
           Font.Name = 'Segoe UI'
           Font.Style = [fsBold]
           ParentFont = False
+          ExplicitWidth = 42
         end
         object ActiveLeadsSG: TStringGrid
           Tag = 5
@@ -2274,7 +2259,7 @@ object MainForm: TMainForm
         object Label29: TLabel
           Left = 1
           Top = 1
-          Width = 93
+          Width = 201
           Height = 19
           Align = alTop
           Alignment = taCenter
@@ -2285,6 +2270,7 @@ object MainForm: TMainForm
           Font.Name = 'Segoe UI'
           Font.Style = [fsBold]
           ParentFont = False
+          ExplicitWidth = 93
         end
         object ProposalSentLeadsSG: TStringGrid
           Tag = 3
@@ -2329,7 +2315,7 @@ object MainForm: TMainForm
         object Label30: TLabel
           Left = 1
           Top = 1
-          Width = 45
+          Width = 199
           Height = 19
           Align = alTop
           Alignment = taCenter
@@ -2340,6 +2326,7 @@ object MainForm: TMainForm
           Font.Name = 'Segoe UI'
           Font.Style = [fsBold]
           ParentFont = False
+          ExplicitWidth = 45
         end
         object ClosedLeadsSG: TStringGrid
           Tag = 3
@@ -2732,8 +2719,6 @@ object MainForm: TMainForm
         OnDrawDayItem = CalendarView1DrawDayItem
         SelectionMode = smMultiple
         TabOrder = 0
-        ExplicitWidth = 360
-        ExplicitHeight = 257
       end
       object Panel4: TPanel
         AlignWithMargins = True
@@ -2751,7 +2736,7 @@ object MainForm: TMainForm
           Left = 108
           Top = 5
           Width = 132
-          Height = 45
+          Height = 57
           Margins.Top = 5
           Margins.Bottom = 5
           Align = alLeft
@@ -2763,6 +2748,7 @@ object MainForm: TMainForm
           Font.Style = [fsBold]
           ParentFont = False
           Layout = tlCenter
+          ExplicitHeight = 45
         end
         object VirtualImage6: TVirtualImage
           Left = 0
@@ -2966,34 +2952,36 @@ object MainForm: TMainForm
       end
     end
   end
-  object TitleBarPanel1: TTitleBarPanel
+  object TopPanel: TPanel
     Left = 0
     Top = 0
     Width = 1130
     Height = 30
-    CustomButtons = <>
+    Align = alTop
+    BevelOuter = bvNone
+    ShowCaption = False
+    TabOrder = 2
     object UsernameComboBox: TComboBox
       AlignWithMargins = True
-      Left = 842
+      Left = 984
       Top = 7
       Width = 138
       Height = 21
       Margins.Left = 4
       Margins.Top = 7
-      Margins.Right = 150
+      Margins.Right = 8
       Margins.Bottom = 4
       Align = alRight
       DoubleBuffered = True
       ParentDoubleBuffered = False
       TabOrder = 0
       Text = 'CRMUser'
-      StyleName = 'Windows'
       OnChange = UsernameComboBoxChange
       OnKeyPress = UsernameComboBoxKeyPress
     end
     object VCLStylesCB: TComboBox
       AlignWithMargins = True
-      Left = 689
+      Left = 831
       Top = 7
       Width = 145
       Height = 21
@@ -3006,7 +2994,6 @@ object MainForm: TMainForm
       ParentDoubleBuffered = False
       TabOrder = 1
       TextHint = 'VCL Style'
-      StyleName = 'Windows'
       OnChange = VCLStylesCBChange
       OnKeyPress = VCLStylesCBKeyPress
     end
@@ -3348,6 +3335,36 @@ object MainForm: TMainForm
         CollectionIndex = 16
         CollectionName = 'baseline_whatshot_white'
         Name = 'baseline_whatshot_white'
+      end
+      item
+        CollectionIndex = 17
+        CollectionName = 'New'
+        Name = 'New'
+      end
+      item
+        CollectionIndex = 18
+        CollectionName = 'Active'
+        Name = 'Active'
+      end
+      item
+        CollectionIndex = 19
+        CollectionName = 'ProposalSent'
+        Name = 'ProposalSent'
+      end
+      item
+        CollectionIndex = 20
+        CollectionName = 'Closed'
+        Name = 'Closed'
+      end
+      item
+        CollectionIndex = 21
+        CollectionName = 'Inactive'
+        Name = 'Inactive'
+      end
+      item
+        CollectionIndex = 22
+        CollectionName = 'Total'
+        Name = 'Total'
       end>
     ImageCollection = ImageCollection1
     Width = 32
@@ -6464,7 +6481,6 @@ object MainForm: TMainForm
     Top = 544
   end
   object HelpChat: TVclHelpChatAI
-    EnabledCommands = [hccHelp, hccWho, hccUse, hccLang, hccRetry, hccSearch, hccDoc, hccPages, hccContext, hccActions, hccCheck, hccStats, hccClear, hccPdf, hccCopy, hccAttach, hccPrompt, hccRun]
     Settings.Provider = 'claude'
     Settings.Expertise = 
       'B2B sales and customer relationship management: leads and the sa' +
@@ -6482,21 +6498,26 @@ object MainForm: TMainForm
         Name = 'OpenAI'
         Provider = 'openai'
       end>
+    Settings.Language = hclEnglish
+    Settings.DocLanguage = hclEnglish
+    Settings.DocIndexFile = '..\..\Help\help-index.json'
+    Settings.Skills = 'forms, commands, records, pages'
+    Settings.DocFolder = '..\..\Help'
     Settings.Claude.MaxToolRounds = 6
     Settings.OpenAI.MaxToolRounds = 6
     Settings.Gemini.MaxToolRounds = 6
     Settings.Attachments.Enabled = True
     Settings.Pdf.Action = True
     Settings.Pdf.HeaderFooter = True
-    Settings.DocIndexFile = '..\..\Help\help-index.json'
-    Settings.DocFolder = '..\..\Help'
-    Settings.Language = hclEnglish
-    Settings.DocLanguage = hclEnglish
-    OnActionExecuted = HelpChatActionExecuted
+    EnabledCommands = [hccHelp, hccWho, hccUse, hccLang, hccRetry, hccSearch, hccDoc, hccPages, hccContext, hccActions, hccSkills, hccCheck, hccStats, hccClear, hccPdf, hccCopy, hccAttach, hccPrompt, hccRun]
+    BubbleStayOnTop = True
+    ImageIndex = 2
+    ImageName = 'Assistant_Male'
     OnDecryptSecret = HelpChatDecryptSecret
+    OnActionExecuted = HelpChatActionExecuted
     OnGetContext = HelpChatGetContext
     OnModelChanged = HelpChatModelChanged
-    Left = 480
-    Top = 456
+    Left = 632
+    Top = 88
   end
 end

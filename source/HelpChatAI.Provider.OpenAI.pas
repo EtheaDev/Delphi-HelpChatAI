@@ -81,6 +81,7 @@ type
   /// one round of one reply, on the worker thread that runs it.</summary>
   THelpChatOpenAIStream = class(THelpChatSseStreamBase)
   strict private
+    FUsage: THelpChatTokenUsage;
     FFinishReason: string;
     FToolCalls: TList<THelpChatToolCall>;
     FToolIndexes: TDictionary<Integer, Integer>; // delta index -> tool call
@@ -104,6 +105,12 @@ type
     /// first appearance. A copy: the arguments of a call are complete only
     /// once the stream is.</summary>
     property ToolCalls: TArray<THelpChatToolCall> read GetToolCalls;
+    /// <summary>The tokens of the round, from the usage record that ends the
+    /// stream (<c>stream_options.include_usage</c>): the prompt split into
+    /// what was read from the automatic prompt cache of the service
+    /// (<c>prompt_tokens_details.cached_tokens</c>) and the rest. Zero
+    /// where the server sends no record.</summary>
+    property Usage: THelpChatTokenUsage read FUsage;
   end;
 
   /// <summary>Parses the events of the Responses API: the text deltas
@@ -117,6 +124,7 @@ type
   /// for one round of one reply.</summary>
   THelpChatOpenAIResponsesStream = class(THelpChatSseStreamBase)
   strict private
+    FUsage: THelpChatTokenUsage;
     FItems: TJSONArray;
     FToolCalls: TList<THelpChatToolCall>;
     function GetToolCalls: TArray<THelpChatToolCall>;
@@ -131,6 +139,10 @@ type
     /// <summary>Every output item of the round, as JSON array elements
     /// without the brackets: what the next round puts back in its input.</summary>
     property ItemsJson: string read GetItemsJson;
+    /// <summary>The tokens of the round, from <c>response.completed</c>: the
+    /// input split into what the automatic prompt cache of the service read
+    /// (<c>input_tokens_details.cached_tokens</c>) and the rest.</summary>
+    property Usage: THelpChatTokenUsage read FUsage;
   end;
 
   /// <summary>
@@ -161,7 +173,7 @@ type
     /// as Chat Completions, the output items of a round and the results of
     /// its actions sent back with the next.</summary>
     function GenerateResponses(const AHistory: TArray<THelpChatMessage>;
-      const ASystem, ATools: string; const AMaxRounds: Integer;
+      const ASystem, ATools, AQuestionContext: string; const AMaxRounds: Integer;
       const AOnToken: THelpChatTokenProc; const ACancel: IHelpChatCancelToken): string;
     /// <summary>One request/response round; returns the stream it parsed,
     /// which the caller owns. The key goes in <c>Authorization: Bearer</c>,
@@ -197,8 +209,14 @@ type
       const ASystemPrompt: string; const ASettings: THelpChatOpenAISettings;
       const AToolsJson, AExtraItemsJson: string;
       const AAttachments: TArray<THelpChatAttachment> = nil;
-      const ALanguage: THelpChatLanguage = hclAuto): string; static;
+      const ALanguage: THelpChatLanguage = hclAuto;
+      const AQuestionContext: string = ''): string; static;
     function GetName: string; override;
+    /// <summary>True: the system prompt (<c>instructions</c>, or the first
+    /// message) is the part that does not change, and the context goes with
+    /// the question, so that the automatic prompt cache of the service reads
+    /// the system prompt and the conversation again.</summary>
+    class function SplitsPrompt: Boolean; override;
     /// <summary>A missing key is an issue unless the endpoint is on this
     /// machine or on a private network (<c>HelpChatIsLocalEndpoint</c>): a
     /// local Ollama or LM Studio asks for none, while OpenAI itself, Groq,
@@ -246,7 +264,8 @@ type
       const AToolsJson, AExtraMessagesJson: string;
       const AAttachments: TArray<THelpChatAttachment> = nil;
       const ALanguage: THelpChatLanguage = hclAuto;
-      const AReasoningEffort: string = ''): string; static;
+      const AReasoningEffort: string = '';
+      const AQuestionContext: string = ''): string; static;
     /// <summary>True when AError is the refusal of a reasoning model that
     /// takes function tools in Chat Completions only without reasoning -
     /// "Function tools with reasoning_effort are not supported for
@@ -416,6 +435,19 @@ begin
       Exit;
     end;
 
+    // The usage record comes last, with no choice; the model names itself
+    // on every chunk.
+    if FUsage.Model = '' then
+      FUsage.Model := LRoot.GetValue<string>('model', '');
+    if LRoot.GetValue('usage') is TJSONObject then
+    begin
+      FUsage.CacheReadTokens := LRoot.GetValue<Integer>('usage.prompt_tokens_details.cached_tokens', 0);
+      FUsage.CacheWriteTokens := LRoot.GetValue<Integer>('usage.prompt_tokens_details.cache_write_tokens', 0);
+      FUsage.InputTokens := LRoot.GetValue<Integer>('usage.prompt_tokens', 0) - FUsage.CacheReadTokens -
+        FUsage.CacheWriteTokens;
+      FUsage.OutputTokens := LRoot.GetValue<Integer>('usage.completion_tokens', 0);
+    end;
+
     LChoices := LRoot.GetValue('choices') as TJSONArray;
     if (LChoices = nil) or (LChoices.Count = 0) then
       Exit;
@@ -497,6 +529,18 @@ begin
       if LItem.GetValue<string>('type', '') = 'function_call' then
         FToolCalls.Add(THelpChatToolCall.Create(LItem.GetValue<string>('call_id', ''),
           LItem.GetValue<string>('name', ''), LItem.GetValue<string>('arguments', '')));
+    end
+    else if LType = 'response.completed' then
+    begin
+      // The tokens of the round, the automatic prompt cache included.
+      FUsage.Model := LRoot.GetValue<string>('response.model', '');
+      // The input counts all of it: what the cache read, what this request
+      // wrote to it (cache_write_tokens), the rest.
+      FUsage.CacheReadTokens := LRoot.GetValue<Integer>('response.usage.input_tokens_details.cached_tokens', 0);
+      FUsage.CacheWriteTokens := LRoot.GetValue<Integer>('response.usage.input_tokens_details.cache_write_tokens', 0);
+      FUsage.InputTokens := LRoot.GetValue<Integer>('response.usage.input_tokens', 0) -
+        FUsage.CacheReadTokens - FUsage.CacheWriteTokens;
+      FUsage.OutputTokens := LRoot.GetValue<Integer>('response.usage.output_tokens', 0);
     end
     else if LType = 'response.failed' then
     begin
@@ -685,7 +729,8 @@ end;
 class function THelpChatOpenAIProvider.BuildResponsesBody(
   const AHistory: TArray<THelpChatMessage>; const ASystemPrompt: string;
   const ASettings: THelpChatOpenAISettings; const AToolsJson, AExtraItemsJson: string;
-  const AAttachments: TArray<THelpChatAttachment>; const ALanguage: THelpChatLanguage): string;
+  const AAttachments: TArray<THelpChatAttachment>; const ALanguage: THelpChatLanguage;
+  const AQuestionContext: string): string;
 var
   LRoot, LMsg, LPart: TJSONObject;
   LInput, LInclude, LContent: TJSONArray;
@@ -710,7 +755,7 @@ begin
     LInput := TJSONArray.Create;
     LRoot.AddPair('input', LInput);
     LLastUser := -1;
-    if Length(AAttachments) > 0 then
+    if (Length(AAttachments) > 0) or (AQuestionContext <> '') then
       for I := High(AHistory) downto Low(AHistory) do
         if (AHistory[I].Role = hcrUser) and (Trim(AHistory[I].Content) <> '') then
         begin
@@ -726,7 +771,9 @@ begin
         LMsg.AddPair('role', 'user')
       else
         LMsg.AddPair('role', 'assistant');
-      if I = LLastUser then
+      // Parts only with attachments: a question that is text alone goes as
+      // text, as it will go in the history of the next request.
+      if (I = LLastUser) and (Length(AAttachments) > 0) then
       begin
         LContent := TJSONArray.Create;
         LMsg.AddPair('content', LContent);
@@ -758,6 +805,15 @@ begin
       else
         LMsg.AddPair('content', AHistory[I].Content);
       LInput.AddElement(LMsg);
+      // The context of the question, right after it, in the channel of the
+      // application: a developer message never goes back into the history.
+      if (I = LLastUser) and (AQuestionContext <> '') then
+      begin
+        LMsg := TJSONObject.Create;
+        LMsg.AddPair('role', 'developer');
+        LMsg.AddPair('content', AQuestionContext);
+        LInput.AddElement(LMsg);
+      end;
     end;
 
     // The items of the earlier rounds of this reply, as they came, and the
@@ -880,10 +936,10 @@ class function THelpChatOpenAIProvider.BuildRequestBody(
   const ASettings: THelpChatOpenAISettings;
   const AToolsJson, AExtraMessagesJson: string;
   const AAttachments: TArray<THelpChatAttachment>;
-  const ALanguage: THelpChatLanguage; const AReasoningEffort: string): string;
+  const ALanguage: THelpChatLanguage; const AReasoningEffort, AQuestionContext: string): string;
 var
-  LRoot, LMsg, LStreamOptions: TJSONObject;
-  LMessages: TJSONArray;
+  LRoot, LMsg, LStreamOptions, LPart: TJSONObject;
+  LMessages, LContent: TJSONArray;
   LValue, LItem: TJSONValue;
   I, LLastUser: Integer;
 begin
@@ -910,9 +966,10 @@ begin
       LMsg.AddPair('content', ASystemPrompt);
       LMessages.AddElement(LMsg);
     end;
-    // The attachments belong to the question being asked: the last user turn.
+    // The attachments and the context belong to the question being asked:
+    // the last user turn.
     LLastUser := -1;
-    if Length(AAttachments) > 0 then
+    if (Length(AAttachments) > 0) or (AQuestionContext <> '') then
       for I := High(AHistory) downto Low(AHistory) do
         if (AHistory[I].Role = hcrUser) and (Trim(AHistory[I].Content) <> '') then
         begin
@@ -928,8 +985,26 @@ begin
         LMsg.AddPair('role', 'user')
       else
         LMsg.AddPair('role', 'assistant');
-      if I = LLastUser then
-        LMsg.AddPair('content', BuildUserContent(AHistory[I].Content, AAttachments, ALanguage))
+      if (I = LLastUser) and (Length(AAttachments) > 0) then
+      begin
+        LContent := BuildUserContent(AHistory[I].Content, AAttachments, ALanguage);
+        LMsg.AddPair('content', LContent);
+        if AQuestionContext <> '' then
+        begin
+          LPart := TJSONObject.Create;
+          LPart.AddPair('type', 'text');
+          LPart.AddPair('text', AQuestionContext);
+          LContent.AddElement(LPart);
+        end;
+      end
+      // The context in the message of the question, in front of it: a
+      // system message after the first is not something every server of this
+      // API accepts (the chat template of several local models refuses it),
+      // and with the excerpts after it a small local model lost the request
+      // (qwen3-coder, measured). The question comes back next time without
+      // it, so everything before it is still the prefix the cache knows.
+      else if (I = LLastUser) and (AQuestionContext <> '') then
+        LMsg.AddPair('content', AQuestionContext + #10#10 + AHistory[I].Content)
       else
         LMsg.AddPair('content', AHistory[I].Content);
       LMessages.AddElement(LMsg);
@@ -1158,8 +1233,13 @@ begin
   end;
 end;
 
+class function THelpChatOpenAIProvider.SplitsPrompt: Boolean;
+begin
+  Result := True;
+end;
+
 function THelpChatOpenAIProvider.GenerateResponses(const AHistory: TArray<THelpChatMessage>;
-  const ASystem, ATools: string; const AMaxRounds: Integer;
+  const ASystem, ATools, AQuestionContext: string; const AMaxRounds: Integer;
   const AOnToken: THelpChatTokenProc; const ACancel: IHelpChatCancelToken): string;
 var
   LStream: THelpChatOpenAIResponsesStream;
@@ -1175,8 +1255,9 @@ begin
       LStream := THelpChatOpenAIResponsesStream.Create(AOnToken);
       try
         Post(BuildResponsesBody(AHistory, ASystem, Settings.OpenAI, ATools,
-          '[' + LExtra.ToString + ']', Attachments, Settings.Language),
+          '[' + LExtra.ToString + ']', Attachments, Settings.Language, AQuestionContext),
           ResponsesUrl(Settings.OpenAI), LStream, ACancel);
+        ReportTokenUsage(LStream.Usage);
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;
         if (Length(LCalls) = 0) or (ATools = '') then
@@ -1217,7 +1298,7 @@ function THelpChatOpenAIProvider.Generate(const AHistory: TArray<THelpChatMessag
   const AContext: THelpChatContext; const AOnToken: THelpChatTokenProc;
   const ACancel: IHelpChatCancelToken): string;
 var
-  LSystem, LTools, LEffort: string;
+  LSystem, LTools, LEffort, LQuestionContext: string;
   LStream: THelpChatOpenAIStream;
   LExtra: TStringBuilder;
   LText: TStringBuilder;
@@ -1237,9 +1318,12 @@ begin
        TPath.GetDirectoryName(THelpChatSettings.UserConfigFile)]));
 
   CheckCancelled(ACancel);
-  // The prompt every provider shares: the instruction of the settings, the
-  // language, the screen and the documentation excerpts.
-  LSystem := BuildSystemPrompt(AHistory, AContext, Settings, Retriever);
+  // The prompt every provider shares, in two parts: what stays the same for
+  // every question is the system prompt, now, the screen and the excerpts go
+  // with the question - the automatic prompt cache of the service then reads
+  // the system prompt and the conversation again at the next question.
+  LSystem := BuildStablePrompt(AContext, Settings);
+  LQuestionContext := BuildQuestionContext(AHistory, AContext, Settings, Retriever);
   LMaxRounds := Settings.OpenAI.ResolveMaxToolRounds;
   LTools := '';
   if OffersActions(LMaxRounds) then
@@ -1257,7 +1341,7 @@ begin
   // OpenAI itself: the API where a reasoning model keeps its reasoning while
   // it acts. Chat Completions refuses the two together for the GPT-6 family.
   if Settings.OpenAI.UsesResponses then
-    Exit(GenerateResponses(AHistory, LSystem, LTools, LMaxRounds, AOnToken, ACancel));
+    Exit(GenerateResponses(AHistory, LSystem, LTools, LQuestionContext, LMaxRounds, AOnToken, ACancel));
 
   LText := TStringBuilder.Create;
   LExtra := TStringBuilder.Create; // the tool turns, as a JSON array body
@@ -1273,8 +1357,8 @@ begin
       while LStream = nil do
         try
           LStream := PostRound(BuildRequestBody(AHistory, LSystem, Settings.OpenAI,
-            LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language, LEffort),
-            AOnToken, ACancel);
+            LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language, LEffort,
+            LQuestionContext), AOnToken, ACancel);
         except
           on E: EHelpChatError do
             if (LEffort = '') and (LTools <> '') and AsksForNoReasoning(E.Message) then
@@ -1283,6 +1367,7 @@ begin
               raise;
         end;
       try
+        ReportTokenUsage(LStream.Usage);
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;
         // Nothing to do, or nobody to do it: this is the reply. The calls

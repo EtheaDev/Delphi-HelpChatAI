@@ -31,6 +31,7 @@ uses
   HelpChatAI.Tests.Types in '..\source\HelpChatAI.Tests.Types.pas',
   HelpChatAI.Tests.Messages in '..\source\HelpChatAI.Tests.Messages.pas',
   HelpChatAI.Tests.Settings in '..\source\HelpChatAI.Tests.Settings.pas',
+  HelpChatAI.Tests.Customization in '..\source\HelpChatAI.Tests.Customization.pas',
   HelpChatAI.Tests.Provider in '..\source\HelpChatAI.Tests.Provider.pas',
   HelpChatAI.Tests.Diagnostics in '..\source\HelpChatAI.Tests.Diagnostics.pas',
   HelpChatAI.Tests.Store in '..\source\HelpChatAI.Tests.Store.pas',
@@ -54,13 +55,15 @@ uses
   HelpChatAI.Tests.Commands in '..\source\HelpChatAI.Tests.Commands.pas',
   HelpChatAI.Tests.Conversation in '..\source\HelpChatAI.Tests.Conversation.pas',
   HelpChatAI.Tests.Coordinator in '..\source\HelpChatAI.Tests.Coordinator.pas',
+  HelpChatAI.Tests.Component in '..\source\HelpChatAI.Tests.Component.pas',
   HelpChatAI.Tests.Profiles in '..\source\HelpChatAI.Tests.Profiles.pas',
   HelpChatAI.Tests.SharedEngine in '..\source\HelpChatAI.Tests.SharedEngine.pas',
   HelpChatAI.Tests.Areas in '..\source\HelpChatAI.Tests.Areas.pas',
   HelpChatAI.Tests.ActionScope in '..\source\HelpChatAI.Tests.ActionScope.pas',
   HelpChatAI.Tests.SecretNodes in '..\source\HelpChatAI.Tests.SecretNodes.pas',
   HelpChatAI.Tests.ConfigController in '..\source\HelpChatAI.Tests.ConfigController.pas',
-  HelpChatAI.Tests.UiState in '..\source\HelpChatAI.Tests.UiState.pas';
+  HelpChatAI.Tests.UiState in '..\source\HelpChatAI.Tests.UiState.pas',
+  HelpChatAI.Tests.Skills in '..\source\HelpChatAI.Tests.Skills.pas';
 
 {$IFNDEF TESTINSIGHT}
 var

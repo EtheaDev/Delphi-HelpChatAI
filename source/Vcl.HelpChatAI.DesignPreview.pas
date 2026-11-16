@@ -88,6 +88,12 @@ function HelpChatDesignBaseFolder: string;
 /// project is open: the editor then offers the shared file alone.</summary>
 function HelpChatDesignExeFile: string;
 
+/// <summary>Makes the WebView2 loader reachable by base name inside the IDE
+/// (the output folder of the project, then the Redist folder of the
+/// library): what the preview, and the preview of the configuration editor,
+/// need before a browser is created. AFrom says where it was found.</summary>
+function HelpChatDesignEnsureWebView2Loader(const ABaseFolder: string; out AFrom: string): Boolean;
+
 /// <summary>Everything the design-time check found: the configuration ones
 /// plus what only matters inside the IDE (no project open, no WebView2
 /// loader). Loads the loader when it finds it - a side effect the preview
@@ -280,6 +286,11 @@ function DesignSettings(const AChat: TVclHelpChatAI; const ABaseFolder: string;
 begin
   Result := HelpChatSettingsForFolder(AChat.Settings, ABaseFolder,
     AChat.ConfigFileName, AConfigFiles, HelpChatDesignExeFile);
+end;
+
+function HelpChatDesignEnsureWebView2Loader(const ABaseFolder: string; out AFrom: string): Boolean;
+begin
+  Result := EnsureWebView2Loader(ABaseFolder, AFrom);
 end;
 
 function HelpChatDesignExeFile: string;
@@ -646,22 +657,19 @@ begin
     // A copy, not the component on the form: that one is in csDesigning and
     // must stay exactly as the developer left it.
     LClone := THelpChatPreviewChat.Create(nil);
-    // Which assistant it is, before the settings: assigning them puts the
-    // Profile of the copy on them, and an empty one made the preview of every
-    // expert acquire the engine of the default assistant and write its
-    // conversation and state files.
-    LClone.Profile := AChat.Profile;
-    LClone.AssistantName := AChat.AssistantName;
-    LClone.Caption := AChat.Caption;
-    LClone.EnabledCommands := AChat.EnabledCommands;
-    // Assigned, not shared: the copy keeps settings of its own.
+    // Everything the developer set on the component - the icon and its image
+    // list, the style sheets, the commands... - and then what the preview
+    // changes. A property copied by hand here was a property forgotten the
+    // day it was added (the icon was).
+    LClone.Assign(AChat);
+    // The settings the application would read in the folder of the project,
+    // assigned, not shared: the copy keeps settings of its own. Assign has
+    // already put the Profile on the copy, which these settings then take.
     LClone.Settings := LSettings;
     LClone.ShowBubble := False;        // the window is the preview itself
     LClone.RegisterHelpViewer := False;
     LClone.HandleF1 := False;
     LClone.RememberPanelPosition := False;
-    LClone.FollowVclStyle := AChat.FollowVclStyle;
-    LClone.VoiceEngine := AChat.VoiceEngine;
     LClone.ActionsEnabled := False;    // the handlers live in the application
     LClone.Container := LForm.ChatPanel;
     LClone.OnGetContext := LContext.GetContext;

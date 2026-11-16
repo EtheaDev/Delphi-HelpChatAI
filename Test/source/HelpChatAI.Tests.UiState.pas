@@ -56,6 +56,8 @@ type
     [Test]
     procedure Place_StaysInsideASmallerForm;
     [Test]
+    procedure Place_MayBeOutside_ByWhatTheBubbleAllows;
+    [Test]
     procedure Bubbles_PerForm_KeepThePanel;
     [Test]
     procedure Panel_KeepsTheBubbles;
@@ -146,6 +148,32 @@ begin
   // A form narrower than the bubble: at the left edge, never negative.
   LPlace := THelpChatBubblePlace.Create(hbcBottomRight, 16, 16);
   LPlace.ToPosition(44, 30, 30, 1, LLeft, LTop);
+  Assert.AreEqual(0.0, Double(LLeft), 0.01);
+  Assert.AreEqual(0.0, Double(LTop), 0.01);
+end;
+
+procedure TUiStateTests.Place_MayBeOutside_ByWhatTheBubbleAllows;
+var
+  LPlace: THelpChatBubblePlace;
+  LLeft, LTop: Single;
+begin
+  // A floating bubble just right of the form and a little below its bottom
+  // edge: still the bottom-right corner, at negative distances.
+  LPlace := THelpChatBubblePlace.FromBounds(800, 600 - 44 + 10, 44, 800, 600, 1, 44);
+  Assert.AreEqual(Ord(hbcBottomRight), Ord(LPlace.Corner));
+  Assert.AreEqual(-44, LPlace.OffsetX);
+  Assert.AreEqual(-10, LPlace.OffsetY);
+  // And back where it was, on a form of another size.
+  LPlace.ToPosition(44, 1000, 700, 1, LLeft, LTop, 44);
+  Assert.AreEqual(1000.0, Double(LLeft), 0.01);
+  Assert.AreEqual(700.0 - 44 + 10, Double(LTop), 0.01);
+  // Never farther than one bubble out, whatever the file says.
+  LPlace := THelpChatBubblePlace.Create(hbcTopLeft, -500, -500);
+  LPlace.ToPosition(44, 1000, 700, 1, LLeft, LTop, 44);
+  Assert.AreEqual(-44.0, Double(LLeft), 0.01);
+  Assert.AreEqual(-44.0, Double(LTop), 0.01);
+  // Without the allowance, a child bubble: back inside.
+  LPlace.ToPosition(44, 1000, 700, 1, LLeft, LTop);
   Assert.AreEqual(0.0, Double(LLeft), 0.01);
   Assert.AreEqual(0.0, Double(LTop), 0.01);
 end;

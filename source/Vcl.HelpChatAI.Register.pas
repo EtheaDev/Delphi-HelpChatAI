@@ -432,7 +432,7 @@ begin
       // the profile and the values sent to the component go into the form
       // file, so the designer is told each time.
       if Assigned(LChat) then
-        TVclHelpChatConfigEditor.Execute(TVclHelpChatAI(LChat).Settings,
+        TVclHelpChatConfigEditor.Execute(TVclHelpChatAI(LChat), TVclHelpChatAI(LChat).Settings,
           TVclHelpChatAI(LChat).Profile, TVclHelpChatAI(LChat).AssistantName,
           HelpChatDesignExeFile, TVclHelpChatAI(LChat).ConfigFileName,
           procedure(AProfile: string)

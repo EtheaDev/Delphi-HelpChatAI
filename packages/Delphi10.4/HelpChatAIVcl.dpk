@@ -47,6 +47,8 @@ requires
   rtl,
   vcl,
   vclwinx,
+  dbrtl,
+  vcldb,
   vcledge,
   IndySystem,
   IndyCore,
@@ -60,6 +62,7 @@ contains
   Vcl.HelpChatAI.Voice in '..\..\source\Vcl.HelpChatAI.Voice.pas',
   Vcl.HelpChatAI.Panel in '..\..\source\Vcl.HelpChatAI.Panel.pas',
   Vcl.HelpChatAI in '..\..\source\Vcl.HelpChatAI.pas',
-  Vcl.HelpChatAI.Theme in '..\..\source\Vcl.HelpChatAI.Theme.pas';
+  Vcl.HelpChatAI.Theme in '..\..\source\Vcl.HelpChatAI.Theme.pas',
+  Vcl.HelpChatAI.Skills in '..\..\source\Vcl.HelpChatAI.Skills.pas';
 
 end.

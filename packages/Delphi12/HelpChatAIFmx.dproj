@@ -133,12 +133,15 @@
         <DCCReference Include="IndyProtocols.dcp"/>
         <DCCReference Include="HelpChatAI.dcp"/>
         <DCCReference Include="HelpChatAIServer.dcp"/>
+        <DCCReference Include="dbrtl.dcp"/>
         <DCCReference Include="..\..\source\FMX.HelpChatAI.Panel.pas"/>
+        <DCCReference Include="..\..\source\FMX.HelpChatAI.Bubble.pas"/>
         <DCCReference Include="..\..\source\FMX.HelpChatAI.ConfirmDialog.pas">
             <Form>FmxHelpChatConfirmDialog</Form>
             <FormType>fmx</FormType>
         </DCCReference>
         <DCCReference Include="..\..\source\FMX.HelpChatAI.pas"/>
+        <DCCReference Include="..\..\source\FMX.HelpChatAI.Skills.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

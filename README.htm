@@ -136,14 +136,24 @@ help system, so the <code>HelpKeyword</code> you already wrote keeps working.</p
 <tbody>
 <tr>
 <td><img src="./Images/delphi-helpchat_64.png" alt="TVclHelpChatAI" /></td>
-<td><strong>TVclHelpChatAI</strong> is the VCL component: drop it on the main form - or on any form that deserves an expert of its own - set <code>Active</code>, and you have the bubble, F1 contextual help and the chat panel (a WebView2 <code>TEdgeBrowser</code>), either in its own tool window or embedded in a container of yours. Colours follow the active VCL style</td>
+<td><strong>TVclHelpChatAI</strong> is the VCL component: drop it on the main form - or on any form that deserves an expert of its own - set <code>Active</code>, and you have the bubble, F1 contextual help and the chat panel (a WebView2 <code>TEdgeBrowser</code>), either in its own tool window or embedded in a container of yours. Colours follow the active VCL style. Available from Delphi 10.4 to Delphi 13</td>
 </tr>
 <tr>
 <td><img src="./Images/AIAssistant_Female_64.png" alt="TFmxHelpChatAI" /></td>
-<td><strong>TFmxHelpChatAI</strong> is the FireMonkey twin (Delphi 12+): same settings, same engine, the chat in a <code>TWebBrowser</code>. F1 through the host form's <code>OnKeyDown</code>, light/dark theme instead of VCL styles. Available only for Delphi 12 and 13</td>
+<td><strong>TFmxHelpChatAI</strong> is the FireMonkey twin (Delphi 12+): same settings, same engine, the chat in a <code>TWebBrowser</code>. F1 through the host form's <code>OnKeyDown</code>, light/dark theme instead of VCL styles. Available only from Delphi 12 to Delphi 13</td>
 </tr>
 </tbody>
 </table>
+<h2 id="documentation">Documentation</h2>
+<p>The <a href="https://ethea.it/docs/helpchatai/">Project Site</a> has <strong>thirty-five pages of documentation</strong>,
+from an empty form to a working chat in the <a href="https://ethea.it/docs/helpchatai/Quick-Start">Quick Start</a>
+to a step-by-step <a href="https://ethea.it/docs/helpchatai/In-Depth-Conversation">anatomy of a conversation</a>.
+They cover the VCL and FireMonkey components and their component editor, the providers and the
+models (Claude, OpenAI, Gemini, local models), several assistants with their profiles, the
+documentation index, the actions and the skills, attachments, PDF and clipboard, languages, theming, the
+configuration and its check, running the engine on a server, and security and privacy - with a
+reference of every property and setting, and the FAQ.</p>
+<hr />
 <h3 id="how-it-works">How it works</h3>
 <ol>
 <li>You build a <strong>documentation index</strong> (<code>help-index.json</code>) from the Markdown pages of your
@@ -156,7 +166,11 @@ key at all; <code>claude</code>, <code>openai</code> and <code>gemini</code> rea
 <li>The reply <strong>streams</strong> into the panel token by token, rendered as safe HTML. Nothing ever
 runs on the UI thread, and the user can stop it.</li>
 <li>If you let it, the assistant can also <strong>act</strong>: you register the actions your application
-allows, and it calls them on the main thread, asking the user first when they change data.</li>
+allows, and it calls them on the main thread, asking the user first when they change data.
+Some it already knows, as <strong>skills</strong> you only have to name: <code>Settings.Skills := 'forms, commands, records, pages'</code> lets it read and fill the form the user is on - every field with
+its label, type, rules and hint, data-aware ones included - press its buttons, find a record
+of its lists and show one of its tabs, always asking first and never saving: the user
+reviews and saves.</li>
 <li>And it can <strong>read a document the user hands it</strong>: a paper clip next to the question box
 takes a PDF, an image or a text file. Together with an action, that is a PDF filling a
 form without anybody retyping it. Off until you turn it on, because an attachment leaves
@@ -238,8 +252,8 @@ one model and nothing can be switched.</p>
 <h3 id="more-than-one-assistant-profiles">More than one assistant: profiles</h3>
 <p>A large application can have <strong>several assistants, each the expert of one part of it</strong>, and
 active at the same time: a general one on the main form, and one on the form of an important
-function - order entry, planning - with its own name, its own instructions, its own part of the
-manual, its own models and the actions only it may run.</p>
+function - order entry, planning - with its own name, its own field of expertise and
+instructions, its own part of the manual, its own models and the actions only it may run.</p>
 <ul>
 <li><strong>One component per form, one <code>Profile</code> per assistant.</strong> The component lives on the form that
 owns it: its bubble is there, and <strong>F1 goes to the assistant of the active form</strong> - on a form
@@ -269,8 +283,9 @@ keeps its own conversation, choices and window position.</li>
 <span>  </span><span style="color: #555555; ">],</span>
 <span>  </span><span style="color: #000080; ">&quot;Profiles&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">{</span>
 <span>    </span><span style="color: #000080; ">&quot;Orders&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">{</span>
-<span>      </span><span style="color: #000080; ">&quot;AssistantName&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Giulio&quot;</span><span style="color: #555555; ">,</span>
-<span>      </span><span style="color: #000080; ">&quot;Instructions&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;You are the expert of order entry.&quot;</span><span style="color: #555555; ">,</span>
+<span>      </span><span style="color: #000080; ">&quot;AssistantName&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Jack&quot;</span><span style="color: #555555; ">,</span>
+<span>      </span><span style="color: #000080; ">&quot;Expertise&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;order management and shipping&quot;</span><span style="color: #555555; ">,</span>
+<span>      </span><span style="color: #000080; ">&quot;Instructions&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #0000FF; ">&quot;Help the user enter orders, their lines, discounts and shipping.&quot;</span><span style="color: #555555; ">,</span>
 <span>      </span><span style="color: #000080; ">&quot;DocAreas&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span><span style="color: #0000FF; ">&quot;Orders&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #0000FF; ">&quot;Customers&quot;</span><span style="color: #555555; ">],</span>
 <span>      </span><span style="color: #000080; ">&quot;Models&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span><span style="color: #0000FF; ">&quot;Claude&quot;</span><span style="color: #555555; ">],</span>
 <span>      </span><span style="color: #000080; ">&quot;AllowedActions&quot;</span><span style="color: #555555; ">:</span><span> </span><span style="color: #555555; ">[</span><span style="color: #0000FF; ">&quot;create_order&quot;</span><span style="color: #555555; ">,</span><span> </span><span style="color: #0000FF; ">&quot;open_screen&quot;</span><span style="color: #555555; ">]</span>
@@ -282,14 +297,18 @@ keeps its own conversation, choices and window position.</li>
 <p>All of this is edited from the IDE too: <strong>Configuration…</strong>, the first verb of both component
 editors (and what a double click opens), shows every setting with the value in force and where
 it comes from - the library, the component, a file and its root or profile - and writes it to
-the profile, to the root of a file or to the component. It edits keys in their clear node only,
-and never puts one in the form file. The VCL and FireMonkey editors are two native views over
-one controller.</p>
+the profile, to the root of a file or to the component. Its pages follow what you are deciding:
+<strong>Appearance</strong> (the icon, the name, the greeting and the style sheet, beside a live preview of
+the chat in the light or the dark theme), <strong>Settings</strong>, <strong>Prompt</strong> (the texts the model is told,
+in the order it reads them, beside the prompt they build), <strong>Models</strong>, <strong>Profiles</strong> and
+<strong>Documents</strong> (the PDF). It edits keys in their clear node only, and never puts one in the form
+file. The VCL and FireMonkey editors are two native views over one controller.</p>
 <h3 id="commands">Commands</h3>
 <p>A line that starts with <code>/</code> in the question box is a command, answered without the model:
 <code>/who</code> (assistant, model, provider, endpoint), <code>/use name</code> and <code>/retry [name]</code> (switch, ask
-again), <code>/search words</code> (the pages the answer would be grounded on), <code>/pages</code> and <code>/doc page</code>,
-<code>/context</code> (the screen F1 knows), <code>/actions</code> (what the assistant can do here), <code>/check</code> (the
+again), <code>/lang code</code> (the language of the chat), <code>/search words</code> (the pages the answer would be grounded on), <code>/pages</code> and <code>/doc page</code>,
+<code>/context</code> (the screen F1 knows), <code>/actions</code> (what the assistant can do here), <code>/skills</code> (its
+skills, what each does), <code>/check</code> (the
 configuration check), <code>/stats</code>, <code>/clear</code>, <code>/pdf</code>, <code>/copy</code>, <code>/attach</code>, <code>/help</code>. <code>EnabledCommands</code>
 on the component is the set the panel accepts: all of them by default except <code>/prompt</code>, which
 shows the instructions and excerpts the last question went with, and <code>/run action name=value</code>,
@@ -321,71 +340,6 @@ runtime itself is already part of Windows 11 and of every machine with Edge.</p>
 <p>The library is also published on <a href="https://delphi.dev/packages/etheadev.helpchatai">delphi.dev</a> as the package <strong>EtheaDev.HelpChatAI</strong> (Delphi 10.4 to 13, Win32 and Win64): you can install it with <a href="https://delphi.dev">DPM, the Delphi Package Manager</a>, as an alternative to the Setup. From the IDE, right click on your project in the Project Manager and choose <em>Manage DPM Packages</em>, or from the command line:</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>dpm install EtheaDev.HelpChatAI &lt;path of your project&gt;.dproj</code></pre>
 <p>DPM downloads the package, builds it for the Delphi version and the platforms of your project and adds it to the project. Its dependencies are installed automatically: EtheaDev.MarkdownProcessor from delphi.dev and Indy from your Delphi installation.</p>
-<h2 id="documentation">Documentation</h2>
-<p>Follow the <a href="https://ethea.it/docs/helpchatai/">Project Site</a> to learn how to add an AI help
-assistant to your Delphi application, and how to make its answers good.</p>
-<table>
-<thead>
-<tr>
-<th>Page</th>
-<th>What you find</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Quick-Start">Quick Start</a></td>
-<td>From an empty form to a working chat</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/VCL-Component">The VCL component</a></td>
-<td>Bubble, F1, embedding, dictation, the design-time preview</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/FMX-Component">The FMX component</a></td>
-<td>What FireMonkey does differently</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Providers">Providers</a></td>
-<td>The five of them, their settings, writing your own</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Assistants">Assistants and models</a></td>
-<td>Several assistants in one application, their profiles, and the models each one offers</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Commands">Slash commands</a></td>
-<td><code>/who</code>, <code>/search</code>, <code>/actions</code>… and everything the panel does, from code</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Documentation-Index">The documentation index</a></td>
-<td>Building <code>help-index.json</code>, and the pages shown inside the panel</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Actions">Actions</a></td>
-<td>An assistant that does things, safely</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Attachments">Attaching documents</a></td>
-<td>Handing the assistant a PDF, an image or a text file</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Saving-and-Copying">Saving and copying</a></td>
-<td>The PDF of an answer, its header and footer, and the clipboard</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Server">Running the engine on a server</a></td>
-<td>When the API key must not be on the user's machine</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Configuration">Configuration</a></td>
-<td><code>helpchatai.json</code>, and checking a configuration</td>
-</tr>
-<tr>
-<td><a href="https://ethea.it/docs/helpchatai/Security-and-Privacy">Security and privacy</a></td>
-<td>What travels, where, and what never does</td>
-</tr>
-</tbody>
-</table>
 <h2 id="supported-delphi-versions">Supported Delphi versions</h2>
 <table>
 <thead>
@@ -427,8 +381,8 @@ assistant to your Delphi application, and how to make its answers good.</p>
 <tbody>
 <tr>
 <td><code>HelpChatAI</code> (runtime)</td>
-<td>rtl, MarkdownProcessor</td>
-<td>the engine, the index builder, the panel page</td>
+<td>rtl, dbrtl, MarkdownProcessor</td>
+<td>the engine, the index builder, the panel page, the rules of the skills</td>
 </tr>
 <tr>
 <td><code>HelpChatAIServer</code> (runtime)</td>
@@ -437,8 +391,8 @@ assistant to your Delphi application, and how to make its answers good.</p>
 </tr>
 <tr>
 <td><code>HelpChatAIVcl</code> (runtime)</td>
-<td>HelpChatAIServer, vcl, vcledge</td>
-<td><code>TVclHelpChatAI</code>, the chat control, VCL style theming</td>
+<td>HelpChatAIServer, vcl, vclwinx, vcledge, dbrtl, vcldb</td>
+<td><code>TVclHelpChatAI</code>, the chat control, VCL style theming, the VCL skills</td>
 </tr>
 <tr>
 <td><code>dclHelpChatAIVcl</code> (design-time)</td>
@@ -447,13 +401,13 @@ assistant to your Delphi application, and how to make its answers good.</p>
 </tr>
 <tr>
 <td><code>HelpChatAIFmx</code> (runtime)</td>
-<td>HelpChatAIServer, fmx</td>
-<td><code>TFmxHelpChatAI</code> and its chat control</td>
+<td>HelpChatAIServer, fmx, dbrtl</td>
+<td><code>TFmxHelpChatAI</code> and its chat control, the FireMonkey skills</td>
 </tr>
 <tr>
 <td><code>dclHelpChatAIFmx</code> (design-time)</td>
 <td>HelpChatAIFmx, designide</td>
-<td>palette, component editor with the configuration editor and the configuration check</td>
+<td>palette, component editor with the configuration editor, the live preview and the configuration check</td>
 </tr>
 </tbody>
 </table>
@@ -461,8 +415,10 @@ assistant to your Delphi application, and how to make its answers good.</p>
 <p><code>CRM Demo</code> is the Windows 10 CRM demo of Embarcadero with HelpChatAI in it: a real little
 application — leads, accounts, proposals — with a manual of sixteen pages in <code>CRM Demo\Help</code>
 and the assistant answering from it. Press <strong>F1</strong> on any screen, or ask it to open a screen,
-create a lead or prepare a proposal.</p>
-<p>It comes <strong>in both frameworks</strong>, sharing one data module, one database and one manual:</p>
+create a lead or prepare a proposal. All of them name the four skills too, so they can fill,
+on any window, the fields no action was written for.</p>
+<p>There are <strong>four demos</strong>: the application in both frameworks, each in two editions, all
+sharing one data module, one database and one manual:</p>
 <table>
 <thead>
 <tr>
@@ -477,42 +433,79 @@ create a lead or prepare a proposal.</p>
 <td>VCL</td>
 <td><code>CRM Demo\VCL\project\VCL_CRMDemo.dproj</code></td>
 <td>10.4 → 13</td>
-<td>The whole application: seven pages, the lead and proposal windows, and all four actions</td>
+<td>The whole application, with one assistant: seven pages, the lead and proposal windows, and all four actions</td>
 </tr>
 <tr>
 <td>FMX</td>
 <td><code>CRM Demo\FMX\project\FMX_CRMDemo.dproj</code></td>
 <td>12 → 13</td>
-<td>The same application: the seven pages, the lead, proposal and draft windows, and the same four actions</td>
+<td>The same application in FireMonkey: the seven pages, the lead, proposal and draft windows, and the same four actions</td>
+</tr>
+<tr>
+<td>VCL, multi-assistant</td>
+<td><code>CRM Demo\VCL\project\VCL_CRMDemo_MultiAgent.dproj</code></td>
+<td>10.4 → 13</td>
+<td>The same sources with <code>MULTIAGENT</code> defined: a general assistant on the main form and a Sales one on the lead window, each answering from its own area of the manual, and an action (<code>draft_proposal</code>) that only the Sales assistant may use</td>
+</tr>
+<tr>
+<td>FMX, multi-assistant</td>
+<td><code>CRM Demo\FMX\project\FMX_CRMDemo_MultiAgent.dproj</code></td>
+<td>12 → 13</td>
+<td>The same two assistants in FireMonkey</td>
 </tr>
 </tbody>
 </table>
-<p>Neither of them keeps the API key in clear: <code>CRM Demo\common\uAppSecret.pas</code> encrypts it
+<p>Start from the plain editions; the multi-assistant ones show <a href="#more-than-one-assistant-profiles">profiles</a>
+at work, and that the configuration, not the code, decides which assistant may use an action.</p>
+<p>None of them keeps the API key in clear: <code>CRM Demo\common\uAppSecret.pas</code> encrypts it
 with DCPcrypt (an svn:external of the demo, no package of the library requires it) and the
 <strong>License activation</strong> window asks for it the first time, when no key is found anywhere.
 <code>Tools\ResetDemoKey.ps1</code> puts that back to “no key”, to show it again.</p>
-<p><code>CRM Demo\BuildAllDemos.ps1</code> builds both with every Delphi it finds, Win32 and Win64: twelve
-builds, and the FireMonkey ones are reported <code>N/A</code> below Delphi 12 rather than failed.</p>
-<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>452 tests</strong> that runs without
+<p><code>CRM Demo\BuildAllDemos.ps1</code> builds all four with every Delphi it finds, Win32 and
+Win64: twenty-four builds, and the FireMonkey ones are reported <code>N/A</code> below Delphi 12 rather
+than failed.</p>
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>527 tests</strong> that runs without
 network: store, worker pool, cancellation, index scoring and the areas of a manual, Markdown
 safety, profiles and the configuration editor's controller, several assistants on real forms
-and the engine they share, the SSE parsing and
+and the engine they share, the skills on real forms over an in-memory data set, the SSE parsing and
 request building of each model provider, the configuration check, both transports over real
 HTTP, the actions from a real worker thread, the secrets of the settings and the printable
 document - the last two of which write a real PDF with the WebView2 runtime of the machine,
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>16 Nov 2026: ver. 1.12.0</p>
+<ul>
+<li>Skills: ready-made sets of actions an assistant gets by naming them in <code>Settings.Skills</code> - <code>forms</code>, <code>commands</code>, <code>records</code> and <code>pages</code>, in the VCL and in FireMonkey (LiveBindings included); <code>/skills</code> lists them. <code>HelpChatAI</code> requires <code>dbrtl</code>, <code>HelpChatAIVcl</code> <code>dbrtl</code> and <code>vcldb</code></li>
+<li>Configuration editor: the skills are ticks, with their actions and description</li>
+<li><code>BubbleStayOnTop</code>: the bubble of the main form stays in front of every form, modal ones included, and may be dragged outside the form (VCL, and FMX on Windows)</li>
+<li><code>Assign</code> on both components; the design-time preview copies every property, the icon included</li>
+<li>The lists of models and languages in the panel work from the keyboard and scroll</li>
+<li><code>Actions.Add</code> returns the action; <code>THelpChatAction.OnDisplay</code> for a readable confirmation</li>
+<li>Fixed: the preview of the Appearance page was empty until something changed</li>
+<li>Fixed: <code>claude</code> sends the thinking of the model back with the results of its actions: the Claude 5.5 models think by default</li>
+<li>Prompt caching: the system prompt stays the same and now, the screen and the excerpts go with the question (<code>claude</code>, <code>openai</code>, <code>gemini</code>), so the tools, the rules and the conversation are read from the cache of the service (<code>claude</code>: -31% input billed on the benchmark); <code>Claude.PromptCaching</code>, <code>NowRule</code>, <code>HelpChatOnTokenUsage</code></li>
+<li><code>IdentityRule</code> no longer says now: <code>NowRule</code> does (a rule with <code>%1:s</code> still gets it)</li>
+<li>CRM demos: the bubble of the main form stays in front; the VCL one has no custom title bar, and restoring its maximized window keeps it on the screen</li>
+<li>527 tests</li>
+</ul>
+<p>15 Nov 2026: ver. 1.11.0</p>
+<ul>
+<li>The texts of the prompt are properties of <code>Settings</code> (<code>SystemPrompt</code>, <code>IdentityRule</code>, <code>ExpertiseIntro</code>, <code>ExpertiseRule</code>, <code>LanguageRule</code>, <code>DocLanguageRule</code>)</li>
+<li><code>OnBuildSystemPrompt</code>: the last word on the system prompt of each request</li>
+<li><code>HelpChatSetMsg</code>: replace any message of the library, without a resource DLL</li>
+<li>Configuration editor: six pages, every published setting, a live preview of the panel and of the prompt</li>
+<li>Six more built-in icons, ten in all (<code>THelpChatAssistantIcon</code>)</li>
+<li>491 tests</li>
+</ul>
 <p>14 Nov 2026: ver. 1.10.0</p>
 <ul>
-<li><code>Expertise</code> at the root and in each profile: the field the assistant knows beyond the manual (“general accounting”, “warehouse management”). It opens the system prompt with a rule that keeps the procedures of the application to the manual alone, so the assistant explains what the manual takes for granted without inventing features; <code>Instructions</code> stays for what it does in detail</li>
-<li>The system prompt opens with the name of the assistant and now - date, time and time zone</li>
-<li>CRM demos: an <code>Expertise</code> of their own, and a multi-assistant edition built from the same sources (<code>VCL_CRMDemo_MultiAgent</code>, <code>FMX_CRMDemo_MultiAgent</code>, with <code>MULTIAGENT</code> defined): a general assistant and a Sales one on the lead window, an area of the manual each, and <code>draft_proposal</code> registered once among the shared actions and allowed only to the Sales assistant</li>
-<li><strong>Test HelpChat…</strong> on the FireMonkey component too: the live chat in a FireMonkey form, with the panel the application runs, from the verb and from the Test button of the configuration editor</li>
-<li>The preview keeps a conversation per project and profile (<code>%APPDATA%\HelpChatAI\Preview</code>): inside the IDE every preview of every project used to share one, so a new project opened with the history of the last one tested</li>
-<li>The VCL preview window is sized for the DPI of its monitor: on a high-DPI screen it opened at half its size</li>
-<li>VCL: <code>ImageIndex</code> and <code>ImageName</code> kept in step, the way the controls of the VCL do (the name wins when both are set); <code>ImageIndex</code> defaults to 0, the first built-in icon - the default assistant</li>
-<li>A component just dropped on a form writes no setting into the form file: <code>Provider</code>, <code>Models</code>, <code>Model</code>, <code>BaseUrl</code> and the API versions are stored only when they differ from their defaults, so a form follows the defaults of the library when they change</li>
+<li><code>Expertise</code>: the field the assistant knows beyond the manual</li>
+<li>The system prompt opens with the name of the assistant, the date and the time</li>
+<li>CRM demos: a multi-assistant edition (<code>*_CRMDemo_MultiAgent</code>)</li>
+<li><strong>Test HelpChat…</strong> on the FireMonkey component too; the preview keeps a conversation per project</li>
+<li>VCL: <code>ImageIndex</code> and <code>ImageName</code> kept in step; the preview window sized for its monitor</li>
+<li>A component just dropped on a form no longer stores the default settings in the form file</li>
 <li>478 tests</li>
 </ul>
 <p>13 Nov 2026: ver. 1.9.0</p>

@@ -27,7 +27,7 @@ uses
   Data.Bind.EngExt, Data.Bind.Components, Data.Bind.Grid, Data.Bind.DBScope,
   Fmx.Bind.DBEngExt, Fmx.Bind.Editors, Fmx.Bind.Grid, Fmx.Bind.Navigator,
   HelpChatAI.Types, HelpChatAI.Actions, FMX.HelpChatAI,
-  uProposalReport;
+  uProposalReport, Data.Bind.Controls, System.ImageList;
 
 const
   /// <summary>The style the demo wears, relative to the executable.</summary>

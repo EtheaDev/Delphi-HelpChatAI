@@ -88,11 +88,181 @@ function TestDataFile(const AFileName: string): string;
 /// <summary>A unique temp file name (not created).</summary>
 function TempFileName(const AExt: string = '.json'): string;
 
+/// <summary>Gives every published property of AObject that can be written a
+/// value other than the one it has - strings, numbers, Booleans, enumerations,
+/// sets - and goes into the published objects it holds (not into
+/// collections, nor into the objects of another component). Events and the
+/// names in ASkip are left alone. What a test of <c>Assign</c> fills the
+/// source with, so that a property added later is checked too.</summary>
+procedure FillPublishedProperties(const AObject: TObject; const ASkip: array of string);
+
+/// <summary>The path of the first published property whose value differs
+/// between A and B, going into the published objects they hold the way
+/// <c>FillPublishedProperties</c> does; empty when none does.</summary>
+function FirstPublishedDifference(const A, B: TObject; const ASkip: array of string): string;
+
 implementation
 
 uses
   System.IOUtils,
-  System.Diagnostics;
+  System.Diagnostics,
+  System.TypInfo,
+  System.Variants,
+  System.StrUtils;
+
+function IsSkipped(const APath: string; const ASkip: array of string): Boolean;
+var
+  LName: string;
+begin
+  for LName in ASkip do
+    if SameText(LName, APath) then
+      Exit(True);
+  Result := False;
+end;
+
+function NestedObject(const AObject: TObject; const AProp: PPropInfo): TObject;
+begin
+  Result := GetObjectProp(AObject, AProp);
+  // A collection is compared by its own test; a component is a reference
+  // (an image list, a container), not a part of the object.
+  if (Result is TCollection) or (Result is TComponent) or not (Result is TPersistent) then
+    Result := nil;
+end;
+
+procedure FillPublishedAt(const AObject: TObject; const APrefix: string;
+  const ASkip: array of string; var ASeed: Integer);
+var
+  LList: PPropList;
+  LCount, I: Integer;
+  LProp: PPropInfo;
+  LPath: string;
+  LData: PTypeData;
+  LNested: TObject;
+begin
+  LCount := GetPropList(AObject, LList);
+  try
+    for I := 0 to LCount - 1 do
+    begin
+      LProp := LList[I];
+      LPath := APrefix + string(LProp.Name);
+      if IsSkipped(LPath, ASkip) then
+        Continue;
+      Inc(ASeed);
+      try
+        case LProp.PropType^.Kind of
+          tkClass:
+            begin
+              LNested := NestedObject(AObject, LProp);
+              if Assigned(LNested) then
+                FillPublishedAt(LNested, LPath + '.', ASkip, ASeed);
+            end;
+          tkUString, tkLString, tkWString, tkString:
+            if Assigned(LProp.SetProc) then
+              SetStrProp(AObject, LProp, 'v' + IntToStr(ASeed));
+          tkInteger, tkInt64:
+            if Assigned(LProp.SetProc) then
+              SetOrdProp(AObject, LProp, GetOrdProp(AObject, LProp) + 3);
+          tkFloat:
+            if Assigned(LProp.SetProc) then
+              SetFloatProp(AObject, LProp, GetFloatProp(AObject, LProp) + 1.5);
+          tkEnumeration:
+            if Assigned(LProp.SetProc) then
+            begin
+              LData := GetTypeData(LProp.PropType^);
+              if GetOrdProp(AObject, LProp) = LData.MaxValue then
+                SetOrdProp(AObject, LProp, LData.MinValue)
+              else
+                SetOrdProp(AObject, LProp, LData.MaxValue);
+            end;
+          tkSet:
+            if Assigned(LProp.SetProc) then
+              // The first member flipped: a set of any size has one.
+              SetOrdProp(AObject, LProp, GetOrdProp(AObject, LProp) xor 1);
+        end;
+      except
+        // A setter that refuses the value (a range, a format) keeps its own:
+        // the comparison then finds both equal, which proves nothing but
+        // breaks nothing either.
+      end;
+    end;
+  finally
+    FreeMem(LList);
+  end;
+end;
+
+procedure FillPublishedProperties(const AObject: TObject; const ASkip: array of string);
+var
+  LSeed: Integer;
+begin
+  LSeed := 0;
+  FillPublishedAt(AObject, '', ASkip, LSeed);
+end;
+
+function DifferenceAt(const A, B: TObject; const APrefix: string;
+  const ASkip: array of string): string; forward;
+
+function CollectionDifference(const A, B: TCollection; const APath: string;
+  const ASkip: array of string): string;
+var
+  I: Integer;
+begin
+  if A.Count <> B.Count then
+    Exit(Format('%s (%d <> %d items)', [APath, A.Count, B.Count]));
+  for I := 0 to A.Count - 1 do
+  begin
+    Result := DifferenceAt(A.Items[I], B.Items[I], Format('%s[%d].', [APath, I]), ASkip);
+    if Result <> '' then
+      Exit;
+  end;
+  Result := '';
+end;
+
+function DifferenceAt(const A, B: TObject; const APrefix: string;
+  const ASkip: array of string): string;
+var
+  LList: PPropList;
+  LCount, I: Integer;
+  LProp: PPropInfo;
+  LPath: string;
+  LNestedA, LNestedB: TObject;
+begin
+  Result := '';
+  LCount := GetPropList(A, LList);
+  try
+    for I := 0 to LCount - 1 do
+    begin
+      LProp := LList[I];
+      LPath := APrefix + string(LProp.Name);
+      if IsSkipped(LPath, ASkip) or (LProp.PropType^.Kind = tkMethod) then
+        Continue;
+      if LProp.PropType^.Kind = tkClass then
+      begin
+        LNestedA := NestedObject(A, LProp);
+        LNestedB := NestedObject(B, LProp);
+        if Assigned(LNestedA) and Assigned(LNestedB) then
+          Result := DifferenceAt(LNestedA, LNestedB, LPath + '.', ASkip)
+        else if (GetObjectProp(A, LProp) is TCollection) and
+                (GetObjectProp(B, LProp) is TCollection) then
+          Result := CollectionDifference(TCollection(GetObjectProp(A, LProp)),
+            TCollection(GetObjectProp(B, LProp)), LPath, ASkip)
+        else if GetObjectProp(A, LProp) <> GetObjectProp(B, LProp) then
+          Result := LPath;
+      end
+      else if GetPropValue(A, LProp, True) <> GetPropValue(B, LProp, True) then
+        Result := Format('%s ("%s" <> "%s")', [LPath, VarToStr(GetPropValue(A, LProp, True)),
+          VarToStr(GetPropValue(B, LProp, True))]);
+      if Result <> '' then
+        Exit;
+    end;
+  finally
+    FreeMem(LList);
+  end;
+end;
+
+function FirstPublishedDifference(const A, B: TObject; const ASkip: array of string): string;
+begin
+  Result := DifferenceAt(A, B, '', ASkip);
+end;
 
 function WaitFor(const ACondition: TFunc<Boolean>; const ATimeoutMs: Integer): Boolean;
 var

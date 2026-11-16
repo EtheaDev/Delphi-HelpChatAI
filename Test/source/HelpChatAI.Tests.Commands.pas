@@ -39,6 +39,7 @@ type
     [Test] procedure Json_ListsOnlyTheEnabled_InOrder_WithLocal;
     [Test] procedure ParseLine_SplitsNameAndArgs;
     [Test] procedure Who_NamesTheActiveAssistant;
+    [Test] procedure Skills_ListsWhatEachDoes_AndTheUnknown;
     [Test] procedure Search_And_Pages_LinkThePages;
     [Test] procedure Context_ListsWhatTheHostSent;
     [Test] procedure Actions_ListsTheRegisteredOnes;
@@ -234,6 +235,20 @@ begin
   Assert.IsFalse(HelpChatParseCommandLine('who', C, LArgs), 'no slash: a question');
   Assert.IsFalse(HelpChatParseCommandLine('/nothing here', C, LArgs));
   Assert.IsFalse(HelpChatParseCommandLine('', C, LArgs));
+end;
+
+procedure TCommandsTests.Skills_ListsWhatEachDoes_AndTheUnknown;
+var
+  LHtml: string;
+begin
+  Assert.Contains(Run(hccSkills), HelpChatMsg(hcmCmdNoSkills, hclEnglish));
+  FEngine.Settings.Skills := 'pages, telepathy';
+  LHtml := Run(hccSkills);
+  Assert.IsTrue(LHtml.StartsWith(
+    '<p class="hc-chat-cmd-title"><b>Skills of the assistant (/skills):</b></p>'), LHtml);
+  Assert.Contains(LHtml, '<b>pages</b> - ' + HelpChatMsg(hcmSkillPages, hclEnglish));
+  Assert.Contains(LHtml, '<code>show_page</code>');
+  Assert.Contains(LHtml, '<b>telepathy</b> - not available in this application');
 end;
 
 procedure TCommandsTests.Who_NamesTheActiveAssistant;

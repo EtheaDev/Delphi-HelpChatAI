@@ -37,6 +37,8 @@ type
     [Test] procedure ExtractApiError_FromObject_FromArray_AndFallback;
     [Test] procedure ConfigurationIssue_WhenThereIsNoKey;
     [Test] procedure StreamUrl_NamesTheModel_AndAsksForSse;
+    [Test] procedure QuestionContext_IsASecondPartOfTheQuestion;
+    [Test] procedure Usage_CachedTokens;
   end;
 
 implementation
@@ -44,6 +46,7 @@ implementation
 uses
   System.SysUtils,
   System.JSON,
+  HelpChatAI.Messages,
   HelpChatAI.Provider;
 
 const
@@ -119,6 +122,52 @@ begin
   Feed('data: {"error":{"code":400,"message":"API key not valid","status":"INVALID_ARGUMENT"}}'#10#10);
   FStream.Finish;
   Assert.AreEqual('API key not valid', FStream.Error);
+end;
+
+procedure TGeminiTests.QuestionContext_IsASecondPartOfTheQuestion;
+var
+  LGemini: THelpChatGeminiSettings;
+  LHistory: TArray<THelpChatMessage>;
+  LValue: TJSONValue;
+  LContents: TJSONArray;
+begin
+  LGemini := THelpChatGeminiSettings.Create;
+  try
+    SetLength(LHistory, 3);
+    LHistory[0].Role := hcrUser;
+    LHistory[0].Content := 'first question';
+    LHistory[1].Role := hcrAssistant;
+    LHistory[1].Content := 'first answer';
+    LHistory[2].Role := hcrUser;
+    LHistory[2].Content := 'second question';
+    LValue := TJSONObject.ParseJSONValue(THelpChatGeminiProvider.BuildRequestBody(LHistory,
+      'RULES', LGemini, '', '[]', nil, hclAuto, 'Now it is X.'));
+    try
+      Assert.AreEqual('RULES', (LValue as TJSONObject).GetValue<string>('systemInstruction.parts[0].text'));
+      LContents := (LValue as TJSONObject).GetValue<TJSONArray>('contents');
+      Assert.AreEqual(3, LContents.Count);
+      Assert.AreEqual(1, LContents.Items[0].GetValue<TJSONArray>('parts').Count,
+        'the earlier question as it was typed');
+      Assert.AreEqual('second question', LContents.Items[2].GetValue<string>('parts[0].text'));
+      Assert.AreEqual('Now it is X.', LContents.Items[2].GetValue<string>('parts[1].text'));
+    finally
+      LValue.Free;
+    end;
+  finally
+    LGemini.Free;
+  end;
+end;
+
+procedure TGeminiTests.Usage_CachedTokens;
+begin
+  Feed('data: {"candidates":[{"content":{"parts":[{"text":"Ok"}]}}],"modelVersion":"gemini-3.5-flash-lite",' +
+    '"usageMetadata":{"promptTokenCount":3000,"cachedContentTokenCount":2000,' +
+    '"candidatesTokenCount":30,"thoughtsTokenCount":12}}'#10#10);
+  FStream.Finish;
+  Assert.AreEqual('gemini-3.5-flash-lite', FStream.Usage.Model);
+  Assert.AreEqual(1000, FStream.Usage.InputTokens);
+  Assert.AreEqual(2000, FStream.Usage.CacheReadTokens);
+  Assert.AreEqual(42, FStream.Usage.OutputTokens, 'the thoughts count as output');
 end;
 
 procedure TGeminiTests.Sse_ThoughtParts_AreNotAnAnswer;

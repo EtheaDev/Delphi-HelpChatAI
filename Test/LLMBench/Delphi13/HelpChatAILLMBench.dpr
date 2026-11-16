@@ -27,6 +27,13 @@ uses
 //   --only  runs only the targets whose name contains one of the words
 //           (gemma, gpt-oss, qwen, claude, gemini)
 //   --out   where the report goes (default: Test\LLMBench\results\llm-bench-<stamp>.md)
+//   --ollama=http://host:11434  the Ollama of the local models (default localhost)
+//   --nocache  Claude.PromptCaching off, to compare the tokens with a run that has it
+//
+// HelpChatAILLMBench --suite=conversation [--only=...] [--nocache] [--out=file.md]
+//   the same questions, but those of a target asked in one conversation, the history
+//   never cleared: what the prompt cache reads back as the conversation grows.
+//   Report: llm-bench-conversation-<stamp>.md, with the tokens of every question
 //
 // HelpChatAILLMBench --suite=expertise [--only=...] [--judge=model] [--out=file.md]
 //   the questions an expert of the field answers and the manual does not, each
@@ -42,7 +49,8 @@ uses
 
 var
   LRunner: TBenchRunner;
-  LRoot, LOut, LArg, LRetrieval, LSuite, LJudge, LRejudge: string;
+  LRoot, LOut, LArg, LRetrieval, LSuite, LJudge, LRejudge, LOllama: string;
+  LNoCache: Boolean;
   LOnly: TArray<string>;
   I: Integer;
 begin
@@ -50,6 +58,7 @@ begin
     LRoot := FindRepoRoot;
     LOut := '';
     LOnly := nil;
+    LNoCache := False;
     LJudge := 'claude-opus-5-5';
     for I := 1 to ParamCount do
     begin
@@ -62,6 +71,15 @@ begin
         LRetrieval := LArg.Substring(12)
       else if LArg.StartsWith('--suite=', True) then
         LSuite := LArg.Substring(8)
+      else if SameText(LArg, '--nocache') then
+        LNoCache := True
+      else if LArg.StartsWith('--ollama=', True) then
+      begin
+        // The server, with or without the /v1 of the OpenAI-compatible API.
+        LOllama := LArg.Substring(9).TrimRight(['/']);
+        if not LOllama.EndsWith('/v1', True) then
+          LOllama := LOllama + '/v1';
+      end
       else if LArg.StartsWith('--judge=', True) then
         LJudge := LArg.Substring(8)
       else if LArg.StartsWith('--rejudge=', True) then
@@ -81,12 +99,17 @@ begin
     end;
     if LOut = '' then
       LOut := TPath.Combine(LRoot, 'Test\LLMBench\results\llm-bench-' +
-        IfThen(SameText(LSuite, 'expertise'), 'expertise-', '') +
+        IfThen(SameText(LSuite, 'expertise'), 'expertise-',
+          IfThen(SameText(LSuite, 'conversation'), 'conversation-', '')) +
         FormatDateTime('yyyymmdd-hhnn', Now) + '.md');
     TDirectory.CreateDirectory(TPath.GetDirectoryName(LOut));
 
     LRunner := TBenchRunner.Create(LRoot);
     try
+      if LOllama <> '' then
+        LRunner.OllamaBaseUrl := LOllama;
+      LRunner.NoCache := LNoCache;
+      LRunner.KeepConversation := SameText(LSuite, 'conversation');
       LRunner.AddDefaultTargets;
       if SameText(LSuite, 'expertise') then
         LRunner.AddExpertiseQuestions

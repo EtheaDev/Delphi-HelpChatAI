@@ -64,7 +64,9 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 12px; background: var(--hc-surface);
   border-bottom: 1px solid var(--hc-border); flex: 0 0 auto;
-  position: relative; z-index: 2; box-shadow: 0 2px 6px var(--hc-shadow);
+  /* Above the footer, which comes later and has a shadow of its own: the
+     lists that drop down from the header must cover it, not slide under it. */
+  position: relative; z-index: 3; box-shadow: 0 2px 6px var(--hc-shadow);
 }
 /* The name of the assistant, with the icon of the bubble when the host sent
    one (a data: URI: the CSP allows no other source for an image). The name is
@@ -102,6 +104,8 @@ body {
   background: var(--hc-surface); color: var(--hc-text);
   border: 1px solid var(--hc-border); border-radius: var(--hc-radius);
   box-shadow: 0 4px 12px var(--hc-shadow);
+  /* panel.js caps the height at the bottom of the window when it opens */
+  overflow-y: auto; overscroll-behavior: contain;
 }
 .hc-chat-agent-item {
   display: flex; align-items: center; gap: 10px; width: 100%;
@@ -109,6 +113,10 @@ body {
   padding: 6px 8px; border-radius: 8px; cursor: pointer;
 }
 .hc-chat-agent-item:hover { background: var(--hc-bg); }
+/* The item the arrow keys are on */
+.hc-chat-agent-item:focus { outline: 2px solid var(--hc-accent); outline-offset: -2px; }
+.hc-chat-agent-item:focus:not([aria-selected="true"]) { background: var(--hc-bg); }
+.hc-chat-agent-item[aria-selected="true"]:focus { outline-color: var(--hc-accent-text); }
 .hc-chat-agent-item[aria-selected="true"] { background: var(--hc-accent); color: var(--hc-accent-text); }
 .hc-chat-agent-item svg { width: 22px; height: 22px; flex: 0 0 auto; }
 .hc-chat-agent-text { display: flex; flex-direction: column; min-width: 0; }

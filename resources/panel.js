@@ -653,6 +653,46 @@
       })
       .catch(function () {});
   }
+  // ---- the lists that drop down from the header (models, languages) -------
+  // Opened, a list is as tall as the room left down to the bottom of the
+  // window, scrolling beyond it, and takes the keyboard: Up/Down/Home/End move
+  // among its items, Enter picks one (a button clicks itself), Escape and Tab
+  // close it. The caret goes back to the question box when it closes.
+  function listItems(list) { return Array.prototype.slice.call(list.querySelectorAll('button')); }
+  function openList(list) {
+    list.hidden = false;
+    list.style.maxHeight = '';
+    var top = list.getBoundingClientRect().top;
+    list.style.maxHeight = Math.max(80, Math.floor(window.innerHeight - top - 8)) + 'px';
+    var items = listItems(list), current = null, i;
+    for (i = 0; i < items.length; i++)
+      if (items[i].getAttribute('aria-selected') === 'true') current = items[i];
+    current = current || items[0];
+    if (current) { current.focus(); current.scrollIntoView({ block: 'nearest' }); }
+  }
+  function toggleList(list) {
+    if (list.hidden) openList(list); else { list.hidden = true; focusInput(); }
+  }
+  function listKeys(list) {
+    list.addEventListener('keydown', function (e) {
+      var items = listItems(list);
+      var at = items.indexOf(document.activeElement), next = -1;
+      switch (e.key) {
+        case 'ArrowDown': next = at < 0 ? 0 : (at + 1) % items.length; break;
+        case 'ArrowUp': next = at <= 0 ? items.length - 1 : at - 1; break;
+        case 'Home': next = 0; break;
+        case 'End': next = items.length - 1; break;
+        case 'Escape': case 'Tab':
+          e.preventDefault(); e.stopPropagation();
+          list.hidden = true; focusInput();
+          return;
+        default: return;
+      }
+      e.preventDefault();
+      if (items[next]) { items[next].focus(); items[next].scrollIntoView({ block: 'nearest' }); }
+    });
+  }
+
   // The assistant in use and the others the configuration offers. The list
   // lives where the engine lives, so the page asks for it the way it asks
   // for the history, and a reload does not lose it. An assistant with no
@@ -719,9 +759,10 @@
     agentBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       closeLangs();
-      if (agentList && agentBtn.hasAttribute('data-select')) agentList.hidden = !agentList.hidden;
+      if (agentList && agentBtn.hasAttribute('data-select')) toggleList(agentList);
     });
     if (agentList) {
+      listKeys(agentList);
       agentList.addEventListener('click', function (e) {
         var item = e.target && e.target.closest ? e.target.closest('[data-agent]') : null;
         if (item) selectAgent(item.getAttribute('data-agent'));
@@ -801,9 +842,10 @@
     langBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       closeAgents();
-      if (langList && langBtn.hasAttribute('data-select')) langList.hidden = !langList.hidden;
+      if (langList && langBtn.hasAttribute('data-select')) toggleList(langList);
     });
     if (langList) {
+      listKeys(langList);
       langList.addEventListener('click', function (e) {
         var item = e.target && e.target.closest ? e.target.closest('[data-lang]') : null;
         if (item) selectLang(item.getAttribute('data-lang'));

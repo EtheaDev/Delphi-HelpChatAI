@@ -189,7 +189,8 @@ uses
   System.JSON,
   System.Hash,
   HelpChatAI.Types,
-  HelpChatAI.Provider;
+  HelpChatAI.Provider,
+  HelpChatAI.Skills;
 
 resourcestring
   // Not localized on purpose: see the unit summary.
@@ -456,6 +457,48 @@ begin
       Format('Settings.DocFolder points to "%s", which does not exist.', [LFolder]));
 end;
 
+/// <summary>The texts of the prompt that take values: one that does not fit
+/// them is replaced by the library's at run time, which is worth a warning -
+/// the developer would otherwise wonder why the change has no effect.</summary>
+procedure CheckPromptTexts(const ASettings: THelpChatSettings; var AIssues: THelpChatIssues);
+
+  procedure Check(const AName, AText: string; const ACount: Integer);
+  var
+    LIssue: string;
+  begin
+    LIssue := HelpChatRuleIssue(AText, ACount);
+    if LIssue <> '' then
+      Add(AIssues, hikWarning, 'Prompt', Format('%s does not fit its values (%s): the ' +
+        'text of the library is used instead.', [AName, LIssue]));
+  end;
+
+begin
+  Check('IdentityRule', ASettings.IdentityRule, 2);
+  Check('NowRule', ASettings.NowRule, 1);
+  if ASettings.IdentityRuleSaysNow then
+    Add(AIssues, hikWarning, 'Prompt', 'IdentityRule still says now (%1:s): the system ' +
+      'prompt changes every minute, so the prompt cache cannot keep it. Leave now to NowRule.');
+  Check('LanguageRule', ASettings.LanguageRule, 1);
+  Check('DocLanguageRule', ASettings.DocLanguageRule, 2);
+  Check('ExpertiseIntro', ASettings.ExpertiseIntro, 1);
+end;
+
+/// <summary>A skill nobody registered gives the assistant nothing, and at run
+/// time nobody says so: an application must start whatever its configuration
+/// names.</summary>
+procedure CheckSkills(const ASettings: THelpChatSettings; var AIssues: THelpChatIssues);
+var
+  LName: string;
+begin
+  for LName in ASettings.ResolveSkills do
+    if not HelpChatIsSkillRegistered(LName) then
+      Add(AIssues, hikWarning, 'Skills',
+        Format('Settings.Skills names "%s", which no skill of this application provides ' +
+          '(the VCL ones are %s, and come with Vcl.HelpChatAI; one of yours is registered ' +
+          'with HelpChatRegisterSkill): the name gives the assistant nothing.',
+          [LName, string.Join(', ', HelpChatSkillNames)]));
+end;
+
 function HelpChatCheckSettings(const ASettings: THelpChatSettings): THelpChatIssues;
 var
   LProviderSpoke: Boolean;
@@ -492,6 +535,8 @@ begin
   else
     LProviderSpoke := CheckProvider(ASettings, Result);
   CheckAssistants(ASettings, Result);
+  CheckPromptTexts(ASettings, Result);
+  CheckSkills(ASettings, Result);
   CheckDocumentation(ASettings, LProviderSpoke, Result);
 end;
 

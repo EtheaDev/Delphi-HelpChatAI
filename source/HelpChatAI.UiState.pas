@@ -89,14 +89,18 @@ type
     /// <c>ALeft</c>, <c>ATop</c> of a client area of the given size: the
     /// corner of the quarter its centre is in, the distances divided by
     /// <c>AScale</c> (the DPI of the form over 96). A bubble partly outside
-    /// counts as touching the edge.</summary>
+    /// counts as touching the edge - unless <c>AOutside</c> lets it be out
+    /// by up to that many pixels: then a distance is negative when the
+    /// bubble is beyond the edge of its corner (a bubble that is a window of
+    /// its own, not clipped by its form).</summary>
     class function FromBounds(const ALeft, ATop, ASize, AClientWidth,
-      AClientHeight, AScale: Single): THelpChatBubblePlace; static;
+      AClientHeight, AScale: Single; const AOutside: Single = 0): THelpChatBubblePlace; static;
     /// <summary>Left and top of a bubble of side <c>ASize</c> in a client
-    /// area of the given size, kept inside it: a form smaller than the one
-    /// the place was taken on still shows the whole bubble.</summary>
+    /// area of the given size, kept inside it - or at most <c>AOutside</c>
+    /// pixels beyond its edges: a form smaller than the one the place was
+    /// taken on still shows the whole bubble.</summary>
     procedure ToPosition(const ASize, AClientWidth, AClientHeight, AScale: Single;
-      out ALeft, ATop: Single);
+      out ALeft, ATop: Single; const AOutside: Single = 0);
     /// <summary>True for the two corners on the left.</summary>
     function IsLeft: Boolean;
     /// <summary>True for the two corners at the top.</summary>
@@ -148,7 +152,7 @@ begin
 end;
 
 class function THelpChatBubblePlace.FromBounds(const ALeft, ATop, ASize,
-  AClientWidth, AClientHeight, AScale: Single): THelpChatBubblePlace;
+  AClientWidth, AClientHeight, AScale: Single; const AOutside: Single): THelpChatBubblePlace;
 var
   LLeft, LTop: Boolean;
   LScale, LX, LY: Single;
@@ -177,8 +181,8 @@ begin
     Result.Corner := hbcBottomLeft
   else
     Result.Corner := hbcBottomRight;
-  Result.OffsetX := Max(0, Round(LX / LScale));
-  Result.OffsetY := Max(0, Round(LY / LScale));
+  Result.OffsetX := Max(-Round(Max(0, AOutside) / LScale), Round(LX / LScale));
+  Result.OffsetY := Max(-Round(Max(0, AOutside) / LScale), Round(LY / LScale));
 end;
 
 function THelpChatBubblePlace.IsLeft: Boolean;
@@ -192,10 +196,11 @@ begin
 end;
 
 procedure THelpChatBubblePlace.ToPosition(const ASize, AClientWidth,
-  AClientHeight, AScale: Single; out ALeft, ATop: Single);
+  AClientHeight, AScale: Single; out ALeft, ATop: Single; const AOutside: Single);
 var
-  LScale: Single;
+  LScale, LOut: Single;
 begin
+  LOut := Max(0, AOutside);
   LScale := AScale;
   if LScale <= 0 then
     LScale := 1;
@@ -207,8 +212,8 @@ begin
     ATop := OffsetY * LScale
   else
     ATop := AClientHeight - ASize - OffsetY * LScale;
-  ALeft := Max(0, Min(ALeft, AClientWidth - ASize));
-  ATop := Max(0, Min(ATop, AClientHeight - ASize));
+  ALeft := Max(-LOut, Min(ALeft, AClientWidth - ASize + LOut));
+  ATop := Max(-LOut, Min(ATop, AClientHeight - ASize + LOut));
 end;
 
 { the file }
@@ -274,8 +279,11 @@ begin
     for LCorner := Low(THelpChatBubbleCorner) to High(THelpChatBubbleCorner) do
       if SameText(LName, CORNER_NAMES[LCorner]) then
       begin
+        // Negative: a bubble that may be out of its form was left there.
+        // ToPosition keeps it within what its bubble allows.
         APlace := THelpChatBubblePlace.Create(LCorner,
-          Max(0, LEntry.GetValue<Integer>('x', 0)), Max(0, LEntry.GetValue<Integer>('y', 0)));
+          EnsureRange(LEntry.GetValue<Integer>('x', 0), -100000, 100000),
+          EnsureRange(LEntry.GetValue<Integer>('y', 0), -100000, 100000));
         Exit(True);
       end;
   finally
