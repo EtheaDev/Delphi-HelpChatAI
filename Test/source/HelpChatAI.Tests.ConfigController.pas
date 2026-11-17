@@ -707,9 +707,12 @@ begin
     Assert.AreEqual('Instructions', LEntries[6].Path);
     Assert.AreEqual('Language', LEntries[7].Path);
     Assert.AreEqual('DocLanguageRule', LEntries[10].Path);
+    // The search in the language of the manual: with the languages.
+    Assert.AreEqual('TranslateSearch', LEntries[11].Path);
+    Assert.AreEqual('SearchTermsPrompt', LEntries[12].Path);
     // Now goes with the question (claude), next to the excerpts.
-    Assert.AreEqual('NowRule', LEntries[11].Path);
-    Assert.AreEqual('Claude.GroundingMaxPages', LEntries[12].Path);
+    Assert.AreEqual('NowRule', LEntries[13].Path);
+    Assert.AreEqual('Claude.GroundingMaxPages', LEntries[14].Path);
     Assert.AreEqual('Gemini.GroundingMaxChars', LEntries[High(LEntries)].Path);
     // The other pages keep the order of the names.
     LEntries := THelpChatConfigController.EntriesOfPage(LController.Entries, ccpSettings);

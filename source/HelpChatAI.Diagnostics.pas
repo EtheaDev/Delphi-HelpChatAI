@@ -480,6 +480,7 @@ begin
       'prompt changes every minute, so the prompt cache cannot keep it. Leave now to NowRule.');
   Check('LanguageRule', ASettings.LanguageRule, 1);
   Check('DocLanguageRule', ASettings.DocLanguageRule, 2);
+  Check('SearchTermsPrompt', ASettings.SearchTermsPrompt, 1);
   Check('ExpertiseIntro', ASettings.ExpertiseIntro, 1);
 end;
 

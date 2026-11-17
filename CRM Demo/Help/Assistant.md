@@ -57,13 +57,14 @@ and pick another one - English, Italiano, Español, Français, Deutsch, Portugu�
 in its own language - and the assistant reloads in it, with the conversation as it was: its
 buttons, its messages and its answers are in the new language from the next question on.
 Typing `/lang` lists the languages, and `/lang it` (or `/lang italiano`) switches straight
-away. The choice is remembered.
+away. The choice is remembered. The assistant answers in the language you picked, whatever
+language you write in: pick Italiano to get answers in Italian.
 
 This manual and the application are in English, so in another language the assistant explains
 in yours but writes the names of screens and buttons as you see them on the screen - *Save
-Proposal*, sometimes with a translation in brackets - so that you can find them. A question in
-another language may find fewer pages of the manual than the same question in English: if an
-answer says the manual does not cover something you are sure it does, try asking in English.
+Proposal*, sometimes with a translation in brackets - so that you can find them. To find the
+right pages it first translates your question into English words, with the synonyms the manual
+may use: "inserisci una società" is searched as company and account too.
 
 ## Keeping an answer
 

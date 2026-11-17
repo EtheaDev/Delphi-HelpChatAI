@@ -499,7 +499,7 @@ type
   end;
 
 const
-  CATALOGUE_ITEMS: array[0..79] of TCatalogueItem = (
+  CATALOGUE_ITEMS: array[0..82] of TCatalogueItem = (
     (Path: 'AssistantName'; Caption: 'Name of the assistant'; Kind: cvkText;
       Pages: [ccpAppearance, ccpPrompt]; Hint: 'What the panel calls it and how the prompt opens; prevails over the property of the component'),
     (Path: 'Greeting'; Caption: 'Greeting'; Kind: cvkText;
@@ -532,6 +532,10 @@ const
       Pages: [ccpSettings]; Hint: 'What the flag of the panel offers; fewer than two = no flag'),
     (Path: 'DocLanguage'; Caption: 'Language of the manual'; Kind: cvkLanguage;
       Pages: [ccpSettings, ccpPrompt]; Hint: 'auto = not stated'),
+    (Path: 'TranslateSearch'; Caption: 'Translate the search'; Kind: cvkBoolean;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'When DocLanguage differs from the chat, the model turns the question into words of the manual before the search'),
+    (Path: 'SearchTermsPrompt'; Caption: 'Prompt of the search terms'; Kind: cvkMemo;
+      Pages: [ccpPrompt]; Hint: 'TranslateSearch: %0:s the language of the manual; a request of its own, not part of this prompt; empty = the librarys'),
     (Path: 'DocIndexFile'; Caption: 'Documentation index'; Kind: cvkText;
       Pages: [ccpSettings]; Hint: 'Relative to the executable'),
     (Path: 'DocFolder'; Caption: 'Pages folder'; Kind: cvkText;
@@ -558,6 +562,8 @@ const
       Pages: [ccpSettings]; Hint: 'Older ones are pruned; 0 = unlimited'),
     (Path: 'PoolSize'; Caption: 'Replies at the same time'; Kind: cvkNumber;
       Pages: [ccpSettings]; Hint: 'Worker threads producing replies, 1 or more'),
+    (Path: 'LogLevel'; Caption: 'Log level'; Kind: cvkChoice;
+      Pages: [ccpSettings]; Hint: 'none, info, detail or debug: what OnLogEvent receives'),
     (Path: 'Attachments.Enabled'; Caption: 'Attachments allowed'; Kind: cvkBoolean;
       Pages: [ccpSettings]; Hint: 'What the user attaches leaves the machine'),
     (Path: 'Attachments.MaxCount'; Caption: 'Attachments at most'; Kind: cvkNumber;
@@ -671,16 +677,17 @@ const
   /// the expertise, the instructions, the language of the reply, the
   /// language of the manual, then the excerpts the grounding of each
   /// provider decides. A setting not listed goes after them.</summary>
-  PROMPT_ORDER: array[0..17] of string = ('AssistantName', 'IdentityRule', 'Expertise',
+  PROMPT_ORDER: array[0..19] of string = ('AssistantName', 'IdentityRule', 'Expertise',
     'ExpertiseIntro', 'SystemPrompt', 'ExpertiseRule', 'Instructions', 'Language',
-    'LanguageRule', 'DocLanguage', 'DocLanguageRule', 'NowRule',
+    'LanguageRule', 'DocLanguage', 'DocLanguageRule', 'TranslateSearch', 'SearchTermsPrompt',
+    'NowRule',
     'Claude.GroundingMaxPages', 'Claude.GroundingMaxChars',
     'OpenAI.GroundingMaxPages', 'OpenAI.GroundingMaxChars',
     'Gemini.GroundingMaxPages', 'Gemini.GroundingMaxChars');
   /// <summary>The texts of the prompt whose default is a constant of the
   /// library: a file or a form that does not name them follows it.</summary>
-  PROMPT_TEXTS: array[0..6] of string = ('SystemPrompt', 'IdentityRule', 'NowRule',
-    'LanguageRule', 'DocLanguageRule', 'ExpertiseIntro', 'ExpertiseRule');
+  PROMPT_TEXTS: array[0..7] of string = ('SystemPrompt', 'IdentityRule', 'NowRule',
+    'LanguageRule', 'DocLanguageRule', 'ExpertiseIntro', 'ExpertiseRule', 'SearchTermsPrompt');
 
 { THelpChatConfigFile }
 
@@ -1444,7 +1451,9 @@ begin
       else if SameText(APath, 'Pdf.Orientation') then
         Result := ['portrait', 'landscape']
       else if SameText(APath, 'OpenAI.Api') then
-        Result := ['responses', 'chat'];
+        Result := ['responses', 'chat']
+      else if SameText(APath, 'LogLevel') then
+        Result := ['none', 'info', 'detail', 'debug'];
     cvkSet:
       if SameText(APath, 'Skills') then
         Result := HelpChatSkillNames;

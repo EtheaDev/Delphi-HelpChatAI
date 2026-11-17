@@ -326,7 +326,10 @@ begin
   Assert.IsTrue(Run(hccPrompt).Contains('No question yet.'));
   FEngine.Send('how do I export the grid?');
   LHtml := Run(hccPrompt, '', 'Orders');
-  Assert.IsTrue(LHtml.StartsWith('<p class="hc-chat-cmd-title"><b>System prompt of the last question (/prompt):</b></p><pre class="hc-chat-prompt">'), LHtml);
+  // Each part under the line that says what it is.
+  Assert.IsTrue(LHtml.StartsWith('<p class="hc-chat-cmd-title"><b>System prompt of the last question (/prompt):</b></p>' +
+    '<p class="hc-chat-prompt-title"><strong>System prompt</strong>'), LHtml);
+  Assert.IsTrue(LHtml.Contains('</strong></p><pre class="hc-chat-prompt">'), LHtml);
   Assert.IsTrue(LHtml.Contains('You are the in-app help assistant'), LHtml);
   Assert.IsTrue(LHtml.Contains('The user is currently on the &quot;Orders&quot; screen'), LHtml);
   Assert.IsTrue(LHtml.Contains('## Exporting the grid'), 'the excerpts: ' + LHtml);

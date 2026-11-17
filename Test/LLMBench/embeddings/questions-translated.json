@@ -1,0 +1,1383 @@
+{
+ "about": "Retrieval questions over the CRM demo manual (CRM Demo/Help). id = group + variant: 'en' the English original (Q1-Q6 are those of HelpChatAI.LLMBench.pas), 'it' a natural Italian translation, 'para' an English paraphrase that avoids the words of the manual, 'user' Italian in the words of a user who has not read the manual (societa, offerta, preventivo), written before the translation was measured. screen = the screen label, which the engine passes to Search as hint. expected = any of these pages is a hit; empty = not in the manual.",
+ "questions": [
+  {
+   "id": "Q1-en",
+   "group": "Q1",
+   "lang": "en",
+   "variant": "orig",
+   "screen": "Leads",
+   "expected": [
+    "Leads.md"
+   ],
+   "text": "How do I move a lead from one column of the board to another, and what happens to its dates?",
+   "translations": {
+    "haiku": "move lead card between columns board stage pipeline drag drop change status; lead dates due date close date last activity date update timestamp",
+    "qwen": "lead, opportunity, deal, pipeline, board, column, stage, date, timestamp, update, modify, change, transfer, relocate, move, progress, status, timeline, expiration, due date, creation date, modification date, activity, log, history, track, monitor, adjust, reposition, shift, upgrade, downgrade, advance, regress, evolve, transform, convert, close, win, lose, abandon, discard, archive, store, save, preserve, maintain, keep, retain, continue, proceed, carry forward, carry over, propagate, replicate, copy, duplicate, migrate, relocate, reassign, reallocate, redirect, route, channel, flow, stream, journey, path, process, workflow, automation,",
+    "gemma": "move lead column board, drag drop, date update, status change, timeline, deadline"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 890,
+     "in": 182,
+     "out": 40
+    },
+    "qwen": {
+     "ms": 2810,
+     "in": 148,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 469,
+     "in": 153,
+     "out": 18
+    }
+   }
+  },
+  {
+   "id": "Q1-it",
+   "group": "Q1",
+   "lang": "it",
+   "variant": "it",
+   "screen": "Leads",
+   "expected": [
+    "Leads.md"
+   ],
+   "text": "Come sposto un lead in un'altra colonna della bacheca? E le date cosa diventano?",
+   "translations": {
+    "haiku": "move lead card to another column board pipeline stage; drag, change stage, status; dates due date, start date, deadline, reschedule, update",
+    "qwen": "lead, opportunity, move, column, board, date, expiration, due date, update, change, pipeline, stage, transition, reassign, transfer, modify, timeline, deadline, time frame, expiration date, end date, completion date, target date, scheduled date, appointment date, meeting date, follow up date, reminder date, notification date, alert date, expiry date, validity date, duration, period, interval, span, range, schedule, calendar, planning, organization, arrangement, setup, configuration, adjustment, modification, alteration, revision, update, refresh, renew, extend, prolong, continue, maintain, preserve, keep, hold, retain, store, save, record, document, log, track, monitor, follow",
+    "gemma": "move lead column board, drag and drop, date update, date change, status change"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 948,
+     "in": 189,
+     "out": 113
+    },
+    "qwen": {
+     "ms": 2826,
+     "in": 148,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 405,
+     "in": 154,
+     "out": 18
+    }
+   }
+  },
+  {
+   "id": "Q1-para",
+   "group": "Q1",
+   "lang": "en",
+   "variant": "para",
+   "screen": "Leads",
+   "expected": [
+    "Leads.md"
+   ],
+   "text": "What's the way to shift a prospect to a different stage, and does that change any timestamps?",
+   "translations": {
+    "haiku": "move prospect stage change pipeline; lead opportunity deal stage advance; update status; timestamps last modified date history audit log",
+    "qwen": "lead stage change timestamp update",
+    "gemma": "move prospect stage, change status, update stage, timestamp, date modified, history, log"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 831,
+     "in": 184,
+     "out": 42
+    },
+    "qwen": {
+     "ms": 233,
+     "in": 146,
+     "out": 6
+    },
+    "gemma": {
+     "ms": 456,
+     "in": 152,
+     "out": 19
+    }
+   }
+  },
+  {
+   "id": "Q2-en",
+   "group": "Q2",
+   "lang": "en",
+   "variant": "orig",
+   "screen": "Dashboard",
+   "expected": [
+    "FAQ.md",
+    "Getting-Started.md"
+   ],
+   "text": "Where is my data stored, and how do I start over with the sample data?",
+   "translations": {
+    "haiku": "data storage location, where data is stored, data folder, database location, file path, reset data, restore sample data, reload demo data, clear data, start over, initial data, sample data, demo data, reset database",
+    "qwen": "data storage, sample data, reset, restore, backup, recovery, delete, remove, clear, start over, initialize, default settings, factory reset, data location, data management, data folder, data path, data directory, data repository, data archive, data cache, data history, data log, data summary, data overview, data report, data export, data import, data sync, data backup, data recovery, data restore, data reset, data clear, data delete, data remove, data start over, data initialize, data default settings, data factory reset, data storage location, data storage folder, data storage path, data storage directory, data storage repository, data storage archive, data storage cache, data storage history, data storage log",
+    "gemma": "data storage location, database, reset, clear, delete, wipe, sample data, default data, initial data"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 890,
+     "in": 177,
+     "out": 61
+    },
+    "qwen": {
+     "ms": 2847,
+     "in": 143,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 419,
+     "in": 148,
+     "out": 23
+    }
+   }
+  },
+  {
+   "id": "Q2-it",
+   "group": "Q2",
+   "lang": "it",
+   "variant": "it",
+   "screen": "Dashboard",
+   "expected": [
+    "FAQ.md",
+    "Getting-Started.md"
+   ],
+   "text": "Dove vengono salvati i miei dati? E come faccio a ripartire dai dati di esempio?",
+   "translations": {
+    "haiku": "where data saved storage location, database file path, save data, sample data reset, demo data restore, reset to example data, initial data, seed data, restore defaults",
+    "qwen": "data storage, data backup, sample data, restore data, save data, recover data, example data, default data, local storage, cloud storage, data recovery, data import, data export, file storage, database storage, data retrieval, data management, data location, data access, data initialization, data setup, data configuration, data restoration, data recovery process, data backup restore, data recovery procedure, data recovery tool, data recovery software, data recovery service, data recovery solution, data recovery method, data recovery technique, data recovery approach, data recovery strategy, data recovery plan, data recovery steps, data recovery guide, data recovery instructions, data recovery tutorial, data recovery manual, data recovery documentation, data recovery help, data recovery support, data",
+    "gemma": "data storage location, save path, default data, sample data, reset, restore, initial data"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 1010,
+     "in": 191,
+     "out": 87
+    },
+    "qwen": {
+     "ms": 2918,
+     "in": 153,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 359,
+     "in": 151,
+     "out": 20
+    }
+   }
+  },
+  {
+   "id": "Q2-para",
+   "group": "Q2",
+   "lang": "en",
+   "variant": "para",
+   "screen": "Dashboard",
+   "expected": [
+    "FAQ.md",
+    "Getting-Started.md"
+   ],
+   "text": "Which file keeps my records on disk, and how can I reset everything to the demo contents?",
+   "translations": {
+    "haiku": "file database storage location; reset restore demo data sample data default contents; records data file path disk",
+    "qwen": "file record save disk reset demo contents restore default settings initialize",
+    "gemma": "database file, storage, records, reset, factory settings, demo mode, default data"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 882,
+     "in": 184,
+     "out": 28
+    },
+    "qwen": {
+     "ms": 335,
+     "in": 145,
+     "out": 12
+    },
+    "gemma": {
+     "ms": 402,
+     "in": 150,
+     "out": 18
+    }
+   }
+  },
+  {
+   "id": "Q3-en",
+   "group": "Q3",
+   "lang": "en",
+   "variant": "orig",
+   "screen": "Sales",
+   "expected": [
+    "FAQ.md",
+    "Draft-Proposal.md",
+    "Sales.md"
+   ],
+   "text": "Can I change a proposal after I saved it?",
+   "translations": {
+    "haiku": "edit proposal, modify proposal, change proposal, update proposal, saved proposal, save, revise quote, amend, draft, unlock, locked, finalized",
+    "qwen": "proposal, quote, edit, modify, update, change, save, stored, document, form, template, draft, version, revision, amend, alter, adjust, revise, rework, modify, update, change, edit, modify, adjust, revise, rework, modify, update, change, edit, modify, adjust, revise, rework",
+    "gemma": "edit, modify, update, change, proposal, quote, draft, saved"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 858,
+     "in": 171,
+     "out": 53
+    },
+    "qwen": {
+     "ms": 1422,
+     "in": 136,
+     "out": 73
+    },
+    "gemma": {
+     "ms": 368,
+     "in": 141,
+     "out": 16
+    }
+   }
+  },
+  {
+   "id": "Q3-it",
+   "group": "Q3",
+   "lang": "it",
+   "variant": "it",
+   "screen": "Sales",
+   "expected": [
+    "FAQ.md",
+    "Draft-Proposal.md",
+    "Sales.md"
+   ],
+   "text": "Posso modificare una proposta dopo averla salvata?",
+   "translations": {
+    "haiku": "edit quote proposal; modify update change; saved draft; save after edit",
+    "qwen": "proposal, quote, edit, modify, change, update, saved, stored, document, file, record, item, product, service, price, cost, amount, total, discount, tax, VAT, currency, payment, delivery, shipping, address, customer, client, company, organization, business, enterprise, firm, agency, consultant, freelancer, individual, person, user, admin, manager, supervisor, director, head, chief, leader, boss, superior, colleague, team, group, department, section, unit, branch, office, location, place, site, building, facility, venue, room, space, area, zone, region, country, state, province, city, town, village, neighborhood, district,",
+    "gemma": "edit proposal, modify quote, update offer, change proposal"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 1239,
+     "in": 176,
+     "out": 24
+    },
+    "qwen": {
+     "ms": 2823,
+     "in": 139,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 338,
+     "in": 142,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "Q3-para",
+   "group": "Q3",
+   "lang": "en",
+   "variant": "para",
+   "screen": "Sales",
+   "expected": [
+    "FAQ.md",
+    "Draft-Proposal.md",
+    "Sales.md"
+   ],
+   "text": "Is it possible to edit a quote once it has been stored?",
+   "translations": {
+    "haiku": "edit quote, modify quote, update quote, saved quote, stored quote, proposal, change, revise, amend, edit after save, locked, finalized",
+    "qwen": "quote edit modify change stored proposal amend update",
+    "gemma": "edit quote, modify proposal, update estimate, change quote"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 817,
+     "in": 175,
+     "out": 49
+    },
+    "qwen": {
+     "ms": 292,
+     "in": 139,
+     "out": 9
+    },
+    "gemma": {
+     "ms": 274,
+     "in": 144,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "Q4-en",
+   "group": "Q4",
+   "lang": "en",
+   "variant": "orig",
+   "screen": "Accounts",
+   "expected": [
+    "FAQ.md",
+    "Marketing.md",
+    "Accounts.md"
+   ],
+   "text": "Which export gives me a file I can open in Excel?",
+   "translations": {
+    "haiku": "export, exporting, download, save as, CSV, XLSX, Excel, spreadsheet, file format, xls, data export, report export",
+    "qwen": "export, file, excel, spreadsheet, csv, xls, xlsx, download, save as",
+    "gemma": "export file format Excel CSV spreadsheet spreadsheet compatible"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 723,
+     "in": 173,
+     "out": 44
+    },
+    "qwen": {
+     "ms": 480,
+     "in": 138,
+     "out": 20
+    },
+    "gemma": {
+     "ms": 350,
+     "in": 143,
+     "out": 9
+    }
+   }
+  },
+  {
+   "id": "Q4-it",
+   "group": "Q4",
+   "lang": "it",
+   "variant": "it",
+   "screen": "Accounts",
+   "expected": [
+    "FAQ.md",
+    "Marketing.md",
+    "Accounts.md"
+   ],
+   "text": "Quale esportazione mi dà un file da aprire con Excel?",
+   "translations": {
+    "haiku": "export format Excel XLSX CSV spreadsheet export file download",
+    "qwen": "export, file, excel, csv, spreadsheet, data, download, save as, format, xls, xlsx, tabular, document, office, microsoft, open, retrieve, extract, transfer, convert, generate, create, produce, access, view, edit, modify, update, refresh, synchronize, backup, archive, store, manage, organize, sort, filter, search, find, locate, discover, identify, recognize, determine, assess, evaluate, analyze, examine, inspect, review, verify, confirm, validate, check, test, measure, calculate, compute, process, handle, manage, control, monitor, track, follow, trace, monitor, supervise, oversee, direct, guide, lead, steer, navigate",
+    "gemma": "export format Excel, CSV, spreadsheet, spreadsheet file, .xlsx, .csv"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 1144,
+     "in": 179,
+     "out": 23
+    },
+    "qwen": {
+     "ms": 2811,
+     "in": 142,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 380,
+     "in": 144,
+     "out": 17
+    }
+   }
+  },
+  {
+   "id": "Q4-para",
+   "group": "Q4",
+   "lang": "en",
+   "variant": "para",
+   "screen": "Accounts",
+   "expected": [
+    "FAQ.md",
+    "Marketing.md",
+    "Accounts.md"
+   ],
+   "text": "I need the records in a spreadsheet: which of the save-to-file options should I use?",
+   "translations": {
+    "haiku": "export export to file save as spreadsheet csv excel xlsx format download records data",
+    "qwen": "export, save as, spreadsheet, csv, excel, file format, download, output, save, export to file, data export, spreadsheet export, save spreadsheet, file export, save data, export data, csv file, excel file, spreadsheet format, save format, export format, file type, save type, export type, spreadsheet file, data file, export spreadsheet, save spreadsheet file, export excel, save excel file, csv export, excel export, spreadsheet download, data download, export data file, save data file, export spreadsheet file, save csv file, export csv, save excel, export excel file, spreadsheet save, data save, export save, save spreadsheet format, export spreadsheet format, save csv, export csv file, save excel",
+    "gemma": "export, save to file, spreadsheet, CSV, Excel, XLS, XLSX, report, data download"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 775,
+     "in": 183,
+     "out": 26
+    },
+    "qwen": {
+     "ms": 2822,
+     "in": 145,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 433,
+     "in": 152,
+     "out": 21
+    }
+   }
+  },
+  {
+   "id": "Q5-en",
+   "group": "Q5",
+   "lang": "en",
+   "variant": "orig",
+   "screen": "Leads",
+   "expected": [
+    "Leads.md"
+   ],
+   "text": "How do I find a lead when I only know its e-mail address?",
+   "translations": {
+    "haiku": "lead find search lookup locate email address e-mail contact prospect",
+    "qwen": "lead search email address contact find lookup",
+    "gemma": "find lead by email, search contact, lookup email, identify lead"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 1034,
+     "in": 175,
+     "out": 22
+    },
+    "qwen": {
+     "ms": 291,
+     "in": 141,
+     "out": 9
+    },
+    "gemma": {
+     "ms": 381,
+     "in": 147,
+     "out": 14
+    }
+   }
+  },
+  {
+   "id": "Q5-it",
+   "group": "Q5",
+   "lang": "it",
+   "variant": "it",
+   "screen": "Leads",
+   "expected": [
+    "Leads.md"
+   ],
+   "text": "Come trovo un lead se conosco solo il suo indirizzo email?",
+   "translations": {
+    "haiku": "find lead by email address, search lead, lookup contact, locate prospect, email search, filter leads by email",
+    "qwen": "lead, customer, prospect, contact; email, mail, address; search, find, locate, discover; CRM, database, directory; sales, marketing, business; client, subscriber, user; profile, record, entry; filter, query, lookup, scan; identify, recognize, detect, spot; retrieve, access, obtain, get; view, display, show, present; navigate, browse, explore, move; sort, organize, arrange, classify; export, import, transfer, copy; update, modify, change, edit; create, generate, produce, make; assign, link, connect, associate; track, monitor, follow, trace; analyze, examine, study, review; report, summary, overview, insight;",
+    "gemma": "find lead email address search contact information lookup"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 2325,
+     "in": 181,
+     "out": 34
+    },
+    "qwen": {
+     "ms": 2832,
+     "in": 143,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 323,
+     "in": 145,
+     "out": 9
+    }
+   }
+  },
+  {
+   "id": "Q5-para",
+   "group": "Q5",
+   "lang": "en",
+   "variant": "para",
+   "screen": "Leads",
+   "expected": [
+    "Leads.md"
+   ],
+   "text": "I only remember the contact's mail address: how can I look the prospect up?",
+   "translations": {
+    "haiku": "search contact email address, find contact, look up lead, prospect search, find prospect, filter contacts, search leads, email lookup",
+    "qwen": "contact, prospect, customer, lead, email, address, lookup, search, find, retrieve, locate, company, account, quote, proposal, delete, remove, phone, name, information, details, record, file, database, directory, list, archive, history, log, note, memo, reminder, task, appointment, meeting, event, calendar, schedule, plan, organize, manage, update, edit, modify, change, adjust, configure, settings, preferences, options, parameters, filters, categories, tags, labels, folders, storage, backup, restore, export, import, share, collaborate, communicate, message, email, letter, document, file, attachment, image, photo, video, audio, recording,",
+    "gemma": "contact email address, search prospect, find contact, lookup, email search"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 755,
+     "in": 179,
+     "out": 41
+    },
+    "qwen": {
+     "ms": 2850,
+     "in": 143,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 347,
+     "in": 149,
+     "out": 15
+    }
+   }
+  },
+  {
+   "id": "Q6-en",
+   "group": "Q6",
+   "lang": "en",
+   "variant": "orig",
+   "screen": "Dashboard",
+   "expected": [],
+   "text": "What is the weather in Milan today?",
+   "translations": {
+    "haiku": "weather Milan today forecast temperature conditions",
+    "qwen": "weather Milan today forecast temperature climate conditions",
+    "gemma": "weather forecast, temperature, climate, conditions"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 627,
+     "in": 168,
+     "out": 17
+    },
+    "qwen": {
+     "ms": 262,
+     "in": 134,
+     "out": 8
+    },
+    "gemma": {
+     "ms": 254,
+     "in": 139,
+     "out": 9
+    }
+   }
+  },
+  {
+   "id": "Q6-it",
+   "group": "Q6",
+   "lang": "it",
+   "variant": "it",
+   "screen": "Dashboard",
+   "expected": [],
+   "text": "Che tempo fa oggi a Milano?",
+   "translations": {
+    "haiku": "weather, forecast, temperature, today, Milan, current conditions, rain, sunny",
+    "qwen": "weather, forecast, temperature, Milan, Italy, climate, conditions, atmospheric, heat, cold, rain, snow, humidity, wind, pressure, visibility, sunrise, sunset, day, night, hourly, daily, weekly, current, real-time, local, regional, national, global, meteorology, climatology, atmospheric, environmental, natural, seasonal, yearly, monthly, weekly, daily, hourly, minute, second, time, date, calendar, schedule, plan, organize, prepare, anticipate, predict, estimate, calculate, measure, monitor, observe, record, document, report, update, refresh, synchronize, integrate, connect, link, join, combine, merge, split, divide, separate, categorize, classify,",
+    "gemma": "weather forecast Milan today, weather conditions, temperature, climate"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 697,
+     "in": 172,
+     "out": 30
+    },
+    "qwen": {
+     "ms": 2790,
+     "in": 133,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 374,
+     "in": 138,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "Q6-para",
+   "group": "Q6",
+   "lang": "en",
+   "variant": "para",
+   "screen": "Dashboard",
+   "expected": [],
+   "text": "Will it rain in Milan this afternoon?",
+   "translations": {
+    "haiku": "weather forecast, rain, precipitation, Milan, afternoon, today, temperature, weather conditions",
+    "qwen": "rain Milan weather forecast precipitation storm",
+    "gemma": "weather forecast, rain, precipitation, Milan, weather report"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 677,
+     "in": 172,
+     "out": 36
+    },
+    "qwen": {
+     "ms": 225,
+     "in": 134,
+     "out": 7
+    },
+    "gemma": {
+     "ms": 346,
+     "in": 139,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "X01-it",
+   "group": "X01",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Calendar",
+   "expected": [
+    "Calendar.md",
+    "ToDo.md"
+   ],
+   "text": "Il calendario mostra gli appuntamenti dei lead?",
+   "translations": {
+    "haiku": "calendar, appointments, leads, lead, meetings, events, schedule, CRM, activities, tasks, show, display",
+    "qwen": "calendar, appointments, leads, meetings, schedule, events, follow-ups, reminders, dates, timeline, agenda, tasks, activities, appointments, contacts, prospects, opportunities, pipeline, sales, marketing, CRM, dashboard, view, display, show, see, access, manage, organize, track, monitor, update, edit, create, add, insert, modify, change, alter, adjust, customize, configure, settings, options, preferences, filters, search, find, locate, discover, identify, recognize, determine, establish, define, specify, describe, explain, clarify, understand, comprehend, grasp, perceive, acknowledge, admit, confess, reveal, disclose, expose, uncover, bring out, bring up, raise, introduce",
+    "gemma": "calendar, appointments, leads, contacts, schedule"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 946,
+     "in": 178,
+     "out": 40
+    },
+    "qwen": {
+     "ms": 2793,
+     "in": 137,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 270,
+     "in": 141,
+     "out": 10
+    }
+   }
+  },
+  {
+   "id": "X02-en",
+   "group": "X02",
+   "lang": "en",
+   "variant": "extra",
+   "screen": "Dashboard",
+   "expected": [
+    "Dashboard.md"
+   ],
+   "text": "Why do the counters on the opening screen not update after I move a lead?",
+   "translations": {
+    "haiku": "dashboard counters, home screen widgets, opening screen, stats not updating, refresh, lead, move lead, change lead stage, pipeline, lead status, reload, sync, cache",
+    "qwen": "lead, opportunity, deal, counter, update, refresh, screen, dashboard, statistics, tracking, activity, modification, change, modification, adjustment, modification, alteration, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification, modification,",
+    "gemma": "counters, dashboard, opening screen, update, move, lead, sync, refresh"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 794,
+     "in": 178,
+     "out": 61
+    },
+    "qwen": {
+     "ms": 2822,
+     "in": 142,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 335,
+     "in": 147,
+     "out": 17
+    }
+   }
+  },
+  {
+   "id": "X03-it",
+   "group": "X03",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Users",
+   "expected": [
+    "Users.md"
+   ],
+   "text": "Come aggiungo un nuovo utente?",
+   "translations": {
+    "haiku": "add user, create user, new user, add account, create account, invite user, register user, user management, users, add member",
+    "qwen": "add user, create account, new member, register user, user management, add member, invite user, user creation, user setup, user administration, add person, new user, user profile, user registration, user invitation, user access, user permissions, user credentials, user login, user details, user information, user settings, user configuration, user activation, user deactivation, user suspension, user deletion, remove user, delete user, user removal, user account, user session, user authentication, user authorization, user role, user group, user department, user team, user location, user contact, user email, user phone, user address, user profile picture, user avatar, user biography, user description, user notes, user comments, user",
+    "gemma": "add user, create account, new user, register, member, profile"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 736,
+     "in": 172,
+     "out": 31
+    },
+    "qwen": {
+     "ms": 2820,
+     "in": 135,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 392,
+     "in": 139,
+     "out": 15
+    }
+   }
+  },
+  {
+   "id": "X04-en",
+   "group": "X04",
+   "lang": "en",
+   "variant": "extra",
+   "screen": "Dashboard",
+   "expected": [
+    "Users.md",
+    "FAQ.md",
+    "Home.md",
+    "Getting-Started.md"
+   ],
+   "text": "Does picking another name in the user drop-down require a password?",
+   "translations": {
+    "haiku": "switch user, change user, user drop-down, user selector, login, log in, sign in, password, authentication, re-authenticate, credentials, switch account",
+    "qwen": "change username password required login account name update profile settings admin access credentials authentication verification confirmation",
+    "gemma": "switch user, change account, login, password, authentication"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 710,
+     "in": 174,
+     "out": 48
+    },
+    "qwen": {
+     "ms": 431,
+     "in": 139,
+     "out": 17
+    },
+    "gemma": {
+     "ms": 281,
+     "in": 145,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "X05-it",
+   "group": "X05",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Accounts",
+   "expected": [
+    "Accounts.md"
+   ],
+   "text": "Come elimino un'azienda cliente?",
+   "translations": {
+    "haiku": "delete remove customer company client account",
+    "qwen": "delete company account; remove client company; delete customer account; remove customer company; delete business account; remove business company; delete organization; remove organization; delete entity; remove entity; delete client; remove client; delete customer; remove customer; delete firm; remove firm; delete vendor; remove vendor; delete supplier; remove supplier; delete partner; remove partner; delete contact; remove contact; delete user; remove user; delete profile; remove profile; delete record; remove record; delete entry; remove entry; delete item; remove item; delete data; remove data; delete information; remove information; delete file; remove file; delete document; remove document; delete folder; remove folder; delete directory; remove directory; delete archive; remove archive;",
+    "gemma": "delete customer company, remove client account, erase business profile"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 635,
+     "in": 171,
+     "out": 11
+    },
+    "qwen": {
+     "ms": 2822,
+     "in": 135,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 362,
+     "in": 139,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "X06-en",
+   "group": "X06",
+   "lang": "en",
+   "variant": "extra",
+   "screen": "Sales",
+   "expected": [
+    "Draft-Proposal.md"
+   ],
+   "text": "How is the total of an invoice computed when I add line items?",
+   "translations": {
+    "haiku": "invoice total, line items, subtotal, grand total, calculate, compute, sum, amount, quantity, unit price, tax, discount, add line item",
+    "qwen": "invoice total calculation line items amount sum charge cost",
+    "gemma": "invoice total calculation, line items, sum, subtotal, tax, discount, amount"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 722,
+     "in": 174,
+     "out": 49
+    },
+    "qwen": {
+     "ms": 295,
+     "in": 140,
+     "out": 10
+    },
+    "gemma": {
+     "ms": 380,
+     "in": 145,
+     "out": 18
+    }
+   }
+  },
+  {
+   "id": "X07-it",
+   "group": "X07",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Sales",
+   "expected": [
+    "FAQ.md",
+    "Draft-Proposal.md"
+   ],
+   "text": "Perché il totale della mia proposta è zero?",
+   "translations": {
+    "haiku": "total amount zero; quote total zero; proposal total zero; proposal total not showing; line items price; subtotal; tax; discount; pricing; calculation",
+    "qwen": "quote total amount zero error calculation",
+    "gemma": "total proposal amount zero, sum zero, total price zero, calculation error, missing items, zero balance"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 1215,
+     "in": 173,
+     "out": 51
+    },
+    "qwen": {
+     "ms": 245,
+     "in": 138,
+     "out": 7
+    },
+    "gemma": {
+     "ms": 395,
+     "in": 141,
+     "out": 21
+    }
+   }
+  },
+  {
+   "id": "X08-en",
+   "group": "X08",
+   "lang": "en",
+   "variant": "extra",
+   "screen": "Dashboard",
+   "expected": [
+    "Assistant.md",
+    "FAQ.md"
+   ],
+   "text": "Does my information get sent to the internet when I talk to the assistant?",
+   "translations": {
+    "haiku": "privacy data transmission internet cloud send share data assistant AI chat server third party",
+    "qwen": "send data internet assistant conversation transmit information online communication transmit data network connection send information internet assistant chat transmit data online communication",
+    "gemma": "data privacy, internet transmission, data sharing, online, security, privacy policy"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 686,
+     "in": 178,
+     "out": 27
+    },
+    "qwen": {
+     "ms": 527,
+     "in": 141,
+     "out": 23
+    },
+    "gemma": {
+     "ms": 368,
+     "in": 146,
+     "out": 16
+    }
+   }
+  },
+  {
+   "id": "X09-it",
+   "group": "X09",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Leads",
+   "expected": [
+    "Assistant.md",
+    "FAQ.md"
+   ],
+   "text": "L'assistente può modificare i miei dati da solo?",
+   "translations": {
+    "haiku": "assistant, AI assistant, chatbot, edit, modify, change, update, my data, personal data, profile, account, information, automatic, automatically, autonomous, self-edit, permissions, privacy, data access",
+    "qwen": "assistant, agent, representative; modify, change, update; personal data, user information, account details; edit, alter, adjust; profile, settings, preferences; self-service, own account, personal profile; access, permission, authorization; manage, control, handle; user profile, personal information, account management; modify, change, update; edit, alter, adjust; personal data, user information, account details; self-service, own account, personal profile; access, permission, authorization; manage, control, handle; profile, settings, preferences; assistant, agent, representative; modify, change, update; personal data, user information, account details; edit, alter, adjust; profile, settings, preferences; self-service, own account,",
+    "gemma": "assistant modify personal data, user information, update profile, edit account details"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 785,
+     "in": 175,
+     "out": 69
+    },
+    "qwen": {
+     "ms": 2803,
+     "in": 140,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 347,
+     "in": 143,
+     "out": 15
+    }
+   }
+  },
+  {
+   "id": "X10-it",
+   "group": "X10",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Leads",
+   "expected": [
+    "Lead-Detail.md",
+    "FAQ.md"
+   ],
+   "text": "Come allego un documento a un lead?",
+   "translations": {
+    "haiku": "The user asks in Spanish: \"How do I attach a document to a lead?\" Search terms in English: attach file lead document upload; add attachment lead; lead files; attachments; upload document to lead; prospect. attach attachment file document upload lead prospect",
+    "qwen": "lead document attachment upload file add attach document lead attachment upload file add attach",
+    "gemma": "attach document lead, upload file lead, add attachment lead, associate file lead"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 1108,
+     "in": 169,
+     "out": 83
+    },
+    "qwen": {
+     "ms": 379,
+     "in": 135,
+     "out": 15
+    },
+    "gemma": {
+     "ms": 471,
+     "in": 140,
+     "out": 16
+    }
+   }
+  },
+  {
+   "id": "X11-en",
+   "group": "X11",
+   "lang": "en",
+   "variant": "extra",
+   "screen": "Dashboard",
+   "expected": [
+    "Data-Model.md"
+   ],
+   "text": "Which tables does the database have, and what columns are in Leads?",
+   "translations": {
+    "haiku": "tables, database, schema, columns, fields, Leads, lead, list of tables, data model, entity, attributes",
+    "qwen": "table, database, column, lead, field, schema, structure, design, organization, arrangement, layout, configuration, setup, installation, deployment, implementation, creation, development, building, constructing, forming, shaping, molding, casting, sculpting, carving, cutting, slicing, dicing, chopping, mincing, shredding, grating, grinding, milling, crushing, breaking, splitting, dividing, separating, differentiating, distinguishing, identifying, recognizing, detecting, locating, finding, discovering, exploring, investigating, examining, inspecting, reviewing, checking, verifying, validating, confirming, approving, authorizing, licensing, certifying, accrediting, qualifying, equipping, furnishing, supplying, providing, delivering, distributing,",
+    "gemma": "database tables, schema, Leads columns, fields, structure"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 713,
+     "in": 176,
+     "out": 37
+    },
+    "qwen": {
+     "ms": 2826,
+     "in": 140,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 360,
+     "in": 145,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "X12-it",
+   "group": "X12",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Dashboard",
+   "expected": [
+    "ToDo.md"
+   ],
+   "text": "Quali funzioni non sono ancora implementate?",
+   "translations": {
+    "haiku": "unimplemented features, not yet implemented, missing features, unsupported, coming soon, planned features, roadmap, limitations, known issues, work in progress",
+    "qwen": "unimplemented features, missing functionality, not implemented, uncompleted functions, pending features, outstanding tasks, unresolved issues, unfinished work, incomplete capabilities, unaddressed requirements,未实现功能, 未完成功能, 缺失功能, 未解决功能, 未完成任务, 未实现特性, 未完成特性, 未解决特性",
+    "gemma": "unimplemented features, missing functions, roadmap, planned updates, pending features"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 945,
+     "in": 174,
+     "out": 128
+    },
+    "qwen": {
+     "ms": 1414,
+     "in": 136,
+     "out": 73
+    },
+    "gemma": {
+     "ms": 323,
+     "in": 140,
+     "out": 15
+    }
+   }
+  },
+  {
+   "id": "X13-en",
+   "group": "X13",
+   "lang": "en",
+   "variant": "extra",
+   "screen": "Sales",
+   "expected": [
+    "Sales.md",
+    "Lead-Detail.md"
+   ],
+   "text": "How do I mark a proposal as accepted?",
+   "translations": {
+    "haiku": "mark proposal accepted; set quote status accepted; update quote status; approve proposal; win deal; close won; change status",
+    "qwen": "proposal accept, quote accept, document approve, agreement confirm, contract sign, estimate approve, tender accept, RFQ accept, bid accept, offer accept, quotation accept, sales quote accept, purchase order accept, invoice approve, payment request approve, financial approval, budget approval, project approval, task approval, work order accept, service agreement accept, partnership agreement accept, legal document sign, contract ratify, deal close, business deal approve, commercial agreement accept, corporate agreement accept, organizational agreement accept, institutional agreement accept, governmental agreement accept, public agreement accept, private agreement accept, confidential agreement accept, non-disclosure agreement accept, intellectual property agreement accept, software license agreement accept, service level agreement accept, terms of service accept, user agreement accept,",
+    "gemma": "proposal accepted, approve, confirm, status change"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 802,
+     "in": 171,
+     "out": 39
+    },
+    "qwen": {
+     "ms": 2815,
+     "in": 135,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 320,
+     "in": 140,
+     "out": 10
+    }
+   }
+  },
+  {
+   "id": "X14-it",
+   "group": "X14",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Sales",
+   "expected": [
+    "Sales.md",
+    "Lead-Detail.md"
+   ],
+   "text": "Come segno una proposta come accettata?",
+   "translations": {
+    "haiku": "proposal, quote, offer, mark as accepted, set status, accepted, won, approve, change status, update status",
+    "qwen": "proposal, quote, accept, approve, sign, confirm, validate, acknowledge, agree, ratify, endorse, authenticate, verify, certify, authenticate, legitimize, sanction, greenlight, give the go-ahead, approve the proposal, mark as accepted, indicate acceptance, signal approval, express consent, convey agreement, communicate acceptance, transmit approval, send confirmation, provide affirmation, offer endorsement, render approval, submit acceptance, file acceptance, register acceptance, document acceptance, record acceptance, store acceptance, save acceptance, keep acceptance, maintain acceptance, preserve acceptance, sustain acceptance, uphold acceptance, support acceptance, back acceptance, second acceptance, corroborate acceptance, substantiate acceptance, establish acceptance, found acceptance, base acceptance, ground acceptance, found acceptance,",
+    "gemma": "mark proposal as accepted, status, approve, confirm, accept"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 1818,
+     "in": 170,
+     "out": 103
+    },
+    "qwen": {
+     "ms": 2830,
+     "in": 137,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 365,
+     "in": 139,
+     "out": 13
+    }
+   }
+  },
+  {
+   "id": "X15-it",
+   "group": "X15",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Dashboard",
+   "expected": [
+    "Getting-Started.md"
+   ],
+   "text": "Posso rimpicciolire la finestra?",
+   "translations": {
+    "haiku": "minimize window, minimise window, minimize, shrink window, resize window, restore window, window size, title bar, maximize, hide window",
+    "qwen": "window, resize, minimize, reduce, shrink, scale, size, adjust, fit, compact, smaller, decrease, compress, squeeze, contract, narrow, slim, reduce, diminish, cut down, pare, trim, whittle down, scale down, downsize, downgrade, reduce, debase, humble, subdue, tame, rein in, hold back, curb, check, restrain, restrict, limit, confine, contain, enclose, surround, encompass, include, embrace, grasp, hold, clutch, seize, grab, take, catch, intercept, stop, halt, pause, stay, remain, stay put, sit tight, keep, maintain, preserve, protect, defend, shield, guard, watch, oversee",
+    "gemma": "resize window, shrink window, minimize window, window size, scale window"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 714,
+     "in": 172,
+     "out": 43
+    },
+    "qwen": {
+     "ms": 2817,
+     "in": 138,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 383,
+     "in": 142,
+     "out": 15
+    }
+   }
+  },
+  {
+   "id": "X16-it",
+   "group": "X16",
+   "lang": "it",
+   "variant": "extra",
+   "screen": "Dashboard",
+   "expected": [],
+   "text": "Qual è la capitale dell'Australia?",
+   "translations": {
+    "haiku": "capital city Australia country location",
+    "qwen": "capital city Sydney Australia",
+    "gemma": "capital city Australia Canberra"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 610,
+     "in": 172,
+     "out": 10
+    },
+    "qwen": {
+     "ms": 204,
+     "in": 135,
+     "out": 5
+    },
+    "gemma": {
+     "ms": 228,
+     "in": 139,
+     "out": 5
+    }
+   }
+  },
+  {
+   "id": "U01-it",
+   "group": "U01",
+   "lang": "it",
+   "variant": "user",
+   "screen": "Dashboard",
+   "expected": [
+    "Accounts.md"
+   ],
+   "text": "Inserisci una società",
+   "translations": {
+    "haiku": "company, account, customer, client, create, add, insert, new, enter, register",
+    "qwen": "company, account, organization, firm, entity, business, client, customer, vendor, supplier, partner, corporation, LLC, Inc, GmbH, LLP, co., limited, incorporated, registered, established, operational, active, operational, functioning, running, operating, working, performing, executing, carrying out, accomplishing, completing, finishing, ending, concluding, terminating, closing, shutting down, discontinuing, ceasing, stopping, halting, pausing, suspending, interrupting, disrupting, disturbing, interfering, meddling, tampering, altering, changing, modifying, adjusting, adapting, modifying, transforming, converting, switching, transferring, moving, relocating, shifting, repositioning, reorganizing, restructuring, remodeling",
+    "gemma": "add company, insert organization, create business, register entity"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 687,
+     "in": 164,
+     "out": 24
+    },
+    "qwen": {
+     "ms": 2828,
+     "in": 131,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 300,
+     "in": 135,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "U02-it",
+   "group": "U02",
+   "lang": "it",
+   "variant": "user",
+   "screen": "Leads",
+   "expected": [
+    "Accounts.md"
+   ],
+   "text": "Come aggiungo una nuova società?",
+   "translations": {
+    "haiku": "add company, create new company, new organization, company setup, add customer account, register company",
+    "qwen": "company, account, organization, entity; add, create, insert, new, establish; profile, settings, configuration, details, information, data, entry, record, item, business, firm, corporation, LLC, GmbH, limited, partnership, co., inc., ltd.",
+    "gemma": "add company, create organization, new entity, register company"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 770,
+     "in": 170,
+     "out": 24
+    },
+    "qwen": {
+     "ms": 1151,
+     "in": 134,
+     "out": 57
+    },
+    "gemma": {
+     "ms": 358,
+     "in": 138,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "U03-it",
+   "group": "U03",
+   "lang": "it",
+   "variant": "user",
+   "screen": "Dashboard",
+   "expected": [
+    "Accounts.md"
+   ],
+   "text": "Se elimino un'azienda, cosa succede ai lead collegati?",
+   "translations": {
+    "haiku": "delete company, remove account, linked leads, associated contacts, related leads, orphaned records, cascade delete",
+    "qwen": "company delete lead related ```",
+    "gemma": "delete company, remove company, leads, contacts, associated leads, linked leads"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 718,
+     "in": 181,
+     "out": 36
+    },
+    "qwen": {
+     "ms": 226,
+     "in": 142,
+     "out": 7
+    },
+    "gemma": {
+     "ms": 346,
+     "in": 145,
+     "out": 16
+    }
+   }
+  },
+  {
+   "id": "U04-it",
+   "group": "U04",
+   "lang": "it",
+   "variant": "user",
+   "screen": "Dashboard",
+   "expected": [
+    "Sales.md",
+    "Lead-Detail.md"
+   ],
+   "text": "Come chiudo un'offerta come vinta?",
+   "translations": {
+    "haiku": "The question is in Italian: \"How do I close a quote/deal as won?\" Search terms: close, mark as won, won, win, deal, opportunity, quote, proposal, offer, status, stage, closed won",
+    "qwen": "close quote, win proposal, close deal, finalize offer, accept quote, confirm proposal, complete opportunity, seal deal, approve quote, approve proposal, close contract, win bid, close opportunity, accept proposal, confirm quote, finalize contract, approve deal, win contract, close quotation, accept quotation, confirm proposal, finalize quotation, approve opportunity, win opportunity, close opportunity, accept opportunity, confirm opportunity, finalize opportunity, approve quotation, win quotation, close quotation, accept quotation, confirm quotation, finalize quotation, approve quote, win quote, close quote, accept quote, confirm quote, finalize quote, approve proposal, win proposal, close proposal, accept proposal, confirm proposal, finalize proposal, approve deal, win deal, close deal, accept deal,",
+    "gemma": "close offer won, mark as won, complete bid, finalize proposal"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 817,
+     "in": 173,
+     "out": 67
+    },
+    "qwen": {
+     "ms": 2818,
+     "in": 137,
+     "out": 150
+    },
+    "gemma": {
+     "ms": 324,
+     "in": 141,
+     "out": 14
+    }
+   }
+  },
+  {
+   "id": "U05-it",
+   "group": "U05",
+   "lang": "it",
+   "variant": "user",
+   "screen": "Leads",
+   "expected": [
+    "Sales.md"
+   ],
+   "text": "Dove vedo tutti i preventivi che ho fatto?",
+   "translations": {
+    "haiku": "quotes, proposals, estimates, view all quotes, list quotes, quote history, past quotes, saved quotes",
+    "qwen": "quote proposal all quotes proposals view",
+    "gemma": "view quotes, estimates, proposals, history, list"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 681,
+     "in": 178,
+     "out": 39
+    },
+    "qwen": {
+     "ms": 239,
+     "in": 138,
+     "out": 7
+    },
+    "gemma": {
+     "ms": 275,
+     "in": 142,
+     "out": 11
+    }
+   }
+  },
+  {
+   "id": "U06-it",
+   "group": "U06",
+   "lang": "it",
+   "variant": "user",
+   "screen": "Dashboard",
+   "expected": [
+    "Draft-Proposal.md",
+    "Lead-Detail.md"
+   ],
+   "text": "Come preparo un preventivo per un potenziale cliente?",
+   "translations": {
+    "haiku": "quote proposal create prepare prospect potential customer lead estimate offer",
+    "qwen": "quote prepare proposal potential client create estimate request form template sales document business opportunity",
+    "gemma": "prepare quote, estimate, proposal, quotation, price offer"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 681,
+     "in": 177,
+     "out": 25
+    },
+    "qwen": {
+     "ms": 359,
+     "in": 139,
+     "out": 15
+    },
+    "gemma": {
+     "ms": 300,
+     "in": 143,
+     "out": 12
+    }
+   }
+  },
+  {
+   "id": "U07-it",
+   "group": "U07",
+   "lang": "it",
+   "variant": "user",
+   "screen": "Accounts",
+   "expected": [
+    "Accounts.md"
+   ],
+   "text": "Come cerco una società per nome?",
+   "translations": {
+    "haiku": "find company by name, search company, company name, lookup company, filter companies, company list, search customer by name",
+    "qwen": "company search name lookup find business organization entity firm corporation vendor supplier contact person individual",
+    "gemma": "search company by name, find organization by name, search business name"
+   },
+   "translationStats": {
+    "haiku": {
+     "ms": 700,
+     "in": 168,
+     "out": 31
+    },
+    "qwen": {
+     "ms": 376,
+     "in": 133,
+     "out": 16
+    },
+    "gemma": {
+     "ms": 379,
+     "in": 139,
+     "out": 14
+    }
+   }
+  }
+ ],
+ "translators": {
+  "haiku": "claude-haiku-5-5",
+  "qwen": "qwen3-coder:30b",
+  "gemma": "gemma4:12b"
+ },
+ "translationPrompt": "You prepare the search of the user manual of an application. The manual is written in English. Given the question of a user, which may be in any language, reply with one line of English search terms: the words the manual most likely uses for what the user asks, adding the common synonyms (for example: company, account; quote, proposal; delete, remove). Reply with the terms only: no preamble, no translation of the question, no explanation, no quotes. If the question is already in English, repeat its key words and add the synonyms."
+}

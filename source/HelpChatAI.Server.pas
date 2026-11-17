@@ -212,6 +212,10 @@ type
       AResponseInfo: TIdHTTPResponseInfo);
     procedure HandleApi(const ADocument: string; const ASession: THelpChatServerSession;
       ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+    /// <summary>The entries of a command: name and outcome (llInfo), the
+    /// arguments (llDetail), the answer (llDebug).</summary>
+    procedure LogCommand(const AEngine: THelpChatEngine; const AKey, AName, AArgs,
+      AOutcome: string; const AFromHost: Boolean; const AAnswer: string);
     /// <summary>Hands the engine the bytes of an upload and answers what the
     /// page needs to draw the chip - or the sentence that says why not.</summary>
     function AttachmentJson(const AEngine: THelpChatEngine; const AKey, AFileName: string;
@@ -388,6 +392,7 @@ uses
   System.StrUtils,
   System.JSON,
   HelpChatAI.Settings,
+  HelpChatAI.Log,
   HelpChatAI.Icons,
   IdSocketHandle,
   IdGlobal;
@@ -947,11 +952,39 @@ begin
   Result := False;
 end;
 
+procedure THelpChatHttpServerBase.LogCommand(const AEngine: THelpChatEngine;
+  const AKey, AName, AArgs, AOutcome: string; const AFromHost: Boolean;
+  const AAnswer: string);
+var
+  LSettings: THelpChatSettings;
+  LFrom: string;
+begin
+  if not Assigned(AEngine) then
+    Exit;
+  LSettings := AEngine.Settings;
+  if AFromHost then
+    LFrom := 'from code'
+  else
+    LFrom := 'from the panel';
+  if AOutcome.StartsWith('refused') or AOutcome.StartsWith('unknown') then
+    LSettings.Log(llInfo, lsWarning, lcCommand, Format('Command /%s (%s): %s',
+      [AName, LFrom, AOutcome]), AKey)
+  else
+    LSettings.Log(llInfo, lsInfo, lcCommand, Format('Command /%s (%s): %s',
+      [AName, LFrom, AOutcome]), AKey);
+  if Trim(AArgs) <> '' then
+    LSettings.Log(llDetail, lsInfo, lcCommand, Format('Command /%s arguments: %s',
+      [AName, HelpChatLogQuote(AArgs)]), AKey);
+  if AAnswer <> '' then
+    LSettings.Log(llDebug, lsInfo, lcCommand, Format('Command /%s answered %d characters: %s',
+      [AName, Length(AAnswer), HelpChatLogQuote(HelpChatCommandHtmlToText(AAnswer))]), AKey);
+end;
+
 procedure THelpChatHttpServerBase.HandleApi(const ADocument: string;
   const ASession: THelpChatServerSession; ARequestInfo: TIdHTTPRequestInfo;
   AResponseInfo: TIdHTTPResponseInfo);
 var
-  LBody, LId, LKey, LMessage, LValue: string;
+  LBody, LId, LKey, LMessage, LValue, LAnswer: string;
   LContext: THelpChatContext;
   LResult: THelpChatSendResult;
   LDoc: THelpChatRenderedDoc;
@@ -1067,13 +1100,24 @@ begin
     WriteJson(AResponseInfo, HelpChatCommandsToJson(ASession.GetEnabledCommands,
       LEngine.ActiveLanguage))
 
+  else if (ADocument = HELPCHAT_API_COMMAND_LOG) and LIsPost then
+  begin
+    LogCommand(LEngine, LKey, FormField(LBody, 'name'), FormField(LBody, 'args'),
+      FormField(LBody, 'outcome'), FormField(LBody, 'host') = '1', '');
+    WriteStatus(AResponseInfo, 204);
+  end
+
   else if (ADocument = HELPCHAT_API_COMMAND) and LIsPost then
   begin
     // Only what the session enables: the page does not even show the others.
     if not HelpChatCommandByName(FormField(LBody, 'name'), LCommand) or
        (not (LCommand in ASession.GetEnabledCommands) and
         not ((FormField(LBody, 'host') = '1') and HostMayRunAnyCommand)) then
-      WriteStatus(AResponseInfo, 403)
+    begin
+      LogCommand(LEngine, LKey, FormField(LBody, 'name'), FormField(LBody, 'args'),
+        'refused (403): not enabled', FormField(LBody, 'host') = '1', '');
+      WriteStatus(AResponseInfo, 403);
+    end
     else
     begin
       LCmdRequest := Default(THelpChatCommandRequest);
@@ -1086,7 +1130,10 @@ begin
       LCmdRequest.Actions := ASession.GetActions;
       LJson := TJSONObject.Create;
       try
-        LJson.AddPair('html', HelpChatRunCommand(LEngine, LCmdRequest));
+        LAnswer := HelpChatRunCommand(LEngine, LCmdRequest);
+        LogCommand(LEngine, LKey, HelpChatCommandName(LCommand), LCmdRequest.Args,
+          'done', FormField(LBody, 'host') = '1', LAnswer);
+        LJson.AddPair('html', LAnswer);
         WriteJson(AResponseInfo, LJson.ToJSON);
       finally
         LJson.Free;
@@ -1291,6 +1338,9 @@ begin
   FSession.SetActions(GetActions);
   // The page talks to the host through this same server.
   FSession.SetUiEndpoint('', '');
+  if Assigned(Engine) then
+    Engine.Settings.Log(llInfo, lsInfo, lcTransport, 'Local server listening on ' +
+      GetPanelOrigin);
 end;
 
 procedure THelpChatLocalServer.Stop;

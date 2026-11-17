@@ -149,6 +149,10 @@ const
   /// unless <c>host=1</c> says the application asked for it, which only a
   /// server living in the application's own process accepts.</summary>
   HELPCHAT_API_COMMAND = '/api/command';
+  /// <summary>POST <c>name=</c>, <c>args=</c>, <c>outcome=</c>: a command the
+  /// page answered by itself (or refused as unknown or not enabled), told to
+  /// the server only so that it reaches the log. Answers 204.</summary>
+  HELPCHAT_API_COMMAND_LOG = '/api/command/log';
   /// <summary>GET /api/doc?page=...: a page of the documentation folder as an
   /// HTML fragment (&lt;article class="hc-chat-doc-page" data-page data-title&gt;),
   /// 404 when it is not one.</summary>

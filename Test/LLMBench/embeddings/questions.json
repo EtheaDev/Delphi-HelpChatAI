@@ -1,5 +1,5 @@
 {
-  "about": "Retrieval questions over the CRM demo manual (CRM Demo/Help). id = group + variant: 'en' the English original (Q1-Q6 are those of HelpChatAI.LLMBench.pas), 'it' a natural Italian translation, 'para' an English paraphrase that avoids the words of the manual. screen = the screen label, which the engine passes to Search as hint. expected = any of these pages is a hit; empty = not in the manual.",
+  "about": "Retrieval questions over the CRM demo manual (CRM Demo/Help). id = group + variant: 'en' the English original (Q1-Q6 are those of HelpChatAI.LLMBench.pas), 'it' a natural Italian translation, 'para' an English paraphrase that avoids the words of the manual, 'user' Italian in the words of a user who has not read the manual (societa, offerta, preventivo), written before the translation was measured. screen = the screen label, which the engine passes to Search as hint. expected = any of these pages is a hit; empty = not in the manual.",
   "questions": [
     { "id": "Q1-en",   "group": "Q1", "lang": "en", "variant": "orig", "screen": "Leads", "expected": ["Leads.md"],
       "text": "How do I move a lead from one column of the board to another, and what happens to its dates?" },
@@ -74,6 +74,21 @@
     { "id": "X15-it", "group": "X15", "lang": "it", "variant": "extra", "screen": "Dashboard", "expected": ["Getting-Started.md"],
       "text": "Posso rimpicciolire la finestra?" },
     { "id": "X16-it", "group": "X16", "lang": "it", "variant": "extra", "screen": "Dashboard", "expected": [],
-      "text": "Qual è la capitale dell'Australia?" }
+      "text": "Qual è la capitale dell'Australia?" },
+
+    { "id": "U01-it", "group": "U01", "lang": "it", "variant": "user", "screen": "Dashboard", "expected": ["Accounts.md"],
+      "text": "Inserisci una società" },
+    { "id": "U02-it", "group": "U02", "lang": "it", "variant": "user", "screen": "Leads", "expected": ["Accounts.md"],
+      "text": "Come aggiungo una nuova società?" },
+    { "id": "U03-it", "group": "U03", "lang": "it", "variant": "user", "screen": "Dashboard", "expected": ["Accounts.md"],
+      "text": "Se elimino un'azienda, cosa succede ai lead collegati?" },
+    { "id": "U04-it", "group": "U04", "lang": "it", "variant": "user", "screen": "Dashboard", "expected": ["Sales.md", "Lead-Detail.md"],
+      "text": "Come chiudo un'offerta come vinta?" },
+    { "id": "U05-it", "group": "U05", "lang": "it", "variant": "user", "screen": "Leads", "expected": ["Sales.md"],
+      "text": "Dove vedo tutti i preventivi che ho fatto?" },
+    { "id": "U06-it", "group": "U06", "lang": "it", "variant": "user", "screen": "Dashboard", "expected": ["Draft-Proposal.md", "Lead-Detail.md"],
+      "text": "Come preparo un preventivo per un potenziale cliente?" },
+    { "id": "U07-it", "group": "U07", "lang": "it", "variant": "user", "screen": "Accounts", "expected": ["Accounts.md"],
+      "text": "Come cerco una società per nome?" }
   ]
 }

@@ -57,11 +57,15 @@ uses
   System.Generics.Collections,
   HelpChatAI.Types,
   HelpChatAI.Messages,
+  HelpChatAI.Log,
   HelpChatAI.Settings,
   HelpChatAI.Actions,
   HelpChatAI.Attachments;
 
 const
+  /// <summary>The longest request body an llDebug entry carries, in
+  /// characters: an attached PDF travels as base64 inside it.</summary>
+  HELPCHAT_LOG_BODY_CHARS = 50000;
   /// <summary>Name of the always-available placeholder provider.</summary>
   HELPCHAT_PROVIDER_STUB = 'stub';
 
@@ -201,6 +205,24 @@ type
     function MsgFmt(const AId: THelpChatMsgId; const AArgs: array of const): string;
     /// <summary>Raises <see cref="EHelpChatCancelled" /> when the token is set.</summary>
     procedure CheckCancelled(const ACancel: IHelpChatCancelToken);
+    /// <summary>One entry of the log through the settings of the request
+    /// (which carry the conversation and the reply); nothing on a bare
+    /// instance.</summary>
+    procedure Log(const ALevel: THelpChatLogLevel; const ASeverity: THelpChatLogSeverity;
+      const ACategory: THelpChatLogCategory; const AText: string; const AData: string = '');
+    /// <summary>True when an entry of ALevel would be written.</summary>
+    function Logs(const ALevel: THelpChatLogLevel): Boolean;
+    /// <summary>llDebug: a request is about to go to AUrl, its body in the
+    /// <c>Data</c> of the entry (cut at <c>HELPCHAT_LOG_BODY_CHARS</c>). The
+    /// headers are never logged: the key is in them.</summary>
+    procedure LogPost(const AUrl, ABody: string);
+    /// <summary>llDebug: how the request to AUrl ended - status, time, and
+    /// the body of a refusal.</summary>
+    procedure LogPosted(const AUrl: string; const AStatus: Integer;
+      const AStatusText: string; const AElapsedMs: Int64; const ARaw: string);
+    /// <summary>llDetail, a warning: the request is repeated in another way
+    /// (ARetry says which, AReason why).</summary>
+    procedure LogRetry(const ARetry, AReason: string);
   public
     /// <summary>Content of the most recent user message (the current question).</summary>
     class function LastUserMessage(const AHistory: TArray<THelpChatMessage>): string; static;
@@ -220,6 +242,28 @@ type
     /// question, instead of <see cref="BuildSystemPrompt" /> whole: what
     /// <c>/prompt</c> shows follows it. False here.</summary>
     class function SplitsPrompt: Boolean; virtual;
+    /// <summary>One short answer of the model to <c>AUser</c> under the
+    /// system prompt <c>ASystem</c>: no history, no tools, no attachments,
+    /// few tokens, its usage reported like a reply's. Empty here: a provider
+    /// with no model behind it (<c>stub</c>, <c>docsearch</c>) has nothing to
+    /// say, and an application's provider that does not override it simply
+    /// gets no search terms. What <see cref="SearchTerms" /> calls.</summary>
+    function CompleteText(const ASystem, AUser: string;
+      const ACancel: IHelpChatCancelToken): string; virtual;
+    /// <summary>The search terms of the model for the last question of
+    /// <c>AHistory</c>, in the language of the manual, on one line; empty when
+    /// the settings do not ask for them (<c>TranslatesSearch</c>), when the
+    /// provider has no model, or when the request fails - the search then
+    /// runs on the question alone. A cancellation is raised.</summary>
+    function SearchTerms(const AHistory: TArray<THelpChatMessage>;
+      const ACancel: IHelpChatCancelToken): string;
+    /// <summary>What the translator receives: the last question of
+    /// <c>AHistory</c>, preceded by the one before it when there is one
+    /// ("e come la cancello?" needs it), each cut at
+    /// <see cref="HELPCHAT_SEARCH_TERMS_MAX_CHARS" />.</summary>
+    class function SearchTermsQuestion(const AHistory: TArray<THelpChatMessage>): string; static;
+    /// <summary>A history of one user message, for <see cref="CompleteText" />.</summary>
+    class function SingleQuestion(const AText: string): TArray<THelpChatMessage>; static;
     /// <summary>Hands the tokens of one request to
     /// <see cref="HelpChatOnTokenUsage" />, when somebody listens, with the
     /// name of this provider. On the worker thread of the request.</summary>
@@ -281,6 +325,33 @@ type
 
   THelpChatProviderClass = class of THelpChatProviderBase;
 
+  /// <summary>
+  ///  The retriever a reply works with when its question was given search
+  ///  terms (<c>THelpChatProviderBase.SearchTerms</c>): asked for that very
+  ///  question, it searches the question plus the terms and drops the hint
+  ///  of the screen - measured, the hint dragged the page of the screen over
+  ///  the page the terms found (results/translation-v1.md of Test\LLMBench).
+  ///  Any other query goes to the inner retriever as it is. The prompt and
+  ///  the source line of the runner use it without knowing: no provider
+  ///  changes how it searches. One per reply, on one worker thread.
+  /// </summary>
+  THelpChatTranslatedRetriever = class(TInterfacedObject, IHelpChatRetriever)
+  strict private
+    FInner: IHelpChatRetriever;
+    FQuestion: string;
+    FTerms: string;
+  public
+    constructor Create(const AInner: IHelpChatRetriever);
+    /// <summary>The question the terms belong to, and the terms; empty terms
+    /// leave every search as it was.</summary>
+    procedure SetTerms(const AQuestion, ATerms: string);
+    /// <summary>The terms in force, empty when none.</summary>
+    property Terms: string read FTerms;
+    function IsAvailable: Boolean;
+    function GetBaseUrl: string;
+    function Search(const AQuery, AHint: string; const AMaxPages: Integer): TArray<THelpChatDocPage>;
+  end;
+
 /// <summary>A value of the application as it may enter the system prompt:
 /// one line, no control characters, no double quotes (the prompt quotes it),
 /// at most <c>AMaxChars</c> characters. The screen label is the caption of a
@@ -340,6 +411,27 @@ const
   /// <summary>How many pages the search of the question alone may return
   /// when the runner asks which pages its words reach.</summary>
   HELPCHAT_SOURCES_QUERY_PAGES = 10;
+  /// <summary>The output of a request for search terms, where the model does
+  /// not think: a line of terms is short, and the cap is what stops a model
+  /// that loops on synonyms (a local qwen3-coder did, for five
+  /// minutes).</summary>
+  HELPCHAT_SEARCH_TERMS_MAX_TOKENS = 150;
+  /// <summary>The same where the model may think before answering (Claude
+  /// 5.5 does unasked, the reasoning models of OpenAI and Gemini): the
+  /// reasoning counts against the cap, and only what is produced is
+  /// billed.</summary>
+  HELPCHAT_SEARCH_TERMS_THINKING_TOKENS = 1024;
+  /// <summary>The longest question, previous question and line of terms a
+  /// search-terms request deals with, in characters.</summary>
+  HELPCHAT_SEARCH_TERMS_MAX_CHARS = 500;
+
+/// <summary>AJson with the number at APath (dotted: "generationConfig.
+/// maxOutputTokens") set to AValue, the objects on the way created when
+/// missing. How a provider turns the body of a reply into the body of a short
+/// request without a second builder.</summary>
+function HelpChatJsonSetNumber(const AJson, APath: string; const AValue: Integer): string;
+/// <summary>The same for a string.</summary>
+function HelpChatJsonSetString(const AJson, APath, AValue: string): string;
 
 type
   /// <summary>
@@ -438,7 +530,91 @@ uses
   System.Generics.Defaults,
   System.RegularExpressions,
   System.TimeSpan,
-  System.DateUtils;
+  System.DateUtils,
+  System.JSON;
+
+/// <summary>AJson with AValue (owned) at APath.</summary>
+function JsonSetValue(const AJson, APath: string; const AValue: TJSONValue): string;
+var
+  LRoot: TJSONValue;
+  LObject, LChild: TJSONObject;
+  LParts: TArray<string>;
+  I: Integer;
+begin
+  LRoot := TJSONObject.ParseJSONValue(AJson);
+  try
+    if not (LRoot is TJSONObject) then
+    begin
+      AValue.Free;
+      Exit(AJson);
+    end;
+    LObject := TJSONObject(LRoot);
+    LParts := APath.Split(['.']);
+    for I := 0 to High(LParts) - 1 do
+    begin
+      LChild := LObject.GetValue(LParts[I]) as TJSONObject;
+      if LChild = nil then
+      begin
+        LChild := TJSONObject.Create;
+        LObject.AddPair(LParts[I], LChild);
+      end;
+      LObject := LChild;
+    end;
+    LObject.RemovePair(LParts[High(LParts)]).Free;
+    LObject.AddPair(LParts[High(LParts)], AValue);
+    Result := LRoot.ToJSON;
+  finally
+    LRoot.Free;
+  end;
+end;
+
+function HelpChatJsonSetNumber(const AJson, APath: string; const AValue: Integer): string;
+begin
+  Result := JsonSetValue(AJson, APath, TJSONNumber.Create(AValue));
+end;
+
+function HelpChatJsonSetString(const AJson, APath, AValue: string): string;
+begin
+  Result := JsonSetValue(AJson, APath, TJSONString.Create(AValue));
+end;
+
+{ THelpChatTranslatedRetriever }
+
+constructor THelpChatTranslatedRetriever.Create(const AInner: IHelpChatRetriever);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+procedure THelpChatTranslatedRetriever.SetTerms(const AQuestion, ATerms: string);
+begin
+  FQuestion := AQuestion;
+  FTerms := Trim(ATerms);
+end;
+
+function THelpChatTranslatedRetriever.IsAvailable: Boolean;
+begin
+  Result := Assigned(FInner) and FInner.IsAvailable;
+end;
+
+function THelpChatTranslatedRetriever.GetBaseUrl: string;
+begin
+  if Assigned(FInner) then
+    Result := FInner.GetBaseUrl
+  else
+    Result := '';
+end;
+
+function THelpChatTranslatedRetriever.Search(const AQuery, AHint: string;
+  const AMaxPages: Integer): TArray<THelpChatDocPage>;
+begin
+  if not Assigned(FInner) then
+    Exit(nil);
+  if (FTerms <> '') and (AQuery = FQuestion) then
+    Result := FInner.Search(AQuery + ' ' + FTerms, '', AMaxPages)
+  else
+    Result := FInner.Search(AQuery, AHint, AMaxPages);
+end;
 
 function HelpChatNowText: string;
 var
@@ -640,6 +816,8 @@ procedure THelpChatProviderBase.NoteActionsNotRun(const AText: TStringBuilder;
 var
   LNote: string;
 begin
+  Log(llInfo, lsWarning, lcAction,
+    'The last request of the reply still asked for actions: they were not run');
   LNote := Msg(hcmActionsNotRun);
   if AText.Length > 0 then
     LNote := sLineBreak + sLineBreak + LNote;
@@ -648,23 +826,93 @@ begin
   AText.Append(LNote);
 end;
 
+function THelpChatActionOutcomeName(const AOutcome: THelpChatActionOutcome): string;
+begin
+  case AOutcome of
+    aoDone: Result := 'done';
+    aoDenied: Result := 'denied by the user';
+    aoUnknown: Result := 'unknown action';
+    aoFailed: Result := 'failed';
+    aoTimeout: Result := 'timed out';
+    aoCancelled: Result := 'cancelled';
+  else
+    Result := 'outcome ' + IntToStr(Ord(AOutcome));
+  end;
+end;
+
 function THelpChatProviderBase.InvokeAction(const AName, AArgsJson: string;
   const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
+var
+  LStart: TDateTime;
 begin
   Inc(FActionsInvoked);
+  Log(llDetail, lsInfo, lcAction, Format('Action %s asked with %s',
+    [AName, HelpChatLogQuote(AArgsJson)]));
   if FActionDenied then
   begin
     AResult := Format(HELPCHAT_ACTION_DENIED_BEFORE_TEXT, [AName]);
+    Log(llInfo, lsWarning, lcAction, Format('Action %s: not run, the user ' +
+      'refused an earlier action of this reply', [AName]));
     Exit(aoDenied);
   end;
   if not Assigned(FActions) then
   begin
     AResult := '';
+    Log(llInfo, lsWarning, lcAction, Format('Action %s: no actions here', [AName]));
     Exit(aoUnknown);
   end;
+  LStart := Now;
   Result := FActions.Invoke(AName, AArgsJson, ACancel, AResult);
   if Result = aoDenied then
     FActionDenied := True;
+  if Result = aoDone then
+    Log(llInfo, lsInfo, lcAction, Format('Action %s: %s in %.1f s',
+      [AName, THelpChatActionOutcomeName(Result), (Now - LStart) * SecsPerDay]))
+  else
+    Log(llInfo, lsWarning, lcAction, Format('Action %s: %s in %.1f s',
+      [AName, THelpChatActionOutcomeName(Result), (Now - LStart) * SecsPerDay]));
+  Log(llDebug, lsInfo, lcAction, Format('Action %s returned to the model: %s',
+    [AName, HelpChatLogQuote(AResult)]));
+end;
+
+procedure THelpChatProviderBase.Log(const ALevel: THelpChatLogLevel;
+  const ASeverity: THelpChatLogSeverity; const ACategory: THelpChatLogCategory;
+  const AText, AData: string);
+begin
+  if Assigned(FSettings) then
+    FSettings.Log(ALevel, ASeverity, ACategory, AText, '', '', AData);
+end;
+
+function THelpChatProviderBase.Logs(const ALevel: THelpChatLogLevel): Boolean;
+begin
+  Result := Assigned(FSettings) and FSettings.Logs(ALevel);
+end;
+
+procedure THelpChatProviderBase.LogPost(const AUrl, ABody: string);
+begin
+  if Logs(llDebug) then
+    Log(llDebug, lsInfo, lcProvider, Format('%s: POST %s, %d characters',
+      [GetName, AUrl, Length(ABody)]), Copy(ABody, 1, HELPCHAT_LOG_BODY_CHARS));
+end;
+
+procedure THelpChatProviderBase.LogPosted(const AUrl: string; const AStatus: Integer;
+  const AStatusText: string; const AElapsedMs: Int64; const ARaw: string);
+begin
+  if not Logs(llDebug) then
+    Exit;
+  if AStatus >= 400 then
+    Log(llDebug, lsError, lcProvider, Format('%s: %d %s from %s in %d ms: %s',
+      [GetName, AStatus, AStatusText, AUrl, AElapsedMs,
+       HelpChatLogQuote(ARaw, HELPCHAT_LOG_ERROR_BODY_CHARS)]))
+  else
+    Log(llDebug, lsInfo, lcProvider, Format('%s: %d from %s in %d ms',
+      [GetName, AStatus, AUrl, AElapsedMs]));
+end;
+
+procedure THelpChatProviderBase.LogRetry(const ARetry, AReason: string);
+begin
+  Log(llDetail, lsWarning, lcProvider, Format('%s: %s (%s)',
+    [GetName, ARetry, HelpChatLogQuote(AReason, HELPCHAT_LOG_ERROR_BODY_CHARS)]));
 end;
 
 function THelpChatProviderBase.UnreadDocumentsNotice: string;
@@ -739,6 +987,35 @@ begin
   end;
 end;
 
+/// <summary>llDetail: the pages a search found for the prompt; llDebug: the
+/// query, the hint and the score of each.</summary>
+procedure LogPagesFound(const ASettings: THelpChatSettings; const AQuery, AHint: string;
+  const AMax: Integer; const APages: TArray<THelpChatDocPage>);
+var
+  LTitles, LScores: string;
+  I: Integer;
+begin
+  LTitles := '';
+  LScores := '';
+  for I := 0 to High(APages) do
+  begin
+    if I > 0 then
+    begin
+      LTitles := LTitles + ', ';
+      LScores := LScores + ', ';
+    end;
+    LTitles := LTitles + APages[I].Title;
+    LScores := LScores + Format('%s (%d)', [APages[I].Title, APages[I].Score]);
+  end;
+  if Length(APages) = 0 then
+    ASettings.Log(llDetail, lsInfo, lcSearch, 'No page of the manual found for the question')
+  else
+    ASettings.Log(llDetail, lsInfo, lcSearch, Format('%d of at most %d pages for the prompt: %s',
+      [Length(APages), AMax, LTitles]));
+  ASettings.Log(llDebug, lsInfo, lcSearch, Format('Search "%s", hint "%s": %s',
+    [HelpChatLogQuote(AQuery), AHint, LScores]));
+end;
+
 /// <summary>The screen the user is on and the documentation excerpts the
 /// retriever found for the last question, each part preceded by an empty
 /// line.</summary>
@@ -767,6 +1044,9 @@ begin
   begin
     LPages := ARetriever.Search(THelpChatProviderBase.LastUserMessage(AHistory),
       AContext.SearchHint, LMax);
+    if Assigned(ASettings) and ASettings.Logs(llDetail) then
+      LogPagesFound(ASettings, THelpChatProviderBase.LastUserMessage(AHistory),
+        AContext.SearchHint, LMax, LPages);
     if Length(LPages) > 0 then
     begin
       ASb.Append(#10#10);
@@ -867,10 +1147,18 @@ procedure THelpChatProviderBase.ReportTokenUsage(const AUsage: THelpChatTokenUsa
 var
   LUsage: THelpChatTokenUsage;
 begin
-  if not Assigned(HelpChatOnTokenUsage) then
-    Exit;
   LUsage := AUsage;
   LUsage.Provider := GetName;
+  if Logs(llDetail) then
+    Log(llDetail, lsInfo, lcProvider, Format('%s tokens (%s): input %d, cache read %d, ' +
+      'cache written %d, output %d', [GetName, LUsage.Model, LUsage.InputTokens,
+       LUsage.CacheReadTokens, LUsage.CacheWriteTokens, LUsage.OutputTokens]),
+      Format('{"provider":"%s","model":"%s","input":%d,"cacheRead":%d,' +
+      '"cacheWrite":%d,"output":%d}', [GetName, LUsage.Model.Replace('"', ''),
+       LUsage.InputTokens, LUsage.CacheReadTokens, LUsage.CacheWriteTokens,
+       LUsage.OutputTokens]));
+  if not Assigned(HelpChatOnTokenUsage) then
+    Exit;
   HelpChatOnTokenUsage(LUsage);
 end;
 
@@ -913,6 +1201,84 @@ begin
   for I := High(AHistory) downto Low(AHistory) do
     if AHistory[I].Role = hcrUser then
       Exit(AHistory[I].Content);
+end;
+
+function THelpChatProviderBase.CompleteText(const ASystem, AUser: string;
+  const ACancel: IHelpChatCancelToken): string;
+begin
+  Result := '';
+end;
+
+class function THelpChatProviderBase.SingleQuestion(const AText: string): TArray<THelpChatMessage>;
+begin
+  SetLength(Result, 1);
+  Result[0].Id := THelpChatMessage.NewId;
+  Result[0].Role := hcrUser;
+  Result[0].Content := AText;
+  Result[0].Created := Now;
+end;
+
+class function THelpChatProviderBase.SearchTermsQuestion(
+  const AHistory: TArray<THelpChatMessage>): string;
+var
+  I: Integer;
+  LQuestion, LPrevious: string;
+begin
+  LQuestion := '';
+  LPrevious := '';
+  for I := High(AHistory) downto Low(AHistory) do
+    if (AHistory[I].Role = hcrUser) and (Trim(AHistory[I].Content) <> '') then
+    begin
+      if LQuestion = '' then
+        LQuestion := Copy(Trim(AHistory[I].Content), 1, HELPCHAT_SEARCH_TERMS_MAX_CHARS)
+      else
+      begin
+        LPrevious := Copy(Trim(AHistory[I].Content), 1, HELPCHAT_SEARCH_TERMS_MAX_CHARS);
+        Break;
+      end;
+    end;
+  if (LQuestion <> '') and (LPrevious <> '') then
+    Result := 'Previous question: ' + LPrevious + #10 + 'Question: ' + LQuestion
+  else
+    Result := LQuestion;
+end;
+
+function THelpChatProviderBase.SearchTerms(const AHistory: TArray<THelpChatMessage>;
+  const ACancel: IHelpChatCancelToken): string;
+var
+  LUser, LText: string;
+  LStart: TDateTime;
+begin
+  Result := '';
+  if not Assigned(FSettings) or not FSettings.TranslatesSearch(FSettings.Language) then
+    Exit;
+  LUser := SearchTermsQuestion(AHistory);
+  if LUser = '' then
+    Exit;
+  CheckCancelled(ACancel);
+  LStart := Now;
+  Log(llDebug, lsInfo, lcSearch, 'Search terms asked for: ' + HelpChatLogQuote(LUser));
+  try
+    LText := CompleteText(FSettings.ResolveSearchTermsPrompt, LUser, ACancel);
+  except
+    on E: EHelpChatCancelled do
+      raise;
+    on E: Exception do
+    begin
+      // A translation that fails costs the translation, not the reply.
+      CheckCancelled(ACancel);
+      Log(llInfo, lsWarning, lcSearch, 'Translation of the question for the search ' +
+        'failed, searched the question alone: ' + HelpChatLogQuote(E.Message,
+        HELPCHAT_LOG_ERROR_BODY_CHARS));
+      LText := '';
+    end;
+  end;
+  CheckCancelled(ACancel);
+  Result := Trim(string.Join(' ', LText.Split([#13, #10, #9], TStringSplitOptions.ExcludeEmpty)));
+  Result := Copy(Result, 1, HELPCHAT_SEARCH_TERMS_MAX_CHARS);
+  if Result <> '' then
+    Log(llDetail, lsInfo, lcSearch, Format('Search terms in %.1f s: %s',
+      [(Now - LStart) * SecsPerDay, Result]));
 end;
 
 { THelpChatProviderRegistry }

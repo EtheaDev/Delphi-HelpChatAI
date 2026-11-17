@@ -84,6 +84,7 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Settings,
+  HelpChatAI.Log,
   HelpChatAI.Theme,
   HelpChatAI.Commands,
   HelpChatAI.Engine,
@@ -240,6 +241,7 @@ type
     FOnPdfInfo: THelpChatPdfInfoEvent;
     FOnDecryptSecret: THelpChatSecretEvent;
     FOnBuildSystemPrompt: THelpChatBuildPromptEvent;
+    FOnLogEvent: THelpChatLogEvent;
     FCaption: string;
     FAssistantName: string;
     FProfile: string;
@@ -286,6 +288,11 @@ type
     procedure SetSettings(const Value: THelpChatSettings);
     procedure SetOnDecryptSecret(const Value: THelpChatSecretEvent);
     procedure SetOnBuildSystemPrompt(const Value: THelpChatBuildPromptEvent);
+    procedure SetOnLogEvent(const Value: THelpChatLogEvent);
+    /// <summary>One entry of the log through the settings in force (the
+    /// engine's while active, which carry its level).</summary>
+    procedure LogUi(const ALevel: THelpChatLogLevel; const ASeverity: THelpChatLogSeverity;
+      const ACategory: THelpChatLogCategory; const AText: string);
     procedure SetContainer(const Value: TFmxObject);
     /// <summary>Activation: reads the configuration, acquires the engine of
     /// the profile and starts it (not with a remote server), creates and
@@ -801,6 +808,15 @@ type
     /// <c>OnDecryptSecret</c>. See <see cref="THelpChatBuildPromptEvent" />.</summary>
     property OnBuildSystemPrompt: THelpChatBuildPromptEvent read FOnBuildSystemPrompt
       write SetOnBuildSystemPrompt;
+    /// <summary>Every entry of the log of this assistant, at the level of
+    /// <c>Settings.LogLevel</c> (llInfo by default; a configuration file may
+    /// raise it). <b>It runs on the thread that wrote the entry</b> - often a
+    /// worker answering a question - one call at a time: writing to a file
+    /// needs nothing more, touching a control needs <c>TThread.Queue</c>.
+    /// What it raises is swallowed. With several assistants of one profile,
+    /// the entries of the engine they share go to the first of them that has
+    /// a handler. See <see cref="THelpChatLogEvent" />.</summary>
+    property OnLogEvent: THelpChatLogEvent read FOnLogEvent write SetOnLogEvent;
     /// <summary>Offer the registered actions to the model. False keeps them
     /// registered but invisible: the assistant can only answer.</summary>
     property ActionsEnabled: Boolean read FActionsEnabled write SetActionsEnabled default True;
@@ -1405,6 +1421,7 @@ begin
   // decrypts its secrets and on which assistant it is.
   FSettings.SetSecretHandler(FOnDecryptSecret, Self);
   FSettings.SetPromptHandler(FOnBuildSystemPrompt, Self);
+  FSettings.SetLogHandler(FOnLogEvent, Self);
   FSettings.Profile := FProfile;
 end;
 
@@ -1475,6 +1492,19 @@ begin
   FSettings.SetPromptHandler(Value, Self);
 end;
 
+procedure TFmxHelpChatAI.SetOnLogEvent(const Value: THelpChatLogEvent);
+begin
+  FOnLogEvent := Value;
+  FSettings.SetLogHandler(Value, Self);
+end;
+
+procedure TFmxHelpChatAI.LogUi(const ALevel: THelpChatLogLevel;
+  const ASeverity: THelpChatLogSeverity; const ACategory: THelpChatLogCategory;
+  const AText: string);
+begin
+  RunSettings.Log(ALevel, ASeverity, ACategory, AText);
+end;
+
 procedure TFmxHelpChatAI.SetOnDecryptSecret(const Value: THelpChatSecretEvent);
 begin
   FOnDecryptSecret := Value;
@@ -1518,11 +1548,17 @@ begin
 end;
 
 function TFmxHelpChatAI.CreateTransport(const AEngine: THelpChatEngine): IHelpChatTransport;
+var
+  LRemote: THelpChatRemoteTransport;
 begin
   // Settings decide where the engine lives: on mobile this is how the model key
   // stays out of the application (see Settings.Remote).
   if FSettings.Remote.IsConfigured then
-    Result := THelpChatRemoteTransport.Create(FSettings.Remote, FSettings.Profile)
+  begin
+    LRemote := THelpChatRemoteTransport.Create(FSettings.Remote, FSettings.Profile);
+    LRemote.LogSettings := FSettings;
+    Result := LRemote;
+  end
   else
     Result := THelpChatLocalServer.Create(AEngine, False);
 end;
@@ -1544,7 +1580,15 @@ begin
 
   if Value then
   begin
-    LoadConfiguration;
+    try
+      LoadConfiguration;
+    except
+      on E: Exception do
+      begin
+        FSettings.Log(llInfo, lsError, lcConfig, 'Activation failed: ' + E.Message);
+        raise;
+      end;
+    end;
     FPanelCss := THelpChatPanel.PanelCss(FPanelStyleSheet);
     // The engine of the profile: shared with the other assistants that name
     // it, created by the first. What this one may do goes with its questions.
@@ -1576,17 +1620,26 @@ begin
       RegisterPdfAction;
       FTransport.Start;
     except
-      // An engine that will not start or a server that will not answer must
-      // not leave half a component behind - above all not a holder of the
-      // shared engine that nobody will ever release.
-      FActions.HostActive := False;
-      FActions.Remove(HELPCHAT_PDF_ACTION);
-      FSkills.Detach;
-      FTransport := nil;
-      THelpChatEngines.Release(Self, FEngine);
-      raise;
+      on E: Exception do
+      begin
+        // An engine that will not start or a server that will not answer
+        // must not leave half a component behind - above all not a holder
+        // of the shared engine that nobody will ever release.
+        FSettings.Log(llInfo, lsError, lcEngine, 'Activation failed: ' + E.Message);
+        FActions.HostActive := False;
+        FActions.Remove(HELPCHAT_PDF_ACTION);
+        FSkills.Detach;
+        FTransport := nil;
+        THelpChatEngines.Release(Self, FEngine);
+        raise;
+      end;
     end;
     FActive := True;
+    if FSettings.Remote.IsConfigured then
+      LogUi(llInfo, lsInfo, lcTransport, 'Assistant activated on the remote server ' +
+        FSettings.Remote.BaseUrl);
+    LogUi(llDetail, lsInfo, lcSkill, Format('Assistant activated: skills "%s", %d actions',
+      [string.Join(', ', FSettings.ResolveSkills), Length(FActions.AvailableNames)]));
     // Before the panel is ever shown, so the first page load already carries
     // the name and the header never flashes the default one.
     ApplyAssistant;
@@ -1636,6 +1689,7 @@ begin
       FTransport.Stop;
       FTransport := nil;
     end;
+    LogUi(llDetail, lsInfo, lcEngine, 'Assistant deactivated');
     // The last assistant of the profile frees it: that stops the workers
     // (bounded wait) and persists the conversation.
     THelpChatEngines.Release(Self, FEngine);
@@ -2615,9 +2669,14 @@ begin
   try
     if not LExporter.ExportHtml(LDoc.Render, LFileName, LPage, LError) then
     begin
+      LogUi(llInfo, lsError, lcUi, 'PDF not saved: ' + LError);
       ShowMessage(HelpChatMsgFmt(hcmPdfFailed, [LError], ActiveLanguage));
       Exit;
     end;
+    LogUi(llInfo, lsInfo, lcUi, 'PDF saved: ' + LFileName);
+    if LExporter.BandsDropped then
+      LogUi(llInfo, lsWarning, lcUi, 'PDF without header and footer: the ' +
+        'DevTools call was refused');
     // The document is there and is right: only the bands are missing.
     if LExporter.BandsDropped then
       ShowMessage(HelpChatMsgFmt(hcmPdfNoBands, [ExtractFileName(LFileName)],
@@ -2842,6 +2901,10 @@ begin
   if not FActive then
     Active := True;
   FTransport.SetContext(AContext);
+  LogUi(llDetail, lsInfo, lcUi, 'Panel opened');
+  LogUi(llDebug, lsInfo, lcUi, Format('Screen context: name %s, label "%s", class %s, ' +
+    'control %s, keyword "%s", context %d', [AContext.ScreenName, AContext.ScreenLabel,
+     AContext.ScreenType, AContext.FocusedControl, AContext.HelpKeyword, AContext.HelpContext]));
   ApplyTheme;
 
   // Where does the chat go? The Container property, unless the application
@@ -3097,6 +3160,8 @@ begin
     LContext.HelpKeyword := AKeyword;
   if AContext <> 0 then
     LContext.HelpContext := AContext;
+  LogUi(llDetail, lsInfo, lcUi, Format('Help asked for the screen (F1): keyword "%s", ' +
+    'context %d', [LContext.HelpKeyword, LContext.HelpContext]));
   // This context, keyword included, is the one the provider must see.
   OpenWithContext(LContext);
   Ask(FEngine.ContextQuestion(LContext), True);
@@ -3104,6 +3169,7 @@ end;
 
 procedure TFmxHelpChatAI.HideView;
 begin
+  LogUi(llDetail, lsInfo, lcUi, 'Panel closed');
   if Assigned(FOnBeforeHideHelp) then
     FOnBeforeHideHelp(Self);
   if Assigned(FView) then

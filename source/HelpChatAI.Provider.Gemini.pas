@@ -200,6 +200,16 @@ type
     /// implicit cache of the service reads the instruction and the
     /// conversation again.</summary>
     class function SplitsPrompt: Boolean; override;
+    /// <summary>One request with the system instruction and the question
+    /// alone, no tools, <c>maxOutputTokens</c> at
+    /// <c>HELPCHAT_SEARCH_TERMS_THINKING_TOKENS</c>: Gemini 3 and 4 think, and
+    /// the thought parts are never the answer. Empty without a key.</summary>
+    function CompleteText(const ASystem, AUser: string;
+      const ACancel: IHelpChatCancelToken): string; override;
+    /// <summary>The body of <see cref="CompleteText" />. Public for tests;
+    /// no network involved.</summary>
+    class function BuildCompletionBody(const ASystem, AUser: string;
+      const ASettings: THelpChatGeminiSettings): string; static;
     /// <summary>The model turn that asked for the actions, as the API wants it
     /// back: its text and one functionCall part per call, each carrying again
     /// the <c>thoughtSignature</c> it arrived with. Dropping those is a 400
@@ -746,6 +756,8 @@ var
   LWatcher: TAbortWatcher;
   LHeaders: TNetHeaders;
   LResponse: IHTTPResponse;
+  LUrl: string;
+  LStart: Cardinal;
 begin
   Result := THelpChatGeminiStream.Create(AOnToken);
   LClient := THTTPClient.Create;
@@ -763,8 +775,11 @@ begin
         TNetHeader.Create('accept', 'text/event-stream')
       ];
 
+      LUrl := StreamUrl(Settings.Gemini);
+      LogPost(LUrl, ABody);
+      LStart := TThread.GetTickCount;
       try
-        LResponse := LClient.Post(StreamUrl(Settings.Gemini), LSource, Result, LHeaders);
+        LResponse := LClient.Post(LUrl, LSource, Result, LHeaders);
       except
         on E: Exception do
           if Assigned(ACancel) and ACancel.IsCancelled then
@@ -773,6 +788,8 @@ begin
             raise;
       end;
       Result.Finish;
+      LogPosted(LUrl, LResponse.StatusCode, LResponse.StatusText,
+        TThread.GetTickCount - LStart, Result.Raw);
       CheckCancelled(ACancel);
 
       if LResponse.StatusCode >= 400 then
@@ -794,6 +811,30 @@ end;
 class function THelpChatGeminiProvider.SplitsPrompt: Boolean;
 begin
   Result := True;
+end;
+
+class function THelpChatGeminiProvider.BuildCompletionBody(const ASystem, AUser: string;
+  const ASettings: THelpChatGeminiSettings): string;
+begin
+  Result := HelpChatJsonSetNumber(BuildRequestBody(SingleQuestion(AUser), ASystem, ASettings,
+    '', '[]'), 'generationConfig.maxOutputTokens', HELPCHAT_SEARCH_TERMS_THINKING_TOKENS);
+end;
+
+function THelpChatGeminiProvider.CompleteText(const ASystem, AUser: string;
+  const ACancel: IHelpChatCancelToken): string;
+var
+  LStream: THelpChatGeminiStream;
+begin
+  Result := '';
+  if Settings.Gemini.ResolveApiKey = '' then
+    Exit;
+  LStream := PostRound(BuildCompletionBody(ASystem, AUser, Settings.Gemini), nil, ACancel);
+  try
+    ReportTokenUsage(LStream.Usage);
+    Result := LStream.Text;
+  finally
+    LStream.Free;
+  end;
 end;
 
 function THelpChatGeminiProvider.Generate(const AHistory: TArray<THelpChatMessage>;

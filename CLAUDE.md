@@ -58,7 +58,11 @@ README.htm               README.md as HTML, installed and linked as ReadMe in th
                          agent never edits it - change README.md and say the HTML is due
 InternalDocs/            design notes and analyses, not published: the agent that syncs GitHub
                          ignores this folder (Configuration-Profiles.md: several assistants in
-                         one application, the design shipped in 1.7.0)
+                         one application, the design shipped in 1.7.0). Slide/ holds the
+                         conference decks (ITDevCon: slides.md, part1/part2.md, build_slides),
+                         moved here from Docs/ on purpose: the slides are never published.
+                         Anything that must stay off GitHub goes under InternalDocs, never in
+                         a new top-level folder
 Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
 "CRM Demo"/              the sample application, in two frameworks: the Windows 10 CRM demo
                          of Embarcadero with HelpChatAI in it, and one manual for both in
@@ -70,7 +74,13 @@ Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
                          encrypted with DCPcrypt), shared by the two demos.
                          Framework-neutral on purpose - the FireDAC wait cursor
                          (FireDAC.VCLUI.Wait / .FMXUI.Wait) is the one thing that is not,
-                         so it lives in each .dpr instead
+                         so it lives in each .dpr instead. uHelpChatLog writes the log
+                         of both demos with Logify: Logify.pas and Logify.Adapter.Files.pas
+                         are a copy of github.com/delphi-blocks/Logify (MIT,
+                         Logify.LICENSE.txt), changed only by a TInterlockedHelper under
+                         {$IF CompilerVersion <= 35} (Exchange and CompareExchange on a
+                         Boolean, which the TInterlocked of 10.4 and 11 lacks), suggested
+                         by the author of Logify. A copy, not an external: realign it by hand
 "CRM Demo"/VCL/          VCL_CRMDemo: project/ and source/ (uMainForm, uLeads, uProposal,
                          uDraftProposal, uLicenseActivation). Delphi 10.4 to 13
 "CRM Demo"/FMX/          FMX_CRMDemo: project/ and source/ (uMainFormFmx, uLeadsFmx,
@@ -299,7 +309,9 @@ the edit on every version, not on the one that happens to be open.
 - **The language is the engine's too, and the user picks it the same way.** Six of them
   (`THelpChatLanguage`, new members **at the end**: a DFM stores the identifier, a
   configuration file the code). `Settings.Language` is the language of the chat - the strings
-  of the panel and of the engine, and the language the model is told to reply in;
+  of the panel and of the engine, and the language the model is told to reply in, **whatever
+  language the question is in** (`LanguageRule`: until 1.12 the model followed a user who
+  clearly wrote in another language; now the user who wants Italian answers picks Italian);
   `Settings.Languages` what the flag of the panel offers (fewer than two = no flag);
   `Settings.ResolveLanguage` the concrete one among them, never `hclAuto` (English when the
   configured or OS language is not offered, else the first offered). All three live under
@@ -320,9 +332,43 @@ the edit on every version, not on the one that happens to be open.
   403, as for the assistant. `DocLanguage` adds `HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE` to the
   system prompt when the manual is in another language than the chat: explain in the user's,
   keep the names of screens and buttons as the manual spells them - a translated caption is
-  one the user cannot find. The search is still lexical, so a question in another language
-  finds fewer pages: `Test/LLMBench/EMBEDDINGS.md` and `results/embeddings-v1.md` are where
-  a semantic search is being measured.
+  one the user cannot find. The search is lexical, so with `TranslateSearch` (default on) and a
+  `DocLanguage` other than the chat the **model in use translates the question first**
+  (`THelpChatProviderBase.SearchTerms` -> the virtual `CompleteText`, one short request with
+  `SearchTermsPrompt` and the previous question for a follow-up; claude, openai, gemini
+  override it, `stub`/`docsearch` return ''): the runner wraps the retriever in
+  `THelpChatTranslatedRetriever`, which searches question + terms **without the hint** for
+  that question - the prompt and the source line use it unaware - and remembers the terms
+  per conversation key for `/prompt`. A failed request costs the terms, never the reply.
+  Measured in `Test/LLMBench/results/translation-v1.md`: 21 Italian questions, the right page
+  among the 3 from 12 to 20 (Haiku, no hint; with the hint 18); `--terms=` checks the request
+  against the real services (~0.7 s; OpenAI Chat needs `reasoning_effort: none` and a
+  150-token cap, or a local gemma4 spends the cap thinking and qwen3-coder loops).
+  Embeddings are still measured in `EMBEDDINGS.md`.
+- **The log is written through the settings, so a request logs through its snapshot.**
+  `HelpChatAI.Log` (RTL) holds the entry (`THelpChatLogEntry`: level, severity, category,
+  profile, conversation, reply id, thread, text, optional JSON `Data`), the levels
+  (`llNone`, `llInfo` default, `llDetail`, `llDebug`: cumulative) and `HelpChatDispatchLog`,
+  which serializes every entry of the process and swallows what a handler raises.
+  `THelpChatSettings` carries `LogLevel` (published, in JSON "none".."debug", profiles
+  too), the handler (`SetLogHandler`, the components' `OnLogEvent`) and a context
+  (`SetLogContext`: the runner sets the conversation and the reply id on the snapshot of a
+  request, so the provider, the search and the actions log with them unaware); `Assign`
+  copies all three. Write `Settings.Log(level, severity, category, text)`, and ask
+  `Logs(level)` before building a text that costs something. **The level is not the
+  severity**: an error of the service is an `llInfo` entry with `lsError`. **llInfo never
+  carries what the user wrote**; `llDetail` the whole question and the arguments of the
+  actions; `llDebug` the reply, the prompt and the request bodies (`LogPost`, in `Data`,
+  cut at `HELPCHAT_LOG_BODY_CHARS`) - **never the headers**, which carry the key, and the
+  settings JSON with every secret masked (`MaskedSettingsJson`). The event runs on the
+  thread that wrote the entry (decided with the user: lossless, fit for a file). The
+  shared engine of a profile gets a proxy handler (`TSharedEngine.Log`) that hands the
+  entry to the first holder with a handler, copied out of `GSharedLock` and called
+  outside it - nothing may log while holding that lock. `HelpChatOnLog` gets every entry
+  too, for code with no component; the lines of `THelpChatRemoteServer.OnLog` go there.
+  Commands the page answers by itself reach the log through `POST /api/command/log`. The
+  remote transport logs through `LogSettings` (the component's). Inside the IDE the handler
+  is not called (`HelpChatDesignTime`). Page: `Logging`.
 - **A line that starts with "/" is a command, and the set decides which.**
   `HelpChatAI.Commands` (RTL) owns `THelpChatCommand` and the set
   `THelpChatCommands`; `EnabledCommands` on both components is that set,

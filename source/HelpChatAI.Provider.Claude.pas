@@ -202,6 +202,16 @@ type
     /// the context goes with the question, so that the prompt cache keeps the
     /// system prompt and the conversation.</summary>
     class function SplitsPrompt: Boolean; override;
+    /// <summary>One request with the system prompt and the question alone,
+    /// no tools, the tokens capped at
+    /// <c>HELPCHAT_SEARCH_TERMS_THINKING_TOKENS</c>: the 5.5 models think
+    /// unasked. Empty without a key.</summary>
+    function CompleteText(const ASystem, AUser: string;
+      const ACancel: IHelpChatCancelToken): string; override;
+    /// <summary>The body of <see cref="CompleteText" />. Public for tests;
+    /// no network involved.</summary>
+    class function BuildCompletionBody(const ASystem, AUser: string;
+      const ASettings: THelpChatClaudeSettings): string; static;
     function SupportsStreaming: Boolean; override;
     function SupportsActions: Boolean; override;
     function SupportsDocuments: Boolean; override;
@@ -988,6 +998,8 @@ var
   LWatcher: TAbortWatcher;
   LHeaders: TNetHeaders;
   LResponse: IHTTPResponse;
+  LUrl: string;
+  LStart: Cardinal;
 begin
   Result := THelpChatSseStream.Create(AOnToken);
   LClient := THTTPClient.Create;
@@ -1006,11 +1018,13 @@ begin
         TNetHeader.Create('accept', 'text/event-stream')
       ];
 
+      LUrl := Settings.Claude.NormalizedBaseUrl + HELPCHAT_CLAUDE_MESSAGES_PATH;
+      LogPost(LUrl, ABody);
+      LStart := TThread.GetTickCount;
       try
         // The body streams into Result, which parses the SSE events and
         // forwards the tokens as they arrive.
-        LResponse := LClient.Post(Settings.Claude.NormalizedBaseUrl + HELPCHAT_CLAUDE_MESSAGES_PATH,
-          LSource, Result, LHeaders);
+        LResponse := LClient.Post(LUrl, LSource, Result, LHeaders);
       except
         on E: Exception do
           if Assigned(ACancel) and ACancel.IsCancelled then
@@ -1019,6 +1033,8 @@ begin
             raise;
       end;
       Result.Finish;
+      LogPosted(LUrl, LResponse.StatusCode, LResponse.StatusText,
+        TThread.GetTickCount - LStart, Result.Raw);
       CheckCancelled(ACancel);
 
       // A refused request is a plain JSON object, not a stream: it went
@@ -1037,6 +1053,30 @@ begin
     LWatcher.Free;
     LSource.Free;
     LClient.Free;
+  end;
+end;
+
+class function THelpChatClaudeProvider.BuildCompletionBody(const ASystem, AUser: string;
+  const ASettings: THelpChatClaudeSettings): string;
+begin
+  Result := HelpChatJsonSetNumber(BuildRequestBody(SingleQuestion(AUser), ASystem, ASettings),
+    'max_tokens', HELPCHAT_SEARCH_TERMS_THINKING_TOKENS);
+end;
+
+function THelpChatClaudeProvider.CompleteText(const ASystem, AUser: string;
+  const ACancel: IHelpChatCancelToken): string;
+var
+  LStream: THelpChatSseStream;
+begin
+  Result := '';
+  if Settings.Claude.ResolveApiKey = '' then
+    Exit;
+  LStream := PostRound(BuildCompletionBody(ASystem, AUser, Settings.Claude), nil, ACancel);
+  try
+    ReportTokenUsage(LStream.Usage);
+    Result := LStream.Text;
+  finally
+    LStream.Free;
   end;
 end;
 
@@ -1066,6 +1106,8 @@ var
         if LAsUserText or (E is EHelpChatCancelled) or not IsSystemRoleRefusal(E.Message) then
           raise;
         RememberRefusingModel(LModel);
+        LogRetry('the context goes in the turn of the user, the model refuses a ' +
+          'system message', E.Message);
         LAsUserText := True;
         Result := PostRound(BuildRequestBody(AHistory, LSystem, Settings.Claude,
           LTools, '[' + LExtra.ToString + ']', Attachments, Settings.Language,

@@ -133,6 +133,9 @@ type
     /// <summary>The language remembered in the state file, if it is still
     /// offered.</summary>
     procedure ApplyLanguageState;
+    /// <summary>The entries of a start: what is in use, what is missing,
+    /// and at llDebug the settings in force with every secret masked.</summary>
+    procedure LogStart(const AIndexFile: string);
   public
     /// <summary>With <c>ASettings = nil</c> the engine creates and owns its own
     /// settings; otherwise it uses the given instance (owned when AOwnsSettings).</summary>
@@ -363,7 +366,48 @@ uses
   System.Generics.Collections,
   HelpChatAI.Html,
   HelpChatAI.Icons,
+  HelpChatAI.Log,
   HelpChatAI.Provider;
+
+/// <summary>The settings as JSON for an llDebug entry, every secret masked.</summary>
+function MaskedSettingsJson(const ASettings: THelpChatSettings): string;
+
+  procedure Mask(const AValue: TJSONValue);
+  var
+    LPair: TJSONPair;
+    LItem: TJSONValue;
+    LName: string;
+  begin
+    if AValue is TJSONObject then
+      for LPair in TJSONObject(AValue) do
+      begin
+        LName := LowerCase(LPair.JsonString.Value);
+        if (LName.Contains('apikey') or LName.Contains('appkey') or
+            LName.Contains('token') or LName.Contains('secret')) and
+           (LPair.JsonValue is TJSONString) and (LPair.JsonValue.Value <> '') then
+          LPair.JsonValue := TJSONString.Create('***')
+        else
+          Mask(LPair.JsonValue);
+      end
+    else if AValue is TJSONArray then
+      for LItem in TJSONArray(AValue) do
+        Mask(LItem);
+  end;
+
+var
+  LRoot: TJSONValue;
+begin
+  LRoot := TJSONObject.ParseJSONValue(ASettings.SaveToJSON);
+  try
+    Mask(LRoot);
+    if Assigned(LRoot) then
+      Result := LRoot.ToJSON
+    else
+      Result := '';
+  finally
+    LRoot.Free;
+  end;
+end;
 
 { THelpChatEngine }
 
@@ -433,6 +477,51 @@ begin
 
   FRunner := THelpChatRunner.Create(FStore, FRetriever, FSettings.PoolSize);
   FActive := True;
+  LogStart(LIndexFile);
+end;
+
+procedure THelpChatEngine.LogStart(const AIndexFile: string);
+var
+  LModel: THelpChatModelSettings;
+  LText, LLeft: string;
+  LInfo: THelpChatModelInfo;
+begin
+  if not FSettings.Logs(llInfo) then
+    Exit;
+  LText := 'Engine started: provider ' + FSettings.Provider;
+  LModel := FSettings.ModelFor(FSettings.Provider);
+  if Assigned(LModel) then
+    LText := LText + ', model ' + LModel.ResolveModel;
+  if FSettings.Models.Count > 0 then
+    LText := LText + ' (' + FSettings.ActiveModelName + ')';
+  LText := LText + Format(', language %s, %d pages in the index',
+    [HelpChatLanguageCode(FSettings.ResolveLanguage), FDocIndex.Count]);
+  FSettings.Log(llInfo, lsInfo, lcEngine, LText);
+  if (AIndexFile <> '') and not TFile.Exists(AIndexFile) then
+    FSettings.Log(llInfo, lsWarning, lcConfig, 'Documentation index not found: ' + AIndexFile)
+  else if AIndexFile = '' then
+    FSettings.Log(llInfo, lsWarning, lcConfig, 'No documentation index: the answers ' +
+      'have no manual to rely on');
+  FSettings.Log(llDetail, lsInfo, lcEngine, Format('Index %s, pages folder %s, ' +
+    'conversation %s', [AIndexFile, FSettings.ResolveDocFolder,
+     FSettings.ResolveConversationFile]));
+  if FSettings.Models.Count > 0 then
+  begin
+    LLeft := '';
+    for LInfo in FSettings.ResolveModels do
+      if not LInfo.Active and not HelpChatModelIsConfigured(FSettings, LInfo.Name) then
+      begin
+        if LLeft <> '' then
+          LLeft := LLeft + ', ';
+        LLeft := LLeft + LInfo.Name;
+      end;
+    if LLeft <> '' then
+      FSettings.Log(llDetail, lsInfo, lcConfig, 'Models not offered in the panel, ' +
+        'not configured (no key): ' + LLeft);
+  end;
+  if FSettings.Logs(llDebug) then
+    FSettings.Log(llDebug, lsInfo, lcConfig, 'Settings in force (secrets masked)', '', '',
+      MaskedSettingsJson(FSettings));
 end;
 
 procedure THelpChatEngine.Stop(const ATimeoutMs: Integer);
@@ -454,6 +543,7 @@ begin
   end;
   FDocIndex := nil;
   FRetriever := nil;
+  FSettings.Log(llInfo, lsInfo, lcEngine, 'Engine stopped');
 end;
 
 procedure THelpChatEngine.EnsureActive;
@@ -510,6 +600,9 @@ begin
   LAssistantId := FStore.AddPendingAssistant(AKey);
   FStore.TryGetMessage(AKey, LAssistantId, Result.AssistantMessage);
   Result.Sent := True;
+  FSettings.Log(llInfo, lsInfo, lcRequest, Format('Question sent: %d characters, ' +
+    '%d attachments', [LText.Length, FAttachments.Count(AKey)]), AKey, LAssistantId);
+  FSettings.Log(llDetail, lsInfo, lcRequest, 'Question: ' + LText, AKey, LAssistantId);
 
   LActions := AActions;
   if LActions = nil then
@@ -579,6 +672,7 @@ begin
   // The attachments went with the conversation that is gone: keeping them
   // would send documents nobody can see any more with the next question.
   FAttachments.ClearKey(AKey);
+  FSettings.Log(llInfo, lsInfo, lcConversation, 'Conversation cleared', AKey);
 end;
 
 function THelpChatEngine.AddAttachment(const AKey, AFileName: string;
@@ -591,11 +685,25 @@ begin
     Exit(False);
   Result := FAttachments.TryAdd(AKey, AFileName, AData,
     FSettings.Attachments.Limits, ActiveLanguage, AAttachment, AError);
+  if Result then
+    FSettings.Log(llInfo, lsInfo, lcAttachment, Format('Attachment added: %s, %s, %d bytes',
+      [AAttachment.FileName, AAttachment.MediaType, Length(AData)]), AKey)
+  else
+    FSettings.Log(llInfo, lsWarning, lcAttachment, Format('Attachment refused: %s (%s)',
+      [ExtractFileName(AFileName), AError]), AKey);
 end;
 
 function THelpChatEngine.RemoveAttachment(const AKey, AId: string): Boolean;
+var
+  LAttachment: THelpChatAttachment;
+  LName: string;
 begin
+  LName := AId;
+  if FAttachments.TryGet(AKey, AId, LAttachment) then
+    LName := LAttachment.FileName;
   Result := FAttachments.Remove(AKey, AId);
+  if Result then
+    FSettings.Log(llInfo, lsInfo, lcAttachment, 'Attachment removed: ' + LName, AKey);
 end;
 
 function THelpChatEngine.StateFile: string;
@@ -658,8 +766,15 @@ begin
   if FSettings.PersistConversation then
     LName := LoadState('Model');
   // The remembered one, if it is still in the list; else what the configuration names.
-  if (LName = '') or not FSettings.ApplyModel(LName) then
+  if (LName <> '') and FSettings.ApplyModel(LName) then
+    FSettings.Log(llDetail, lsInfo, lcEngine, 'Model at start: ' + LName +
+      ', the one the user picked last time')
+  else
+  begin
     FSettings.ApplyModel(FSettings.ActiveModelName);
+    FSettings.Log(llDetail, lsInfo, lcEngine, 'Model at start: ' +
+      FSettings.ActiveModelName + ', the one of the configuration');
+  end;
   // Never start on a model that cannot answer when one of the list can: the
   // first that is configured takes its place, and nothing is remembered -
   // once its key is there, the one named comes back at the next start. With
@@ -667,12 +782,17 @@ begin
   // missing.
   if HelpChatModelIsConfigured(FSettings, FSettings.ActiveModelName) then
     Exit;
+  LName := FSettings.ActiveModelName;
   for I := 0 to FSettings.Models.Count - 1 do
     if HelpChatModelIsConfigured(FSettings, FSettings.Models[I].Name) then
     begin
       FSettings.ApplyModel(FSettings.Models[I].Name);
+      FSettings.Log(llInfo, lsWarning, lcConfig, Format('Model %s cannot answer ' +
+        '(not configured): %s is used instead', [LName, FSettings.Models[I].Name]));
       Exit;
     end;
+  FSettings.Log(llInfo, lsWarning, lcConfig, Format('Model %s cannot answer ' +
+    '(not configured), and no other model of the list can', [LName]));
 end;
 
 function THelpChatEngine.Models: TArray<THelpChatModelInfo>;
@@ -721,10 +841,18 @@ begin
 end;
 
 function THelpChatEngine.SelectModel(const AName: string): Boolean;
+var
+  LPrevious: string;
 begin
+  LPrevious := FSettings.ActiveModelName;
   Result := FSettings.ApplyModel(AName);
   if not Result then
+  begin
+    FSettings.Log(llDetail, lsWarning, lcEngine, 'Model not switched: no model named ' + AName);
     Exit;
+  end;
+  FSettings.Log(llInfo, lsInfo, lcEngine, Format('Model switched from %s to %s',
+    [LPrevious, FSettings.ActiveModelName]));
   if Assigned(FDocIndex) then
     FDocIndex.ExcerptMaxChars := FSettings.ActiveModel.GroundingMaxChars;
   SaveState;
@@ -766,10 +894,19 @@ begin
 end;
 
 function THelpChatEngine.SelectLanguage(const ALanguage: THelpChatLanguage): Boolean;
+var
+  LPrevious: THelpChatLanguage;
 begin
   Result := ALanguage in FSettings.Languages * HELPCHAT_ALL_LANGUAGES;
   if not Result then
+  begin
+    FSettings.Log(llDetail, lsWarning, lcEngine, 'Language not switched: ' +
+      HelpChatLanguageCode(ALanguage) + ' is not offered');
     Exit;
+  end;
+  LPrevious := FSettings.ResolveLanguage;
+  FSettings.Log(llInfo, lsInfo, lcEngine, Format('Language switched from %s to %s',
+    [HelpChatLanguageCode(LPrevious), HelpChatLanguageCode(ALanguage)]));
   // Written on the settings, not kept aside: every reader of the language
   // (the snapshot of a request, the strings of a dialog, the page) reads it
   // there. A reply being produced keeps the snapshot it started with.
@@ -841,6 +978,10 @@ function THelpChatEngine.LoadConversation: Boolean;
 begin
   Result := Assigned(FStore) and FStore.LoadFromFile(FConversationKey,
     FSettings.ResolveConversationFile, FSettings.ConversationMaxAgeDays);
+  if Result then
+    FSettings.Log(llDetail, lsInfo, lcConversation, Format('Conversation loaded: ' +
+      '%d messages from %s', [FStore.Count(FConversationKey),
+       FSettings.ResolveConversationFile]), FConversationKey);
 end;
 
 { THelpChatEngines }
@@ -867,6 +1008,7 @@ type
       var AResult: string; var AHandled: Boolean);
     procedure BuildPrompt(Sender: TObject; const AContext: THelpChatContext;
       const ALanguage: THelpChatLanguage; var APrompt: string);
+    procedure Log(Sender: TObject; const AEntry: THelpChatLogEntry);
   end;
 
 var
@@ -981,6 +1123,36 @@ begin
   end;
 end;
 
+procedure TSharedEngine.Log(Sender: TObject; const AEntry: THelpChatLogEntry);
+var
+  LSettings: THelpChatSettings;
+  LHandler: THelpChatLogEvent;
+  LSender: TObject;
+begin
+  // The handler of the first assistant still holding the engine: one
+  // conversation per profile, so every entry reaches the application once,
+  // whichever window asked. Called outside the lock: a handler may take its
+  // time, and nothing logs while holding it.
+  LHandler := nil;
+  LSender := nil;
+  GSharedLock.Enter;
+  try
+    for LSettings in FHolderSettings do
+      if Assigned(LSettings.OnLog) then
+      begin
+        LHandler := LSettings.OnLog;
+        LSender := LSettings.LogSender;
+        if LSender = nil then
+          LSender := LSettings;
+        Break;
+      end;
+  finally
+    GSharedLock.Leave;
+  end;
+  if Assigned(LHandler) then
+    LHandler(LSender, AEntry);
+end;
+
 class function THelpChatEngines.Acquire(const AHolder: TObject;
   const ASettings: THelpChatSettings): THelpChatEngine;
 var
@@ -1003,6 +1175,7 @@ begin
       LSettings.Assign(ASettings);
       LSettings.SetSecretHandler(LEntry.Decrypt, nil);
       LSettings.SetPromptHandler(LEntry.BuildPrompt, nil);
+      LSettings.SetLogHandler(LEntry.Log, nil);
       LEntry.Engine := THelpChatEngine.Create(LSettings, True);
     end;
     LEntry.AddHolder(AHolder, ASettings);

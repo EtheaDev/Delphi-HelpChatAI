@@ -250,14 +250,14 @@ create a lead or prepare a proposal. All of them name the four skills too, so th
 on any window, the fields no action was written for.
 
 There are **four demos**: the application in both frameworks, each in two editions, all
-sharing one data module, one database and one manual:
+sharing one data module, one database and one manual, located in CRM Demo:
 
 | | Project | Delphi | What it is |
 |---|---|---|---|
-| VCL | `CRM Demo\VCL\project\VCL_CRMDemo.dproj` | 10.4 → 13 | The whole application, with one assistant: seven pages, the lead and proposal windows, and all four actions |
-| FMX | `CRM Demo\FMX\project\FMX_CRMDemo.dproj` | 12 → 13 | The same application in FireMonkey: the seven pages, the lead, proposal and draft windows, and the same four actions |
-| VCL, multi-assistant | `CRM Demo\VCL\project\VCL_CRMDemo_MultiAgent.dproj` | 10.4 → 13 | The same sources with `MULTIAGENT` defined: a general assistant on the main form and a Sales one on the lead window, each answering from its own area of the manual, and an action (`draft_proposal`) that only the Sales assistant may use |
-| FMX, multi-assistant | `CRM Demo\FMX\project\FMX_CRMDemo_MultiAgent.dproj` | 12 → 13 | The same two assistants in FireMonkey |
+| VCL | `VCL_CRMDemo.dproj` | 10.4→13 | The whole application, with one assistant: seven pages, the lead and proposal windows, and all four actions |
+| FMX | `FMX_CRMDemo.dproj` | 12→13 | The same application in FireMonkey: the seven pages, the lead, proposal and draft windows, and the same four actions |
+| VCL, multi-assistant | `VCL_CRMDemo_MultiAgent.dproj` | 10.4→13 | The same sources with `MULTIAGENT` defined: a general assistant on the main form and a Sales one on the lead window, each answering from its own area of the manual, and an action (`draft_proposal`) that only the Sales assistant may use |
+| FMX, multi-assistant | `FMX_CRMDemo_MultiAgent.dproj` | 12→13 | The same two assistants in FireMonkey |
 
 Start from the plain editions; the multi-assistant ones show [profiles](#more-than-one-assistant-profiles)
 at work, and that the configuration, not the code, decides which assistant may use an action.
@@ -285,6 +285,14 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+17 Nov 2026: ver. 1.13.0
+- The question is translated for the search: with a `DocLanguage` different from the chat, the model in use turns it into search terms in the language of the manual (`TranslateSearch`, on by default; `SearchTermsPrompt`) - the right page among the 3 for 20 Italian questions of 21, against 12
+- The language of the chat decides the language of the answer, whatever language the question is in (`LanguageRule`)
+- `/prompt`: a title over each box, and the search terms of the question
+- `THelpChatProviderBase.CompleteText`: one short request, for a provider of the application
+- Logging: `Settings.LogLevel` (`llNone`, `llInfo`, `llDetail`, `llDebug`) and `OnLogEvent` on both components; `HelpChatOnLog` for code with no component. The CRM demos write it to a file with Logify
+- 551 tests
 
 16 Nov 2026: ver. 1.12.0
 - Skills: ready-made sets of actions an assistant gets by naming them in `Settings.Skills` - `forms`, `commands`, `records` and `pages`, in the VCL and in FireMonkey (LiveBindings included); `/skills` lists them. `HelpChatAI` requires `dbrtl`, `HelpChatAIVcl` `dbrtl` and `vcldb`

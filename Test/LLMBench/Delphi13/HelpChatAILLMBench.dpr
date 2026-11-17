@@ -30,6 +30,10 @@ uses
 //   --ollama=http://host:11434  the Ollama of the local models (default localhost)
 //   --nocache  Claude.PromptCaching off, to compare the tokens with a run that has it
 //
+// HelpChatAILLMBench --terms=embeddings\questions.json [--only=...] [--ollama=URL]
+//   the request of TranslateSearch through the providers of the library, for the
+//   Italian questions, the chat in Italian and the manual in English: printed
+//
 // HelpChatAILLMBench --suite=conversation [--only=...] [--nocache] [--out=file.md]
 //   the same questions, but those of a target asked in one conversation, the history
 //   never cleared: what the prompt cache reads back as the conversation grows.
@@ -49,7 +53,7 @@ uses
 
 var
   LRunner: TBenchRunner;
-  LRoot, LOut, LArg, LRetrieval, LSuite, LJudge, LRejudge, LOllama: string;
+  LRoot, LOut, LArg, LRetrieval, LSuite, LJudge, LRejudge, LOllama, LTermsFile: string;
   LNoCache: Boolean;
   LOnly: TArray<string>;
   I: Integer;
@@ -69,6 +73,8 @@ begin
         LOut := LArg.Substring(6)
       else if LArg.StartsWith('--retrieval=', True) then
         LRetrieval := LArg.Substring(12)
+      else if LArg.StartsWith('--terms=', True) then
+        LTermsFile := LArg.Substring(8)
       else if LArg.StartsWith('--suite=', True) then
         LSuite := LArg.Substring(8)
       else if SameText(LArg, '--nocache') then
@@ -95,6 +101,20 @@ begin
       TDirectory.CreateDirectory(TPath.GetDirectoryName(LOut));
       RunRetrieval(TPath.Combine(LRoot, 'CRM Demo\Help\help-index.json'),
         TPath.GetFullPath(LRetrieval), LOut);
+      Exit;
+    end;
+    if LTermsFile <> '' then
+    begin
+      LRunner := TBenchRunner.Create(LRoot);
+      try
+        if LOllama <> '' then
+          LRunner.OllamaBaseUrl := LOllama;
+        LRunner.AddDefaultTargets;
+        LRunner.FilterTargets(LOnly);
+        LRunner.RunSearchTerms(TPath.GetFullPath(LTermsFile));
+      finally
+        LRunner.Free;
+      end;
       Exit;
     end;
     if LOut = '' then

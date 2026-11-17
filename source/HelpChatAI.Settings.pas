@@ -44,6 +44,7 @@ uses
   System.JSON,
   HelpChatAI.Types,
   HelpChatAI.Messages,
+  HelpChatAI.Log,
   HelpChatAI.Attachments,
   HelpChatAI.Pdf;
 
@@ -98,11 +99,14 @@ const
     'Be concise and practical: a few sentences or a short numbered list of steps. ' +
     'Use only light Markdown: bold, lists, links, inline code.';
   /// <summary>Appended to the system prompt with the name of the language of
-  /// the chat (the configured one, or the flag the user picked in the panel):
-  /// the model follows the user only when the user clearly switches.</summary>
-  HELPCHAT_MODEL_DEF_LANGUAGE_RULE =
-    'The language of this chat is %0:s. Reply in %0:s, unless the user ' +
-    'clearly writes in another language: in that case reply in the language of the user.';
+  /// the chat (the configured one, or the flag the user picked in the panel).
+  /// The language of the chat decides, not the language of the question:
+  /// whoever wants the replies in another language picks it with the flag,
+  /// which also tells the engine to translate the search when the manual is
+  /// in another language (<see cref="HELPCHAT_MODEL_DEF_SEARCH_TERMS_PROMPT" />).
+  /// Until 1.12 the model followed a user who clearly wrote in another
+  /// language.</summary>
+  HELPCHAT_MODEL_DEF_LANGUAGE_RULE = 'The language of this chat is %0:s. Reply in %0:s.';
   /// <summary>Appended when <c>DocLanguage</c> says the documentation is
   /// written in a language other than the one of the chat (%0:s the
   /// documentation, %1:s the chat). A translated caption is a caption the
@@ -134,6 +138,25 @@ const
   /// system prompt, where it would make the prompt cache useless (claude);
   /// the other providers still read it right after the identity.</summary>
   HELPCHAT_MODEL_DEF_NOW_RULE = 'Now it is %s.';
+  /// <summary>The system prompt of the request that turns a question into
+  /// search terms, when the manual is in another language than the chat
+  /// (%0:s the language of the manual). The search of the manual is lexical:
+  /// "inserisci una societa" shares no word with a page about accounts.
+  /// Measured in Test\LLMBench (results/translation-v1.md): Italian questions
+  /// over the English manual of the CRM demo found the right page among the
+  /// three of the prompt 12 times out of 21, with the terms 20.</summary>
+  HELPCHAT_MODEL_DEF_SEARCH_TERMS_PROMPT =
+    'You prepare the search of the user manual of an application. The manual is written in ' +
+    '%0:s. Given the question of a user, which may be in any language, reply with one line ' +
+    'of %0:s search terms: the words the manual most likely uses for what the user asks, ' +
+    'adding the common synonyms (for example: company, account; quote, proposal; delete, ' +
+    'remove). When the previous question is given too, use it only to understand what the ' +
+    'question refers to. Reply with the terms only: no preamble, no translation of the ' +
+    'question, no explanation, no quotes. If the question is already in %0:s, repeat its key ' +
+    'words and add the synonyms.';
+  /// <summary>Default of <c>TranslateSearch</c>: a manual declared in another
+  /// language than the chat is searched with the terms of the model.</summary>
+  HELPCHAT_DEF_TRANSLATE_SEARCH = True;
   /// <summary>What the field of the assistant (%s, its <c>Expertise</c>)
   /// becomes in the system prompt: right after its name, before the rules.</summary>
   HELPCHAT_MODEL_DEF_EXPERTISE = 'Your field of expertise is %s.';
@@ -719,6 +742,8 @@ type
     FInstructions: string;
     FIdentityRule: string;
     FNowRule: string;
+    FSearchTermsPrompt: string;
+    FTranslateSearch: Boolean;
     FLanguageRule: string;
     FDocLanguageRule: string;
     FExpertiseIntro: string;
@@ -761,6 +786,11 @@ type
     FSecretSender: TObject;
     FOnBuildSystemPrompt: THelpChatBuildPromptEvent;
     FPromptSender: TObject;
+    FLogLevel: THelpChatLogLevel;
+    FOnLog: THelpChatLogEvent;
+    FLogSender: TObject;
+    FLogKey: string;
+    FLogRequestId: string;
     procedure SetClaude(const Value: THelpChatClaudeSettings);
     procedure SetOpenAI(const Value: THelpChatOpenAISettings);
     procedure SetGemini(const Value: THelpChatGeminiSettings);
@@ -825,6 +855,7 @@ type
     function IsSystemPromptStored: Boolean;
     function IsIdentityRuleStored: Boolean;
     function IsNowRuleStored: Boolean;
+    function IsSearchTermsPromptStored: Boolean;
     function IsLanguageRuleStored: Boolean;
     function IsDocLanguageRuleStored: Boolean;
     function IsExpertiseIntroStored: Boolean;
@@ -856,6 +887,14 @@ type
     /// <summary><c>NowRule</c> with now; empty when <c>IdentityRule</c>
     /// already says it.</summary>
     function ResolveNowRule(const ANow: string): string;
+    /// <summary><c>SearchTermsPrompt</c> with the language of the manual.</summary>
+    function ResolveSearchTermsPrompt: string;
+    /// <summary>True when a question asked in <c>AChat</c> is searched with
+    /// the terms of the model: <c>TranslateSearch</c>, and a
+    /// <c>DocLanguage</c> stated and different from the language of the
+    /// chat. The language of the chat decides, not the one of the question:
+    /// it is what the user picked.</summary>
+    function TranslatesSearch(const AChat: THelpChatLanguage): Boolean;
     /// <summary><c>LanguageRule</c> with the name of the language of the chat.</summary>
     function ResolveLanguageRule(const AChat: THelpChatLanguage): string;
     /// <summary><c>DocLanguageRule</c> with the language of the manual and of
@@ -883,6 +922,34 @@ type
     /// <summary>What the handler sees as <c>Sender</c> (see
     /// <see cref="SetSecretHandler" />).</summary>
     property SecretSender: TObject read FSecretSender;
+
+    /// <summary>Installs the handler of the log and the object it sees as
+    /// <c>Sender</c> (the component). Copied by <c>Assign</c>, like the
+    /// secret handler: what a request logs, it logs through its snapshot.</summary>
+    procedure SetLogHandler(const AHandler: THelpChatLogEvent;
+      const ASender: TObject = nil);
+    /// <summary>True when an entry of ALevel would reach somebody: the level
+    /// is within <c>LogLevel</c> and a handler or
+    /// <see cref="HelpChatOnLog" /> listens. Ask it before building a text
+    /// that costs something (a prompt, a list of pages).</summary>
+    function Logs(const ALevel: THelpChatLogLevel): Boolean;
+    /// <summary>Writes one entry when <see cref="Logs" /> says so: to
+    /// <c>OnLog</c> and then to <see cref="HelpChatOnLog" />, on the calling
+    /// thread, one entry at a time for the process.</summary>
+    procedure Log(const ALevel: THelpChatLogLevel; const ASeverity: THelpChatLogSeverity;
+      const ACategory: THelpChatLogCategory; const AText: string;
+      const AConversationKey: string = ''; const ARequestId: string = '';
+      const AData: string = '');
+    /// <summary>See <see cref="THelpChatLogEvent" />. The components publish
+    /// it as <c>OnLogEvent</c>.</summary>
+    property OnLog: THelpChatLogEvent read FOnLog write FOnLog;
+    /// <summary>What the log handler sees as <c>Sender</c>.</summary>
+    property LogSender: TObject read FLogSender;
+    /// <summary>The conversation and the reply the entries of these settings
+    /// belong to, when <c>Log</c> is not told: the runner sets them on the
+    /// snapshot of a request, so that a provider, the search and the actions
+    /// log with them without knowing.</summary>
+    procedure SetLogContext(const AConversationKey, ARequestId: string);
 
     /// <summary>The greeting to show: <c>Greeting</c> when set, else the localized default.</summary>
     function ResolveGreeting: string;
@@ -1020,6 +1087,13 @@ type
     /// it changes every minute. Default
     /// <see cref="HELPCHAT_MODEL_DEF_NOW_RULE" />; empty = the default.</summary>
     property NowRule: string read FNowRule write FNowRule stored IsNowRuleStored;
+    /// <summary>The system prompt of the request that turns the question into
+    /// search terms (<c>TranslateSearch</c>): %0:s the language of the
+    /// manual. It is not part of the prompt of the reply. Default
+    /// <see cref="HELPCHAT_MODEL_DEF_SEARCH_TERMS_PROMPT" />; empty = the
+    /// default.</summary>
+    property SearchTermsPrompt: string read FSearchTermsPrompt write FSearchTermsPrompt
+      stored IsSearchTermsPromptStored;
     /// <summary>The language of the reply: %0:s the name of the language of
     /// the chat. Default <see cref="HELPCHAT_MODEL_DEF_LANGUAGE_RULE" />.</summary>
     property LanguageRule: string read FLanguageRule write FLanguageRule
@@ -1085,6 +1159,21 @@ type
     /// buttons and fields as the documentation spells them. <c>hclAuto</c> =
     /// not stated, no such rule.</summary>
     property DocLanguage: THelpChatLanguage read FDocLanguage write FDocLanguage default hclAuto;
+    /// <summary>When <c>DocLanguage</c> is stated and differs from the
+    /// language of the chat, the model in use first turns the question (and
+    /// the one before it) into search terms in the language of the manual,
+    /// and the manual is searched with the question plus those terms, without
+    /// the screen as a hint. One short request more per question; a failure
+    /// searches with the question alone.</summary>
+    property TranslateSearch: Boolean read FTranslateSearch write FTranslateSearch
+      default HELPCHAT_DEF_TRANSLATE_SEARCH;
+    /// <summary>How much the assistant tells <c>OnLogEvent</c>: llNone,
+    /// llInfo (what happened, never what the user wrote), llDetail (how it
+    /// was decided, the question included), llDebug (everything needed to
+    /// reproduce a reply, never a key). In JSON "none", "info", "detail",
+    /// "debug": support can raise it in a configuration file.</summary>
+    property LogLevel: THelpChatLogLevel read FLogLevel write FLogLevel
+      default HELPCHAT_DEF_LOG_LEVEL;
     /// <summary>JSON documentation index for docsearch and Claude grounding.</summary>
     property DocIndexFile: string read FDocIndexFile write FDocIndexFile;
     /// <summary>The areas of the manual this assistant knows, separated by
@@ -2081,6 +2170,9 @@ begin
   FSystemPrompt := HELPCHAT_MODEL_DEF_SYSTEMPROMPT;
   FIdentityRule := HELPCHAT_MODEL_DEF_IDENTITY_RULE;
   FNowRule := HELPCHAT_MODEL_DEF_NOW_RULE;
+  FSearchTermsPrompt := HELPCHAT_MODEL_DEF_SEARCH_TERMS_PROMPT;
+  FTranslateSearch := HELPCHAT_DEF_TRANSLATE_SEARCH;
+  FLogLevel := HELPCHAT_DEF_LOG_LEVEL;
   FLanguageRule := HELPCHAT_MODEL_DEF_LANGUAGE_RULE;
   FDocLanguageRule := HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE;
   FExpertiseIntro := HELPCHAT_MODEL_DEF_EXPERTISE;
@@ -2292,6 +2384,11 @@ begin
   Result := IsTextStored(FNowRule, HELPCHAT_MODEL_DEF_NOW_RULE);
 end;
 
+function THelpChatSettings.IsSearchTermsPromptStored: Boolean;
+begin
+  Result := IsTextStored(FSearchTermsPrompt, HELPCHAT_MODEL_DEF_SEARCH_TERMS_PROMPT);
+end;
+
 function THelpChatSettings.IsLanguageRuleStored: Boolean;
 begin
   Result := IsTextStored(FLanguageRule, HELPCHAT_MODEL_DEF_LANGUAGE_RULE);
@@ -2359,6 +2456,17 @@ begin
   if IdentityRuleSaysNow then
     Exit('');
   Result := HelpChatFormatRule(FNowRule, HELPCHAT_MODEL_DEF_NOW_RULE, [ANow]);
+end;
+
+function THelpChatSettings.ResolveSearchTermsPrompt: string;
+begin
+  Result := HelpChatFormatRule(FSearchTermsPrompt, HELPCHAT_MODEL_DEF_SEARCH_TERMS_PROMPT,
+    [HelpChatLanguageName(FDocLanguage)]);
+end;
+
+function THelpChatSettings.TranslatesSearch(const AChat: THelpChatLanguage): Boolean;
+begin
+  Result := FTranslateSearch and (FDocLanguage <> hclAuto) and (FDocLanguage <> AChat);
 end;
 
 function THelpChatSettings.ResolveLanguageRule(const AChat: THelpChatLanguage): string;
@@ -2514,6 +2622,13 @@ begin
       FInstructions := LSource.FInstructions;
       FIdentityRule := LSource.FIdentityRule;
       FNowRule := LSource.FNowRule;
+      FSearchTermsPrompt := LSource.FSearchTermsPrompt;
+      FTranslateSearch := LSource.FTranslateSearch;
+      FLogLevel := LSource.FLogLevel;
+      FOnLog := LSource.FOnLog;
+      FLogSender := LSource.FLogSender;
+      FLogKey := LSource.FLogKey;
+      FLogRequestId := LSource.FLogRequestId;
       FLanguageRule := LSource.FLanguageRule;
       FDocLanguageRule := LSource.FDocLanguageRule;
       FExpertiseIntro := LSource.FExpertiseIntro;
@@ -2558,6 +2673,60 @@ begin
   end
   else
     inherited Assign(Source);
+end;
+
+procedure THelpChatSettings.SetLogHandler(const AHandler: THelpChatLogEvent;
+  const ASender: TObject);
+begin
+  FOnLog := AHandler;
+  FLogSender := ASender;
+end;
+
+procedure THelpChatSettings.SetLogContext(const AConversationKey, ARequestId: string);
+begin
+  FLogKey := AConversationKey;
+  FLogRequestId := ARequestId;
+end;
+
+function THelpChatSettings.Logs(const ALevel: THelpChatLogLevel): Boolean;
+begin
+  // Inside the IDE the handler is code of the application, which does not
+  // run there (as for the prompt handler).
+  Result := (ALevel <> llNone) and (ALevel <= FLogLevel) and
+    ((Assigned(FOnLog) and not HelpChatDesignTime) or Assigned(HelpChatOnLog));
+end;
+
+procedure THelpChatSettings.Log(const ALevel: THelpChatLogLevel;
+  const ASeverity: THelpChatLogSeverity; const ACategory: THelpChatLogCategory;
+  const AText, AConversationKey, ARequestId, AData: string);
+var
+  LEntry: THelpChatLogEntry;
+  LHandler: THelpChatLogEvent;
+  LSender: TObject;
+begin
+  if not Logs(ALevel) then
+    Exit;
+  LEntry.Time := Now;
+  LEntry.Level := ALevel;
+  LEntry.Severity := ASeverity;
+  LEntry.Category := ACategory;
+  LEntry.Profile := FProfile;
+  LEntry.ConversationKey := AConversationKey;
+  if LEntry.ConversationKey = '' then
+    LEntry.ConversationKey := FLogKey;
+  LEntry.RequestId := ARequestId;
+  if LEntry.RequestId = '' then
+    LEntry.RequestId := FLogRequestId;
+  LEntry.ThreadId := TThread.CurrentThread.ThreadID;
+  LEntry.Text := AText;
+  LEntry.Data := AData;
+  LHandler := nil;
+  if not HelpChatDesignTime then
+    LHandler := FOnLog;
+  LSender := FLogSender;
+  if LSender = nil then
+    LSender := Self;
+  HelpChatDispatchLog(LEntry, LHandler, LSender);
 end;
 
 procedure THelpChatSettings.SetSecretHandler(const AHandler: THelpChatSecretEvent;
@@ -2763,6 +2932,9 @@ begin
   FInstructions := JsonStr(AObject, 'Instructions', FInstructions);
   FIdentityRule := JsonStr(AObject, 'IdentityRule', FIdentityRule);
   FNowRule := JsonStr(AObject, 'NowRule', FNowRule);
+  FSearchTermsPrompt := JsonStr(AObject, 'SearchTermsPrompt', FSearchTermsPrompt);
+  FTranslateSearch := JsonBool(AObject, 'TranslateSearch', FTranslateSearch);
+  FLogLevel := HelpChatConfigToLogLevel(JsonStr(AObject, 'LogLevel', ''), FLogLevel);
   FLanguageRule := JsonStr(AObject, 'LanguageRule', FLanguageRule);
   FDocLanguageRule := JsonStr(AObject, 'DocLanguageRule', FDocLanguageRule);
   FExpertiseIntro := JsonStr(AObject, 'ExpertiseIntro', FExpertiseIntro);
@@ -2822,6 +2994,8 @@ begin
       LRoot.AddPair('IdentityRule', FIdentityRule);
     if IsNowRuleStored then
       LRoot.AddPair('NowRule', FNowRule);
+    if IsSearchTermsPromptStored then
+      LRoot.AddPair('SearchTermsPrompt', FSearchTermsPrompt);
     if IsLanguageRuleStored then
       LRoot.AddPair('LanguageRule', FLanguageRule);
     if IsDocLanguageRuleStored then
@@ -2838,6 +3012,8 @@ begin
     LRoot.AddPair('Language', LanguageToConfig(FLanguage));
     LRoot.AddPair('Languages', LanguagesToJson(FLanguages));
     LRoot.AddPair('DocLanguage', LanguageToConfig(FDocLanguage));
+    LRoot.AddPair('TranslateSearch', TJSONBool.Create(FTranslateSearch));
+    LRoot.AddPair('LogLevel', HelpChatLogLevelToConfig(FLogLevel));
     LRoot.AddPair('Greeting', FGreeting);
     LRoot.AddPair('DocIndexFile', FDocIndexFile);
     LRoot.AddPair('DocAreas', FDocAreas);

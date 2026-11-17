@@ -998,14 +998,27 @@
         break;
     }
   }
+  // A command the page answers by itself, or refuses, reaches the log of the
+  // host this way; nothing waits for it and a failure is ignored.
+  function logCommand(name, args, outcome, fromHost) {
+    var headers = {}; headers[TOKEN_HEADER] = HC.token;
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    fetch(api('/api/command/log'), { method: 'POST', headers: headers,
+      body: 'name=' + encodeURIComponent(name) + '&args=' + encodeURIComponent(args) +
+        '&outcome=' + encodeURIComponent(outcome) + (fromHost ? '&host=1' : '') })
+      .catch(function () {});
+  }
   // fromHost: the application asked (window.hcCommand(line, true)), and may
   // run a command the user is not allowed to type.
   function runCommand(line, fromHost) {
     var m = /^\/?(\S+)\s*([\s\S]*)$/.exec(String(line || '').trim());
     var name = m ? m[1].toLowerCase() : '', args = m ? m[2].trim() : '';
     var cmd = commandByName(name);
-    if (!cmd || (!cmd.enabled && !fromHost)) { showSystem(fmt(HC.labels.cmdUnknown, '/' + name)); return; }
-    if (cmd.local) { runLocalCommand(name, args); return; }
+    if (!cmd || (!cmd.enabled && !fromHost)) {
+      logCommand(name, args, cmd ? 'refused: not enabled' : 'unknown command', fromHost);
+      showSystem(fmt(HC.labels.cmdUnknown, '/' + name)); return;
+    }
+    if (cmd.local) { logCommand(name, args, 'run by the panel', fromHost); runLocalCommand(name, args); return; }
     var headers = {}; headers[TOKEN_HEADER] = HC.token;
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
     fetch(api('/api/command'), { method: 'POST', headers: headers,

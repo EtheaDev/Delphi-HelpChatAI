@@ -83,6 +83,8 @@
         <DCCReference Include="..\source\HelpChatAI.Tests.DocPages.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Html.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Runner.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.SearchTerms.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.Log.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Claude.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.OpenAI.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Gemini.pas"/>

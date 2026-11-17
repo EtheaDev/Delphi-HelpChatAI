@@ -418,7 +418,7 @@ and the assistant answering from it. Press <strong>F1</strong> on any screen, or
 create a lead or prepare a proposal. All of them name the four skills too, so they can fill,
 on any window, the fields no action was written for.</p>
 <p>There are <strong>four demos</strong>: the application in both frameworks, each in two editions, all
-sharing one data module, one database and one manual:</p>
+sharing one data module, one database and one manual, located in CRM Demo:</p>
 <table>
 <thead>
 <tr>
@@ -431,26 +431,26 @@ sharing one data module, one database and one manual:</p>
 <tbody>
 <tr>
 <td>VCL</td>
-<td><code>CRM Demo\VCL\project\VCL_CRMDemo.dproj</code></td>
-<td>10.4 → 13</td>
+<td><code>VCL_CRMDemo.dproj</code></td>
+<td>10.4→13</td>
 <td>The whole application, with one assistant: seven pages, the lead and proposal windows, and all four actions</td>
 </tr>
 <tr>
 <td>FMX</td>
-<td><code>CRM Demo\FMX\project\FMX_CRMDemo.dproj</code></td>
-<td>12 → 13</td>
+<td><code>FMX_CRMDemo.dproj</code></td>
+<td>12→13</td>
 <td>The same application in FireMonkey: the seven pages, the lead, proposal and draft windows, and the same four actions</td>
 </tr>
 <tr>
 <td>VCL, multi-assistant</td>
-<td><code>CRM Demo\VCL\project\VCL_CRMDemo_MultiAgent.dproj</code></td>
-<td>10.4 → 13</td>
+<td><code>VCL_CRMDemo_MultiAgent.dproj</code></td>
+<td>10.4→13</td>
 <td>The same sources with <code>MULTIAGENT</code> defined: a general assistant on the main form and a Sales one on the lead window, each answering from its own area of the manual, and an action (<code>draft_proposal</code>) that only the Sales assistant may use</td>
 </tr>
 <tr>
 <td>FMX, multi-assistant</td>
-<td><code>CRM Demo\FMX\project\FMX_CRMDemo_MultiAgent.dproj</code></td>
-<td>12 → 13</td>
+<td><code>FMX_CRMDemo_MultiAgent.dproj</code></td>
+<td>12→13</td>
 <td>The same two assistants in FireMonkey</td>
 </tr>
 </tbody>
@@ -474,6 +474,15 @@ document - the last two of which write a real PDF with the WebView2 runtime of t
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>17 Nov 2026: ver. 1.13.0</p>
+<ul>
+<li>The question is translated for the search: with a <code>DocLanguage</code> different from the chat, the model in use turns it into search terms in the language of the manual (<code>TranslateSearch</code>, on by default; <code>SearchTermsPrompt</code>) - the right page among the 3 for 20 Italian questions of 21, against 12</li>
+<li>The language of the chat decides the language of the answer, whatever language the question is in (<code>LanguageRule</code>)</li>
+<li><code>/prompt</code>: a title over each box, and the search terms of the question</li>
+<li><code>THelpChatProviderBase.CompleteText</code>: one short request, for a provider of the application</li>
+<li>Logging: <code>Settings.LogLevel</code> (<code>llNone</code>, <code>llInfo</code>, <code>llDetail</code>, <code>llDebug</code>) and <code>OnLogEvent</code> on both components; <code>HelpChatOnLog</code> for code with no component. The CRM demos write it to a file with Logify</li>
+<li>551 tests</li>
+</ul>
 <p>16 Nov 2026: ver. 1.12.0</p>
 <ul>
 <li>Skills: ready-made sets of actions an assistant gets by naming them in <code>Settings.Skills</code> - <code>forms</code>, <code>commands</code>, <code>records</code> and <code>pages</code>, in the VCL and in FireMonkey (LiveBindings included); <code>/skills</code> lists them. <code>HelpChatAI</code> requires <code>dbrtl</code>, <code>HelpChatAIVcl</code> <code>dbrtl</code> and <code>vcldb</code></li>

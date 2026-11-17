@@ -214,6 +214,7 @@ uses
   , System.Win.WinRT
   , Winapi.CommonTypes
   , Winapi.Foundation
+  , Winapi.Globalization  // the Language of SystemSpeechLanguage, so its getter is inlined
   , Winapi.Media       // Windows.Media.SpeechRecognition, from Delphi 11 on
 {$ENDIF}
   ;

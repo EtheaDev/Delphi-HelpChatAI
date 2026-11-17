@@ -17,7 +17,7 @@ uses
   Vcl.WinXPanels, System.Actions, Vcl.ActnList, Vcl.Themes,
   Vcl.BaseImageCollection, Vcl.ImageCollection, System.ImageList, Vcl.ImgList,
   Vcl.VirtualImageList, Vcl.VirtualImage, System.IOUtils,
-  HelpChatAI.Types, HelpChatAI.Actions, Vcl.HelpChatAI,
+  HelpChatAI.Types, HelpChatAI.Log, HelpChatAI.Actions, Vcl.HelpChatAI,
   // per TProposalLineItem e ParseProposalLineItems, che un'azione
   // passa alla bozza
   uProposalReport, uDraftProposal
@@ -237,6 +237,7 @@ type
     procedure HelpChatDecryptSecret(Sender: TObject; const AName, AValue: string;
       var AResult: string; var AHandled: Boolean);
     procedure HelpChatModelChanged(Sender: TObject);
+    procedure HelpChatLog(Sender: TObject; const AEntry: THelpChatLogEntry);
   private
     { Private declarations }
     // La finestra di attivazione e' aperta: un altro cambio di modello non
@@ -289,6 +290,8 @@ uses
   // cifra e la rilegge, e HelpChatDecryptSecret e' il gancio che il
   // componente chiama. DCPcrypt serve a questa demo, non alla libreria.
   uAppSecret, uLicenseActivation,
+  // Il log dell'assistente su file, scritto da Logify.
+  uHelpChatLog,
   // Un provider esiste solo se la sua unit e' linkata: si registra nella
   // initialization. Senza questa riga Settings.Provider = 'docsearch'
   // trova soltanto lo stub e la chat risponde che il provider non c'e'.
@@ -560,6 +563,17 @@ begin
   AHandled := AppSecretIsProtected(AValue);
   if AHandled then
     AResult := AppSecretReveal(AValue);
+end;
+
+procedure TMainForm.HelpChatLog(Sender: TObject; const AEntry: THelpChatLogEntry);
+begin
+  // Il log dell'assistente su file, con Logify (uHelpChatLog): in
+  // %APPDATA%\HelpChatAI\Logs\VCL_CRMDemo.log, a rotazione. Gira sul thread
+  // che scrive la voce (spesso un worker), una chiamata alla volta, e Logify
+  // la mette in coda e torna subito. Il livello e' Settings.LogLevel, "info"
+  // se nessuno lo cambia: "LogLevel": "debug" in helpchatai.json mostra
+  // tutto, domanda, risposta e chiamate HTTP comprese.
+  HelpChatLogWrite(AEntry);
 end;
 
 procedure TMainForm.AskForApiKeyIfMissing;
@@ -1141,6 +1155,11 @@ begin
     // chat sulla pagina della schermata attiva (HelpKeyword delle schede e
     // delle finestre) e la bolla in basso a destra la apre senza contesto.
     RegisterHelpActions;
+    HelpChatLogOpen('VCL_CRMDemo');
+    // Quello che succede, mai quello che l'utente scrive: "LogLevel" in un
+    // helpchatai.json lo alza (detail, debug) senza ricompilare.
+    HelpChat.Settings.LogLevel := llInfo;
+    HelpChat.OnLogEvent := HelpChatLog;
     {$IFDEF MULTIAGENT}
     ConfigureGeneralAssistant(HelpChat);
     {$ENDIF}

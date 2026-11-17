@@ -387,6 +387,7 @@ uses
   System.JSON,
   System.DateUtils,
   HelpChatAI.Messages,
+  HelpChatAI.Log,
   HelpChatAI.Store;
 
 // The hash below wraps around on purpose: overflow checking off just here.
@@ -518,6 +519,10 @@ procedure THelpChatRemoteServer.Log(const AText: string);
 begin
   if Assigned(FOnLog) then
     FOnLog(Self, AText);
+  // The same line in the log of the library, through the settings of the
+  // default engine: its level and HelpChatOnLog.
+  if Assigned(Engine) then
+    Engine.Settings.Log(llInfo, lsInfo, lcTransport, AText);
 end;
 
 procedure THelpChatRemoteServer.Log(const AFormat: string; const AArgs: array of const);

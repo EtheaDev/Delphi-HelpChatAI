@@ -26,7 +26,7 @@ uses
   FMX.ScrollBox, FMX.Grid.Style, FMX.Grid, FMX.Styles,
   Data.Bind.EngExt, Data.Bind.Components, Data.Bind.Grid, Data.Bind.DBScope,
   Fmx.Bind.DBEngExt, Fmx.Bind.Editors, Fmx.Bind.Grid, Fmx.Bind.Navigator,
-  HelpChatAI.Types, HelpChatAI.Actions, FMX.HelpChatAI,
+  HelpChatAI.Types, HelpChatAI.Log, HelpChatAI.Actions, FMX.HelpChatAI,
   uProposalReport, Data.Bind.Controls, System.ImageList;
 
 const
@@ -204,6 +204,7 @@ type
     procedure HelpChatDecryptSecret(Sender: TObject; const AName, AValue: string;
       var AResult: string; var AHandled: Boolean);
     procedure HelpChatModelChanged(Sender: TObject);
+    procedure HelpChatLog(Sender: TObject; const AEntry: THelpChatLogEntry);
     procedure UserComboChange(Sender: TObject);
     procedure LeadsNewGridCellDblClick(const Column: TColumn; const Row: Integer);
     procedure LeadsActiveGridCellDblClick(const Column: TColumn; const Row: Integer);
@@ -249,6 +250,8 @@ implementation
 
 uses
   uDataMod, uLeadsFmx, uProposalFmx, uDraftProposalFmx,
+  // The log of the assistant to a file, written by Logify.
+  uHelpChatLog,
   HelpChatAI.Settings,
   // The API key is not in clear in the configuration: uAppSecret encrypts it
   // and reads it back, and HelpChatDecryptSecret is the hook the component
@@ -345,6 +348,11 @@ begin
   // reads: both executables live in CRM Demo\bin\<Platform>, and the
   // path in the form is relative to the executable.
   RegisterHelpActions;
+  HelpChatLogOpen('FMX_CRMDemo');
+  // What happens, never what the user writes: "LogLevel" in a
+  // helpchatai.json raises it (detail, debug) with no rebuild.
+  HelpChat.Settings.LogLevel := llInfo;
+  HelpChat.OnLogEvent := HelpChatLog;
   {$IFDEF MULTIAGENT}
   ConfigureGeneralAssistant(HelpChat);
   {$ENDIF}
@@ -776,6 +784,17 @@ begin
   AHandled := AppSecretIsProtected(AValue);
   if AHandled then
     AResult := AppSecretReveal(AValue);
+end;
+
+procedure TMainFormFmx.HelpChatLog(Sender: TObject; const AEntry: THelpChatLogEntry);
+begin
+  // The log of the assistant to a file, by Logify (uHelpChatLog): in
+  // %APPDATA%\HelpChatAI\Logs\FMX_CRMDemo.log, rotated. It runs on the thread
+  // that writes the entry (often a worker), one call at a time, and Logify
+  // queues it and returns. The level is Settings.LogLevel, "info" unless
+  // changed: "LogLevel": "debug" in helpchatai.json shows everything,
+  // question, reply and HTTP calls included.
+  HelpChatLogWrite(AEntry);
 end;
 
 procedure TMainFormFmx.AskForApiKeyIfMissing;

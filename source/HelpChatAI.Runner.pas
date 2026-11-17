@@ -126,6 +126,12 @@ type
     procedure CancelAll;
     /// <summary>Requests queued or running.</summary>
     function ActiveCount: Integer;
+    /// <summary>The search terms the last reply of the conversation
+    /// <c>AKey</c> was given (<c>TranslateSearch</c>), and in
+    /// <c>AQuestion</c> the question they belong to; empty when it had none.
+    /// What <c>/prompt</c> shows the excerpts with, without asking the model
+    /// again.</summary>
+    function SearchTerms(const AKey: string; out AQuestion: string): string;
     /// <summary>Cancels everything, wakes the workers and waits up to
     /// <c>ATimeoutMs</c> for them to exit. Returns False if some worker was still
     /// busy (typically inside a network call): it is detached and will end on its
@@ -145,6 +151,7 @@ implementation
 uses
   System.Diagnostics,
   HelpChatAI.Messages,
+  HelpChatAI.Log,
   HelpChatAI.Provider;
 
 type
@@ -167,6 +174,8 @@ type
     function CancelActive(const AId: string): Boolean;
     procedure CancelAllActive;
     function ActiveCount: Integer;
+    procedure SetSearchTerms(const AKey, AQuestion, ATerms: string);
+    function GetSearchTerms(const AKey: string; out AQuestion: string): string;
   end;
 
   THelpChatRunnerShared = class(TInterfacedObject, IHelpChatRunnerShared)
@@ -176,6 +185,7 @@ type
     FRetriever: IHelpChatRetriever;
     FQueue: TThreadedQueue<THelpChatRequest>;
     FActive: TDictionary<string, IHelpChatCancelToken>;
+    FTerms: TDictionary<string, TPair<string, string>>;
     FShuttingDown: Boolean;
   public
     constructor Create(const AStore: THelpChatStore; const ARetriever: IHelpChatRetriever);
@@ -194,6 +204,8 @@ type
     function CancelActive(const AId: string): Boolean;
     procedure CancelAllActive;
     function ActiveCount: Integer;
+    procedure SetSearchTerms(const AKey, AQuestion, ATerms: string);
+    function GetSearchTerms(const AKey: string; out AQuestion: string): string;
   end;
 
   THelpChatWorker = class(TThread)
@@ -225,6 +237,7 @@ begin
   FRetriever := ARetriever;
   FQueue := TThreadedQueue<THelpChatRequest>.Create(HELPCHAT_QUEUE_DEPTH, INFINITE, INFINITE);
   FActive := TDictionary<string, IHelpChatCancelToken>.Create;
+  FTerms := TDictionary<string, TPair<string, string>>.Create;
 end;
 
 destructor THelpChatRunnerShared.Destroy;
@@ -242,6 +255,7 @@ begin
     FQueue.Free;
   end;
   FActive.Free;
+  FTerms.Free;
   FLock.Free;
   inherited;
 end;
@@ -398,6 +412,34 @@ begin
   end;
 end;
 
+procedure THelpChatRunnerShared.SetSearchTerms(const AKey, AQuestion, ATerms: string);
+begin
+  FLock.Enter;
+  try
+    FTerms.AddOrSetValue(AKey, TPair<string, string>.Create(AQuestion, ATerms));
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatRunnerShared.GetSearchTerms(const AKey: string; out AQuestion: string): string;
+var
+  LPair: TPair<string, string>;
+begin
+  AQuestion := '';
+  Result := '';
+  FLock.Enter;
+  try
+    if FTerms.TryGetValue(AKey, LPair) then
+    begin
+      AQuestion := LPair.Key;
+      Result := LPair.Value;
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
 { THelpChatWorker }
 
 constructor THelpChatWorker.Create(const AShared: IHelpChatRunnerShared);
@@ -443,11 +485,31 @@ var
   LPartial: THelpChatMessage;
   LHistory: TArray<THelpChatMessage>;
   LSources: string;
+  LRetriever: IHelpChatRetriever;
+  LTranslated: THelpChatTranslatedRetriever;
+  LSettings: THelpChatSettings;
+  LStart: TDateTime;
+  LFirstToken: Double;
+
+  function Elapsed: Double;
+  begin
+    Result := (Now - LStart) * SecsPerDay;
+  end;
+
+  function ModelText: string;
+  var
+    LModel: THelpChatModelSettings;
+  begin
+    // The provider, and the model it calls when it calls one.
+    Result := LSettings.Provider;
+    LModel := LSettings.ModelFor(LSettings.Provider);
+    if Assigned(LModel) then
+      Result := Result + ', ' + LModel.ResolveModel;
+  end;
 
   function SourcesLine: string;
   var
     LMax: Integer;
-    LRetriever: IHelpChatRetriever;
     LQuestion: string;
   begin
     // Only for a model grounded on the documentation, and not for an answer
@@ -459,7 +521,6 @@ var
        (THelpChatProviderBase(LProvider as TObject).ActionsInvoked > 0) then
       Exit;
     LMax := ARequest.Settings.ActiveModel.GroundingMaxPages;
-    LRetriever := LShared.Retriever;
     if (LMax <= 0) or not Assigned(LRetriever) or not LRetriever.IsAvailable then
       Exit;
     // The same search the system prompt was built with: the pages the model
@@ -489,16 +550,45 @@ begin
   LId := ARequest.AssistantId;
   LCancel := ARequest.Cancel;
   LCancelled := False;
+  LSettings := ARequest.Settings;
+  LStart := Now;
+  LFirstToken := -1;
   try
+    // The retriever of this reply: the engine's, wrapped so that the
+    // question can be searched with the terms of the model (TranslateSearch).
+    LTranslated := nil;
+    LRetriever := LShared.Retriever;
+    if Assigned(LRetriever) and
+       ARequest.Settings.TranslatesSearch(ARequest.Settings.Language) then
+    begin
+      LTranslated := THelpChatTranslatedRetriever.Create(LRetriever);
+      LRetriever := LTranslated;
+    end;
     LProvider := THelpChatProviderRegistry.CreateProvider(ARequest.ProviderName,
-      ARequest.Settings, LShared.Retriever, ARequest.Actions);
+      ARequest.Settings, LRetriever, ARequest.Actions);
     LProvider.SetAttachments(ARequest.Attachments);
     LHistory := LShared.GetHistory(LKey, ARequest.MaxHistory);
+    if LSettings.Logs(llDebug) then
+      LSettings.Log(llDebug, lsInfo, lcRequest, Format('Reply started: %s, %d messages ' +
+        'of history, %d attachments', [ModelText, Length(LHistory),
+         Length(ARequest.Attachments)]));
+    // The manual is in another language than the chat: the model in use
+    // turns the question into terms of the manual first.
+    if Assigned(LTranslated) and ((LProvider as TObject) is THelpChatProviderBase) and
+       LRetriever.IsAvailable then
+    begin
+      LTranslated.SetTerms(THelpChatProviderBase.LastUserMessage(LHistory),
+        THelpChatProviderBase(LProvider as TObject).SearchTerms(LHistory, LCancel));
+      LShared.SetSearchTerms(LKey, THelpChatProviderBase.LastUserMessage(LHistory),
+        LTranslated.Terms);
+    end;
     LReply := LProvider.Generate(
       LHistory,
       ARequest.Context,
       procedure(const AToken: string)
       begin
+        if LFirstToken < 0 then
+          LFirstToken := (Now - LStart) * SecsPerDay;
         if not LCancel.IsCancelled then
           LShared.AppendToken(LKey, LId, AToken);
       end,
@@ -513,18 +603,34 @@ begin
         // Streamed like the rest, so what the user reads and what is stored agree.
         LShared.AppendToken(LKey, LId, sLineBreak + sLineBreak + LSources);
         LReply := TrimRight(LReply) + sLineBreak + sLineBreak + LSources;
+        LSettings.Log(llDetail, lsInfo, lcRequest, 'Source line added by the engine: ' +
+          HelpChatLogQuote(LSources));
       end;
       LShared.Complete(LKey, LId, LReply);
+      LSettings.Log(llInfo, lsInfo, lcRequest, Format('Reply completed in %.1f s (%s), ' +
+        '%d characters', [Elapsed, ModelText, Length(LReply)]));
+      if LFirstToken >= 0 then
+        LSettings.Log(llDetail, lsInfo, lcRequest, Format('First token after %.1f s',
+          [LFirstToken]));
+      LSettings.Log(llDebug, lsInfo, lcRequest, 'Reply: ' + LReply);
     end;
   except
     on E: EHelpChatCancelled do
       LCancelled := True;
     on E: Exception do
+    begin
       // A worker never dies for a provider that raises.
       LShared.Fail(LKey, LId, E.Message);
+      LSettings.Log(llInfo, lsError, lcRequest, Format('Reply failed after %.1f s (%s): %s',
+        [Elapsed, ModelText, HelpChatLogQuote(E.Message, HELPCHAT_LOG_ERROR_BODY_CHARS)]));
+    end;
   end;
   if LCancelled then
+  begin
     FinishCancelled;
+    LSettings.Log(llInfo, lsWarning, lcRequest, Format('Reply cancelled after %.1f s',
+      [Elapsed]));
+  end;
 end;
 
 { THelpChatRunner }
@@ -584,6 +690,9 @@ begin
       // (the copy is taken under the lock a switch holds, the read was not).
       if AProviderName = '' then
         LRequest.ProviderName := LRequest.Settings.Provider;
+      // Every entry this reply writes - the provider, the search, the
+      // actions - carries its conversation and its id.
+      LRequest.Settings.SetLogContext(AKey, AAssistantId);
       // The language of this reply is decided here, once, by the settings
       // of the engine that was asked. Left as hclAuto, every message of the
       // provider would resolve against the default of the process, which is
@@ -624,6 +733,11 @@ end;
 function THelpChatRunner.ActiveCount: Integer;
 begin
   Result := (FShared as IHelpChatRunnerShared).ActiveCount;
+end;
+
+function THelpChatRunner.SearchTerms(const AKey: string; out AQuestion: string): string;
+begin
+  Result := (FShared as IHelpChatRunnerShared).GetSearchTerms(AKey, AQuestion);
 end;
 
 function THelpChatRunner.Shutdown(const ATimeoutMs: Integer): Boolean;

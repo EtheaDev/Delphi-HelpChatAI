@@ -441,11 +441,12 @@ end;
 
 function TFmxHelpChatBubbleForm.HostShowing: Boolean;
 begin
-  Result := False;
 {$IFDEF MSWINDOWS}
   if FHostWnd = 0 then
     HookHost;
   Result := (FHostWnd <> 0) and IsWindowVisible(FHostWnd) and not IsIconic(FHostWnd);
+{$ELSE}
+  Result := False;
 {$ENDIF}
 end;
 

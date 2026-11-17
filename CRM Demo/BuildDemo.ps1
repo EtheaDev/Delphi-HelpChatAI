@@ -71,6 +71,22 @@ param(
     [string]$Target = "Build"
 )
 
+# --- Explorer pause: when started from Explorer the window stays open at the end, so the errors can be read ---
+if (-not $global:ExplorerPauseRegistered) {
+    $global:ExplorerPauseRegistered = $true
+    try {
+        $ppid = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
+        if ((Get-Process -Id $ppid -ErrorAction Stop).ProcessName -eq 'explorer') {
+            Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+                Write-Host ''
+                Write-Host 'Press Enter to close...'
+                [void](Read-Host)
+            } | Out-Null
+        }
+    } catch { }
+}
+
+
 $ErrorActionPreference = "Stop"
 
 # Map Delphi version to BDS version subfolder
@@ -106,7 +122,7 @@ $sourceDir = Join-Path $repoRoot "source"
 $panelRes = Join-Path $sourceDir "HelpChatAI.Panel.res"
 if (-not (Test-Path $panelRes)) {
     Write-Host "Panel resource missing: running Tools\BuildResources.cmd" -ForegroundColor Yellow
-    cmd /c "`"$(Join-Path $repoRoot 'Tools\BuildResources.cmd')`""
+    cmd /c "call `"$(Join-Path $repoRoot 'Tools\BuildResources.cmd')`""
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 

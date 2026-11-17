@@ -66,6 +66,22 @@ param(
     [string]$Target = "Rebuild"
 )
 
+# --- Explorer pause: when started from Explorer the window stays open at the end, so the errors can be read ---
+if (-not $global:ExplorerPauseRegistered) {
+    $global:ExplorerPauseRegistered = $true
+    try {
+        $ppid = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
+        if ((Get-Process -Id $ppid -ErrorAction Stop).ProcessName -eq 'explorer') {
+            Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+                Write-Host ''
+                Write-Host 'Press Enter to close...'
+                [void](Read-Host)
+            } | Out-Null
+        }
+    } catch { }
+}
+
+
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = $PSScriptRoot
@@ -99,7 +115,7 @@ $Design = @("dclHelpChatAIVcl.dproj", "dclHelpChatAIFmx.dproj")
 # The panel page is a resource the library needs to compile.
 if (-not (Test-Path (Join-Path $Root "source\HelpChatAI.Panel.res"))) {
     Write-Host "Building the resources of the panel..." -ForegroundColor Yellow
-    cmd /c "`"$(Join-Path $Root 'Tools\BuildResources.cmd')`""
+    cmd /c "call `"$(Join-Path $Root 'Tools\BuildResources.cmd')`""
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Tools\BuildResources.cmd failed"
         exit 1

@@ -217,6 +217,23 @@ type
     /// the question, so that the automatic prompt cache of the service reads
     /// the system prompt and the conversation again.</summary>
     class function SplitsPrompt: Boolean; override;
+    /// <summary>One request with the system prompt and the question alone,
+    /// no tools. Both APIs ask for no reasoning
+    /// (<c>reasoning_effort: none</c>, which a local gemma4 needs or it spends
+    /// the whole cap thinking) and <c>HELPCHAT_SEARCH_TERMS_MAX_TOKENS</c>; a
+    /// server that refuses the effort gets the request again without it and
+    /// with room to think. The Responses API gets
+    /// <c>HELPCHAT_SEARCH_TERMS_THINKING_TOKENS</c> in any case. Empty when
+    /// OpenAI itself has no key.</summary>
+    function CompleteText(const ASystem, AUser: string;
+      const ACancel: IHelpChatCancelToken): string; override;
+    /// <summary>The body of <see cref="CompleteText" /> for Chat Completions
+    /// or, with <c>UsesResponses</c>, for the Responses API;
+    /// <c>AReasoningEffort</c> 'none' or empty (<c>reasoning_effort</c>,
+    /// <c>reasoning.effort</c>). Public for tests; no network
+    /// involved.</summary>
+    class function BuildCompletionBody(const ASystem, AUser: string;
+      const ASettings: THelpChatOpenAISettings; const AReasoningEffort: string): string; static;
     /// <summary>A missing key is an issue unless the endpoint is on this
     /// machine or on a private network (<c>HelpChatIsLocalEndpoint</c>): a
     /// local Ollama or LM Studio asks for none, while OpenAI itself, Groq,
@@ -1174,6 +1191,7 @@ var
   LHeaders: TNetHeaders;
   LResponse: IHTTPResponse;
   LKey: string;
+  LStart: Cardinal;
 begin
   LClient := THTTPClient.Create;
   LSource := TStringStream.Create(ABody, TEncoding.UTF8);
@@ -1197,6 +1215,8 @@ begin
     if Settings.OpenAI.Organization <> '' then
       LHeaders := LHeaders + [TNetHeader.Create('OpenAI-Organization', Settings.OpenAI.Organization)];
 
+    LogPost(AUrl, ABody);
+    LStart := TThread.GetTickCount;
     try
       LResponse := LClient.Post(AUrl, LSource, AStream, LHeaders);
     except
@@ -1207,6 +1227,8 @@ begin
           raise;
     end;
     AStream.Finish;
+    LogPosted(AUrl, LResponse.StatusCode, LResponse.StatusText,
+      TThread.GetTickCount - LStart, AStream.Raw);
     CheckCancelled(ACancel);
 
     if LResponse.StatusCode >= 400 then
@@ -1236,6 +1258,83 @@ end;
 class function THelpChatOpenAIProvider.SplitsPrompt: Boolean;
 begin
   Result := True;
+end;
+
+class function THelpChatOpenAIProvider.BuildCompletionBody(const ASystem, AUser: string;
+  const ASettings: THelpChatOpenAISettings; const AReasoningEffort: string): string;
+begin
+  if ASettings.UsesResponses then
+  begin
+    Result := HelpChatJsonSetNumber(BuildResponsesBody(SingleQuestion(AUser), ASystem,
+      ASettings, '', '[]'), 'max_output_tokens', HELPCHAT_SEARCH_TERMS_THINKING_TOKENS);
+    if AReasoningEffort <> '' then
+      Result := HelpChatJsonSetString(Result, 'reasoning.effort', AReasoningEffort);
+  end
+  else if AReasoningEffort <> '' then
+    Result := HelpChatJsonSetNumber(BuildRequestBody(SingleQuestion(AUser), ASystem,
+      ASettings, '', '[]', nil, hclAuto, AReasoningEffort), 'max_completion_tokens',
+      HELPCHAT_SEARCH_TERMS_MAX_TOKENS)
+  else
+    Result := HelpChatJsonSetNumber(BuildRequestBody(SingleQuestion(AUser), ASystem,
+      ASettings, '', '[]'), 'max_completion_tokens', HELPCHAT_SEARCH_TERMS_THINKING_TOKENS);
+end;
+
+function THelpChatOpenAIProvider.CompleteText(const ASystem, AUser: string;
+  const ACancel: IHelpChatCancelToken): string;
+var
+  LResponses: THelpChatOpenAIResponsesStream;
+  LStream: THelpChatOpenAIStream;
+begin
+  Result := '';
+  if (Settings.OpenAI.ResolveApiKey = '') and
+     SameText(Settings.OpenAI.NormalizedBaseUrl, HELPCHAT_OPENAI_DEF_BASEURL) then
+    Exit;
+  if Settings.OpenAI.UsesResponses then
+  begin
+    // No reasoning for a line of terms (gpt-6-luna took two seconds with
+    // it); a model that refuses the effort gets the request without it.
+    LResponses := THelpChatOpenAIResponsesStream.Create(nil);
+    try
+      try
+        Post(BuildCompletionBody(ASystem, AUser, Settings.OpenAI, 'none'),
+          ResponsesUrl(Settings.OpenAI), LResponses, ACancel);
+      except
+        on E: EHelpChatError do
+        begin
+          if E is EHelpChatCancelled then
+            raise;
+          LogRetry('search terms asked again without the reasoning effort', E.Message);
+          FreeAndNil(LResponses);
+          LResponses := THelpChatOpenAIResponsesStream.Create(nil);
+          Post(BuildCompletionBody(ASystem, AUser, Settings.OpenAI, ''),
+            ResponsesUrl(Settings.OpenAI), LResponses, ACancel);
+        end;
+      end;
+      ReportTokenUsage(LResponses.Usage);
+      Result := LResponses.Text;
+    finally
+      LResponses.Free;
+    end;
+    Exit;
+  end;
+  try
+    LStream := PostRound(BuildCompletionBody(ASystem, AUser, Settings.OpenAI, 'none'), nil, ACancel);
+  except
+    on E: EHelpChatError do
+    begin
+      if E is EHelpChatCancelled then
+        raise;
+      // A server or a model that does not know the effort: as a reply asks.
+      LogRetry('search terms asked again without the reasoning effort', E.Message);
+      LStream := PostRound(BuildCompletionBody(ASystem, AUser, Settings.OpenAI, ''), nil, ACancel);
+    end;
+  end;
+  try
+    ReportTokenUsage(LStream.Usage);
+    Result := LStream.Text;
+  finally
+    LStream.Free;
+  end;
 end;
 
 function THelpChatOpenAIProvider.GenerateResponses(const AHistory: TArray<THelpChatMessage>;
@@ -1362,7 +1461,11 @@ begin
         except
           on E: EHelpChatError do
             if (LEffort = '') and (LTools <> '') and AsksForNoReasoning(E.Message) then
-              LEffort := 'none'
+            begin
+              LogRetry('repeated with reasoning_effort none, the model refuses ' +
+                'actions while reasoning', E.Message);
+              LEffort := 'none';
+            end
             else
               raise;
         end;

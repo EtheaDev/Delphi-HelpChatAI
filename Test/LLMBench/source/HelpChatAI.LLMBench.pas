@@ -153,6 +153,13 @@ type
     procedure LoadAnswers(const AReportFile: string);
     /// <summary>Keeps only the targets whose name contains one of AFilters.</summary>
     procedure FilterTargets(const AFilters: TArray<string>);
+    /// <summary>--terms: the request of TranslateSearch, through the
+    /// providers of the library, for the Italian questions of AQuestionsFile
+    /// (embeddings\questions.json), the chat in Italian and the manual in
+    /// English: what each target writes, and how long it takes. A check of
+    /// the provider code against the real services, printed, no
+    /// report.</summary>
+    procedure RunSearchTerms(const AQuestionsFile: string);
     procedure Run;
     function Report: string;
     property Results: TList<TBenchResult> read FResults;
@@ -182,7 +189,10 @@ function FindRepoRoot: string;
 ///  Each question is searched twice: with its screen as hint, exactly as
 ///  BuildSystemPrompt does, and without. It is the lexical baseline the
 ///  embedding measurement is compared with - measured on the Delphi code, not
-///  on a port of it.
+///  on a port of it. A question that carries "translations" ({translator:
+///  English search terms}, written by embeddings\translate_queries.py) is
+///  searched again for each: the question plus the terms, with and without
+///  the hint ("translated": {translator: {ranking, rankingNoHint}}).
 /// </summary>
 procedure RunRetrieval(const AIndexFile, AQuestionsFile, AOutFile: string);
 
@@ -258,6 +268,8 @@ var
   LValue: TJSONValue;
   LText, LScreen: string;
   LMsHint, LMsNone: Double;
+  LTranslations, LTranslated: TJSONObject;
+  LPair: TJSONPair;
 begin
   LIndex := THelpChatDocIndex.Create;
   LKeep := LIndex; // reference counted: the interface frees it
@@ -283,6 +295,17 @@ begin
       LItem.AddPair('ranking', Ranking(LIndex, LText, LScreen, LMsHint));
       LItem.AddPair('rankingNoHint', Ranking(LIndex, LText, '', LMsNone));
       LItem.AddPair('ms', TJSONNumber.Create(LMsHint));
+      // The proposal: the question plus the English terms a model wrote for it.
+      LTranslations := LValue.FindValue('translations') as TJSONObject;
+      if LTranslations <> nil then
+      begin
+        LTranslated := TJSONObject.Create;
+        for LPair in LTranslations do
+          LTranslated.AddPair(LPair.JsonString.Value, TJSONObject.Create
+            .AddPair('ranking', Ranking(LIndex, LText + ' ' + LPair.JsonValue.Value, LScreen, LMsHint))
+            .AddPair('rankingNoHint', Ranking(LIndex, LText + ' ' + LPair.JsonValue.Value, '', LMsNone)));
+        LItem.AddPair('translated', LTranslated);
+      end;
       LResults.Add(LItem);
     end;
     TFile.WriteAllText(AOutFile, LOut.Format(2), TEncoding.UTF8);
@@ -888,6 +911,55 @@ begin
     if FindQuestion(R.Question, Q) then
       Score(Q, R);
     FResults[I] := R;
+  end;
+end;
+
+procedure TBenchRunner.RunSearchTerms(const AQuestionsFile: string);
+var
+  LInput: TJSONObject;
+  LValue: TJSONValue;
+  T: TBenchTarget;
+  LSettings: THelpChatSettings;
+  LProvider: IHelpChatProvider;
+  LWatch: TStopwatch;
+  LTerms, LText: string;
+  LCount, LEmpty: Integer;
+begin
+  LInput := TJSONObject.ParseJSONValue(TFile.ReadAllText(AQuestionsFile, TEncoding.UTF8)) as TJSONObject;
+  try
+    for T in FTargets do
+    begin
+      LSettings := MakeSettings(T);
+      try
+        LSettings.Language := hclItalian;
+        LSettings.DocLanguage := hclEnglish;
+        LProvider := THelpChatProviderRegistry.CreateProvider(T.Provider, LSettings, nil, nil);
+        LCount := 0;
+        LEmpty := 0;
+        LWatch := TStopwatch.StartNew;
+        for LValue in LInput.GetValue<TJSONArray>('questions') do
+        begin
+          if LValue.GetValue<string>('lang') <> 'it' then
+            Continue;
+          LText := LValue.GetValue<string>('text');
+          LTerms := THelpChatProviderBase(LProvider as TObject).SearchTerms(
+            THelpChatProviderBase.SingleQuestion(LText), nil);
+          Inc(LCount);
+          if LTerms = '' then
+            Inc(LEmpty);
+          Writeln(Format('%-22s %-58s -> %s', [T.Name, Copy(LText, 1, 58), LTerms]));
+        end;
+        if LCount = 0 then
+          LCount := 1;
+        Log(Format('%s: %d without terms, %d ms each on average',
+          [T.Name, LEmpty, LWatch.ElapsedMilliseconds div LCount]));
+      finally
+        LProvider := nil;
+        LSettings.Free;
+      end;
+    end;
+  finally
+    LInput.Free;
   end;
 end;
 

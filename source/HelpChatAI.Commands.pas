@@ -350,6 +350,12 @@ begin
   Result := '<p>' + Esc(AText) + '</p>';
 end;
 
+/// <summary>The line above a part of the prompt shown by /prompt.</summary>
+function PromptTitle(const AText: string): string;
+begin
+  Result := '<p class="hc-chat-prompt-title"><strong>' + Esc(AText) + '</strong></p>';
+end;
+
 function Heading(const ARequest: THelpChatCommandRequest; const AArgs: string = ''): string;
 begin
   Result := '<p class="hc-chat-cmd-title"><b>' +
@@ -578,12 +584,30 @@ end;
 function AnswerPrompt(const AEngine: THelpChatEngine; const ARequest: THelpChatCommandRequest): string;
 var
   LHistory: TArray<THelpChatMessage>;
-  LPrompt, LContext: string;
+  LPrompt, LContext, LTerms, LTermsQuestion: string;
   LClass: THelpChatProviderClass;
+  LRetriever: IHelpChatRetriever;
+  LTranslated: THelpChatTranslatedRetriever;
 begin
   LHistory := AEngine.Messages(ARequest.ConversationKey);
   if LastQuestion(AEngine, ARequest.ConversationKey) = '' then
     Exit(Line(HelpChatMsg(hcmCmdNoQuestion, ARequest.Language)));
+  // The terms the reply to that question was searched with, if any: the
+  // model is not asked again.
+  LRetriever := AEngine.Retriever;
+  LTerms := '';
+  if Assigned(AEngine.Runner) and Assigned(LRetriever) then
+  begin
+    LTerms := AEngine.Runner.SearchTerms(ARequest.ConversationKey, LTermsQuestion);
+    if (LTerms <> '') and (LTermsQuestion = THelpChatProviderBase.LastUserMessage(LHistory)) then
+    begin
+      LTranslated := THelpChatTranslatedRetriever.Create(LRetriever);
+      LTranslated.SetTerms(LTermsQuestion, LTerms);
+      LRetriever := LTranslated;
+    end
+    else
+      LTerms := '';
+  end;
   // Rebuilt the way the provider builds it, for the last question and the
   // screen of now: the excerpts the retriever picks are the same. A provider
   // that splits it sends two texts, and both are shown, in their order.
@@ -593,16 +617,25 @@ begin
   begin
     LPrompt := THelpChatProviderBase.BuildStablePrompt(ARequest.Context, AEngine.Settings);
     LContext := THelpChatProviderBase.BuildQuestionContext(LHistory, ARequest.Context,
-      AEngine.Settings, AEngine.Retriever);
+      AEngine.Settings, LRetriever);
   end
   else
     LPrompt := THelpChatProviderBase.BuildSystemPrompt(LHistory, ARequest.Context,
-      AEngine.Settings, AEngine.Retriever);
+      AEngine.Settings, LRetriever);
   if Assigned(ActionsOf(AEngine, ARequest)) and ActionsOf(AEngine, ARequest).HasActions then
     LPrompt := LPrompt + sLineBreak + sLineBreak + HELPCHAT_MODEL_ACTIONS_RULE;
-  Result := '<pre class="hc-chat-prompt">' + Esc(LPrompt) + '</pre>';
+  // Each part under a line that says what it is: a provider that splits
+  // sends two texts, which read as one when shown one under the other.
+  if Assigned(LClass) and LClass.SplitsPrompt then
+    Result := PromptTitle(HelpChatMsg(hcmCmdPromptStable, ARequest.Language))
+  else
+    Result := PromptTitle(HelpChatMsg(hcmCmdPromptWhole, ARequest.Language));
+  Result := Result + '<pre class="hc-chat-prompt">' + Esc(LPrompt) + '</pre>';
   if LContext <> '' then
-    Result := Result + '<pre class="hc-chat-prompt">' + Esc(LContext) + '</pre>';
+    Result := Result + PromptTitle(HelpChatMsg(hcmCmdPromptContext, ARequest.Language)) +
+      '<pre class="hc-chat-prompt">' + Esc(LContext) + '</pre>';
+  if LTerms <> '' then
+    Result := Result + Line(Format(HelpChatMsg(hcmCmdSearchTerms, ARequest.Language), [LTerms]));
 end;
 
 /// <summary>"name k=v k2="v with spaces"" -> the action and its arguments as

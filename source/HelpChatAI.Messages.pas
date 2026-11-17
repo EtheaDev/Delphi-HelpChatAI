@@ -191,6 +191,10 @@ type
     hcmCmdNoQuestion,
     /// <summary>%s is what was searched.</summary>
     hcmCmdNoResults,
+    hcmCmdSearchTerms,
+    hcmCmdPromptStable,
+    hcmCmdPromptContext,
+    hcmCmdPromptWhole,
     hcmCmdNoContext,
     hcmCmdNoActions,
     hcmCmdRunUsage,
@@ -445,6 +449,10 @@ resourcestring
   SEnCmdNoIndex = 'There is no documentation index.';
   SEnCmdNoQuestion = 'No question yet.';
   SEnCmdNoResults = 'Nothing found for "%s".';
+  SEnCmdPromptStable = 'Cached prompt';
+  SEnCmdPromptContext = 'Context';
+  SEnCmdPromptWhole = 'System prompt';
+  SEnCmdSearchTerms = 'The question was searched together with these terms of the model (TranslateSearch): %s';
   SEnCmdNoContext = 'No screen context was sent.';
   SEnCmdNoActions = 'This application registered no actions.';
   SEnCmdRunUsage = 'Usage: /run action name=value name2="a value with spaces"';
@@ -583,6 +591,10 @@ resourcestring
   SItCmdNoIndex = 'Non c''è un indice della documentazione.';
   SItCmdNoQuestion = 'Nessuna domanda ancora.';
   SItCmdNoResults = 'Niente trovato per "%s".';
+  SItCmdPromptStable = 'Prompt in cache';
+  SItCmdPromptContext = 'Contesto';
+  SItCmdPromptWhole = 'Prompt di sistema';
+  SItCmdSearchTerms = 'La domanda è stata cercata insieme a questi termini del modello (TranslateSearch): %s';
   SItCmdNoContext = 'Nessun contesto di schermata è stato inviato.';
   SItCmdNoActions = 'Questa applicazione non ha registrato azioni.';
   SItCmdRunUsage = 'Uso: /run azione nome=valore nome2="un valore con spazi"';
@@ -721,6 +733,10 @@ resourcestring
   SEsCmdNoIndex = 'No hay índice de la documentación.';
   SEsCmdNoQuestion = 'Todavía no hay ninguna pregunta.';
   SEsCmdNoResults = 'No se ha encontrado nada para "%s".';
+  SEsCmdPromptStable = 'Prompt en caché';
+  SEsCmdPromptContext = 'Contexto';
+  SEsCmdPromptWhole = 'Prompt del sistema';
+  SEsCmdSearchTerms = 'La pregunta se buscó junto con estos términos del modelo (TranslateSearch): %s';
   SEsCmdNoContext = 'No se ha enviado ningún contexto de pantalla.';
   SEsCmdNoActions = 'Esta aplicación no ha registrado ninguna acción.';
   SEsCmdRunUsage = 'Uso: /run acción nombre=valor nombre2="un valor con espacios"';
@@ -859,6 +875,10 @@ resourcestring
   SFrCmdNoIndex = 'Il n''y a pas d''index de la documentation.';
   SFrCmdNoQuestion = 'Aucune question pour l''instant.';
   SFrCmdNoResults = 'Rien trouvé pour "%s".';
+  SFrCmdPromptStable = 'Prompt en cache';
+  SFrCmdPromptContext = 'Contexte';
+  SFrCmdPromptWhole = 'Prompt système';
+  SFrCmdSearchTerms = 'La question a été cherchée avec ces termes du modèle (TranslateSearch) : %s';
   SFrCmdNoContext = 'Aucun contexte d''écran n''a été envoyé.';
   SFrCmdNoActions = 'Cette application n''a enregistré aucune action.';
   SFrCmdRunUsage = 'Utilisation : /run action nom=valeur nom2="une valeur avec des espaces"';
@@ -997,6 +1017,10 @@ resourcestring
   SDeCmdNoIndex = 'Es gibt keinen Dokumentationsindex.';
   SDeCmdNoQuestion = 'Noch keine Frage.';
   SDeCmdNoResults = 'Nichts gefunden für "%s".';
+  SDeCmdPromptStable = 'Prompt im Cache';
+  SDeCmdPromptContext = 'Kontext';
+  SDeCmdPromptWhole = 'System-Prompt';
+  SDeCmdSearchTerms = 'Die Frage wurde zusammen mit diesen Begriffen des Modells gesucht (TranslateSearch): %s';
   SDeCmdNoContext = 'Es wurde kein Ansichtskontext gesendet.';
   SDeCmdNoActions = 'Diese Anwendung hat keine Aktionen registriert.';
   SDeCmdRunUsage = 'Verwendung: /run aktion name=wert name2="ein Wert mit Leerzeichen"';
@@ -1135,6 +1159,10 @@ resourcestring
   SPtCmdNoIndex = 'Não existe índice da documentação.';
   SPtCmdNoQuestion = 'Ainda não há nenhuma pergunta.';
   SPtCmdNoResults = 'Nada encontrado para "%s".';
+  SPtCmdPromptStable = 'Prompt em cache';
+  SPtCmdPromptContext = 'Contexto';
+  SPtCmdPromptWhole = 'Prompt de sistema';
+  SPtCmdSearchTerms = 'A pergunta foi pesquisada junto com estes termos do modelo (TranslateSearch): %s';
   SPtCmdNoContext = 'Não foi enviado nenhum contexto de ecrã.';
   SPtCmdNoActions = 'Esta aplicação não registou nenhuma ação.';
   SPtCmdRunUsage = 'Utilização: /run ação nome=valor nome2="um valor com espaços"';
@@ -1355,6 +1383,10 @@ begin
     hcmCmdNoIndex: Result := SEnCmdNoIndex;
     hcmCmdNoQuestion: Result := SEnCmdNoQuestion;
     hcmCmdNoResults: Result := SEnCmdNoResults;
+    hcmCmdPromptStable: Result := SEnCmdPromptStable;
+    hcmCmdPromptContext: Result := SEnCmdPromptContext;
+    hcmCmdPromptWhole: Result := SEnCmdPromptWhole;
+    hcmCmdSearchTerms: Result := SEnCmdSearchTerms;
     hcmCmdNoContext: Result := SEnCmdNoContext;
     hcmCmdNoActions: Result := SEnCmdNoActions;
     hcmCmdRunUsage: Result := SEnCmdRunUsage;
@@ -1489,6 +1521,10 @@ begin
     hcmCmdNoIndex: Result := SItCmdNoIndex;
     hcmCmdNoQuestion: Result := SItCmdNoQuestion;
     hcmCmdNoResults: Result := SItCmdNoResults;
+    hcmCmdPromptStable: Result := SItCmdPromptStable;
+    hcmCmdPromptContext: Result := SItCmdPromptContext;
+    hcmCmdPromptWhole: Result := SItCmdPromptWhole;
+    hcmCmdSearchTerms: Result := SItCmdSearchTerms;
     hcmCmdNoContext: Result := SItCmdNoContext;
     hcmCmdNoActions: Result := SItCmdNoActions;
     hcmCmdRunUsage: Result := SItCmdRunUsage;
@@ -1623,6 +1659,10 @@ begin
     hcmCmdNoIndex: Result := SEsCmdNoIndex;
     hcmCmdNoQuestion: Result := SEsCmdNoQuestion;
     hcmCmdNoResults: Result := SEsCmdNoResults;
+    hcmCmdPromptStable: Result := SEsCmdPromptStable;
+    hcmCmdPromptContext: Result := SEsCmdPromptContext;
+    hcmCmdPromptWhole: Result := SEsCmdPromptWhole;
+    hcmCmdSearchTerms: Result := SEsCmdSearchTerms;
     hcmCmdNoContext: Result := SEsCmdNoContext;
     hcmCmdNoActions: Result := SEsCmdNoActions;
     hcmCmdRunUsage: Result := SEsCmdRunUsage;
@@ -1757,6 +1797,10 @@ begin
     hcmCmdNoIndex: Result := SFrCmdNoIndex;
     hcmCmdNoQuestion: Result := SFrCmdNoQuestion;
     hcmCmdNoResults: Result := SFrCmdNoResults;
+    hcmCmdPromptStable: Result := SFrCmdPromptStable;
+    hcmCmdPromptContext: Result := SFrCmdPromptContext;
+    hcmCmdPromptWhole: Result := SFrCmdPromptWhole;
+    hcmCmdSearchTerms: Result := SFrCmdSearchTerms;
     hcmCmdNoContext: Result := SFrCmdNoContext;
     hcmCmdNoActions: Result := SFrCmdNoActions;
     hcmCmdRunUsage: Result := SFrCmdRunUsage;
@@ -1891,6 +1935,10 @@ begin
     hcmCmdNoIndex: Result := SDeCmdNoIndex;
     hcmCmdNoQuestion: Result := SDeCmdNoQuestion;
     hcmCmdNoResults: Result := SDeCmdNoResults;
+    hcmCmdPromptStable: Result := SDeCmdPromptStable;
+    hcmCmdPromptContext: Result := SDeCmdPromptContext;
+    hcmCmdPromptWhole: Result := SDeCmdPromptWhole;
+    hcmCmdSearchTerms: Result := SDeCmdSearchTerms;
     hcmCmdNoContext: Result := SDeCmdNoContext;
     hcmCmdNoActions: Result := SDeCmdNoActions;
     hcmCmdRunUsage: Result := SDeCmdRunUsage;
@@ -2025,6 +2073,10 @@ begin
     hcmCmdNoIndex: Result := SPtCmdNoIndex;
     hcmCmdNoQuestion: Result := SPtCmdNoQuestion;
     hcmCmdNoResults: Result := SPtCmdNoResults;
+    hcmCmdPromptStable: Result := SPtCmdPromptStable;
+    hcmCmdPromptContext: Result := SPtCmdPromptContext;
+    hcmCmdPromptWhole: Result := SPtCmdPromptWhole;
+    hcmCmdSearchTerms: Result := SPtCmdSearchTerms;
     hcmCmdNoContext: Result := SPtCmdNoContext;
     hcmCmdNoActions: Result := SPtCmdNoActions;
     hcmCmdRunUsage: Result := SPtCmdRunUsage;

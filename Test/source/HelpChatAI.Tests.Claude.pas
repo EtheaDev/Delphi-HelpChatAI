@@ -207,11 +207,11 @@ begin
     // Without context and retriever: base instruction plus the language rule.
     // The prompt stays English when the UI language is Italian; the configured
     // language becomes the default reply language.
-    Assert.Contains(LPrompt, 'Reply in English,');
+    Assert.Contains(LPrompt, 'Reply in English.');
     LSettings.Language := hclItalian;
     LPrompt := THelpChatClaudeProvider.BuildSystemPrompt(LHistory, Default(THelpChatContext), LSettings, nil);
     Assert.StartsWith(HELPCHAT_CLAUDE_DEF_SYSTEMPROMPT, AfterIdentity(LPrompt));
-    Assert.Contains(LPrompt, 'The language of this chat is Italian. Reply in Italian,');
+    Assert.Contains(LPrompt, 'The language of this chat is Italian. Reply in Italian.');
     Assert.DoesNotContain(LPrompt, 'The documentation excerpts and the application itself are in',
       'DocLanguage not stated: no rule about the names');
     // A manual in English read by an Italian user: translate, keep the captions.

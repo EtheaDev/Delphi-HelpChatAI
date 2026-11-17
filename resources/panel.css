@@ -140,6 +140,8 @@ body {
   max-height: 50vh; overflow: auto; margin: 0; background: var(--hc-code-bg); padding: 8px;
   border-radius: 8px;
 }
+.hc-chat-system .hc-chat-bubble .hc-chat-prompt + .hc-chat-prompt-title,
+.hc-chat-system .hc-chat-bubble .hc-chat-prompt + p { margin-top: 12px; }
 .hc-chat-system .hc-chat-bubble ul, .hc-chat-system .hc-chat-bubble ol { margin: 4px 0 0 18px; padding: 0; }
 .hc-chat-system .hc-chat-bubble p { margin: 0 0 4px 0; }
 .hc-chat-system .hc-chat-bubble .hc-chat-cmd-title { margin-bottom: 6px; }

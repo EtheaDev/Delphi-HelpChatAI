@@ -68,6 +68,7 @@ uses
   HelpChatAI.Types,
   HelpChatAI.Theme,
   HelpChatAI.Settings,
+  HelpChatAI.Log,
   HelpChatAI.Engine,
   HelpChatAI.Commands,
   HelpChatAI.Actions,
@@ -119,6 +120,7 @@ type
     // HELPCHAT_REMOTE_CHECK_SECONDS and the session is checked before the
     // panel is shown again.
     FLastContact: TDateTime;
+    FLogSettings: THelpChatSettings;
     FOnUiCommand: THelpChatUiCommandEvent;
     FOnPdfRequest: THelpChatPdfRequestEvent;
     /// <summary>One form-encoded POST to the server, with the application key
@@ -152,7 +154,12 @@ type
     procedure PushContext;
     procedure PushTheme;
     procedure PushAssistant;
+    procedure Log(const ALevel: THelpChatLogLevel; const ASeverity: THelpChatLogSeverity;
+      const AText: string);
   public
+    /// <summary>The settings whose log this transport writes to (the
+    /// component's); nil = no log. Not owned.</summary>
+    property LogSettings: THelpChatSettings read FLogSettings write FLogSettings;
     /// <summary>For code that has no settings object: the root URL of the
     /// server (trailing slashes dropped) and the application key, in clear.
     /// No user, the default timeout, host channel on. Touches no
@@ -362,11 +369,19 @@ begin
   inherited;
 end;
 
+procedure THelpChatRemoteTransport.Log(const ALevel: THelpChatLogLevel;
+  const ASeverity: THelpChatLogSeverity; const AText: string);
+begin
+  if Assigned(FLogSettings) then
+    FLogSettings.Log(ALevel, ASeverity, lcTransport, AText);
+end;
+
 function THelpChatRemoteTransport.Post(const APath, ABody: string; out AResponse: string): Integer;
 var
   LClient: THTTPClient;
   LBody: TStringStream;
   LResponse: IHTTPResponse;
+  LStart: Cardinal;
 begin
   AResponse := '';
   LClient := THTTPClient.Create;
@@ -380,9 +395,12 @@ begin
     LClient.ContentType := 'application/x-www-form-urlencoded';
     LBody := TStringStream.Create(ABody, TEncoding.UTF8);
     try
+      LStart := TThread.GetTickCount;
       LResponse := LClient.Post(FBaseUrl + APath, LBody);
       Result := LResponse.StatusCode;
       AResponse := LResponse.ContentAsString(TEncoding.UTF8);
+      Log(llDebug, lsInfo, Format('POST %s: %d in %d ms', [APath, Result,
+        TThread.GetTickCount - LStart]));
     finally
       LBody.Free;
     end;
@@ -412,7 +430,10 @@ begin
     LStatus := Post(HELPCHAT_SESSION_PATH, LBody, LResponse);
   except
     on E: Exception do
+    begin
+      Log(llInfo, lsError, Format('Server %s unreachable: %s', [FBaseUrl, E.Message]));
       raise EHelpChatError.CreateFmt('HelpChat server %s unreachable: %s', [FBaseUrl, E.Message]);
+    end;
   end;
 
   if LStatus <> 200 then
@@ -429,6 +450,7 @@ begin
     end;
     if LError = '' then
       LError := IntToStr(LStatus);
+    Log(llInfo, lsError, Format('Server %s refused the session: %s', [FBaseUrl, LError]));
     raise EHelpChatError.CreateFmt('HelpChat server %s refused the session: %s', [FBaseUrl, LError]);
   end;
 
@@ -453,6 +475,7 @@ begin
   // A new session knows no screen: whatever was sent to the previous one has
   // to go again.
   FContextSent := False;
+  Log(llInfo, lsInfo, Format('Session opened on %s (profile "%s")', [FBaseUrl, FServerProfile]));
 end;
 
 function THelpChatRemoteTransport.SessionCall(const APath, ABody: string): Boolean;
@@ -464,6 +487,7 @@ begin
   if (LStatus = 403) and (FToken <> '') then
   begin
     // The token is unknown there: expired, or the server was restarted.
+    Log(llInfo, lsWarning, 'The server no longer knows the session (403): opening a new one');
     FToken := '';
     FSessionId := '';
     OpenSession;
@@ -568,6 +592,7 @@ begin
   if not HasSession then
     Exit;
   LContext := GetContext;
+  Log(llDetail, lsInfo, 'Screen context sent to the server');
   try
     SessionCall(HELPCHAT_API_CONTEXT,
       'screenName=' + HelpChatFormEncode(LContext.ScreenName) +
@@ -593,6 +618,7 @@ begin
   finally
     FLock.Leave;
   end;
+  Log(llDetail, lsInfo, 'Theme sent to the server');
   try
     if SessionCall(HELPCHAT_API_THEME, 'themeCss=' + HelpChatFormEncode(LCss)) then
       FThemeCssSent := LCss;

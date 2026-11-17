@@ -140,6 +140,7 @@
         <DCCReference Include="dbrtl.dcp"/>
         <DCCReference Include="MarkdownProcessor.dcp"/>
         <DCCReference Include="..\..\source\HelpChatAI.Types.pas"/>
+        <DCCReference Include="..\..\source\HelpChatAI.Log.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Messages.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.Assistant.pas"/>
         <DCCReference Include="..\..\source\HelpChatAI.UiState.pas"/>
