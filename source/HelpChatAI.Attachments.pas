@@ -61,6 +61,12 @@ const
   /// request is 32 MB in total, and an image of more than a few MB is a
   /// scanned page nobody needs at that size).</summary>
   HELPCHAT_DEF_ATTACH_MAXSIZEKB = 8192;
+  /// <summary>Largest picture, in KB, whatever the limit of an attachment
+  /// is: the services refuse a larger one (Anthropic at 5 MB, counted on the
+  /// base64 text, a third larger than the file), and a refused picture
+  /// would make every later question of the conversation fail, because the
+  /// attachments go up again with each of them.</summary>
+  HELPCHAT_ATTACH_IMAGE_MAXKB = 3600;
   /// <summary>Largest total of the attachments of one conversation, in KB.</summary>
   HELPCHAT_DEF_ATTACH_MAXTOTALKB = 20480;
   /// <summary>Attachments are off until the application turns them on: what
@@ -329,7 +335,15 @@ begin
   LEncoding := nil;
   LOffset := TEncoding.GetBufferEncoding(AData, LEncoding, TEncoding.UTF8);
   if LOffset > 0 then                     // a BOM decided it
-    Exit(LEncoding.GetString(AData, LOffset, Length(AData) - LOffset));
+    try
+      Exit(LEncoding.GetString(AData, LOffset, Length(AData) - LOffset));
+    except
+      // A BOM in front of bytes that are not what it promises (two exports
+      // joined, a character cut at the end): the decoder raises, and this
+      // function is called by TryAdd, which never does. Read as ANSI the
+      // text is whole, with the odd wrong letter.
+      Exit(TEncoding.ANSI.GetString(AData, LOffset, Length(AData) - LOffset));
+    end;
   // No BOM: UTF-8 when the bytes are valid UTF-8, else the ANSI code page -
   // the same rule, and the same code, the index builder uses for the pages of
   // a manual. The test has to come first: TEncoding.UTF8.GetString does not
@@ -507,7 +521,7 @@ function THelpChatAttachmentSet.TryAdd(const AKey, AFileName: string;
 var
   LList: TList<THelpChatAttachment>;
   LMediaType, LName: string;
-  LTotal: Int64;
+  LTotal, LMaxSize: Int64;
   I: Integer;
 begin
   Result := False;
@@ -535,10 +549,15 @@ begin
     Exit;
   end;
 
-  if (ALimits.MaxSizeBytes > 0) and (Length(AData) > ALimits.MaxSizeBytes) then
+  // A picture has a limit of its own, which the application cannot raise.
+  LMaxSize := ALimits.MaxSizeBytes;
+  if (HelpChatKindOf(LMediaType) = hcakImage) and
+     ((LMaxSize <= 0) or (LMaxSize > Int64(HELPCHAT_ATTACH_IMAGE_MAXKB) * 1024)) then
+    LMaxSize := Int64(HELPCHAT_ATTACH_IMAGE_MAXKB) * 1024;
+  if (LMaxSize > 0) and (Length(AData) > LMaxSize) then
   begin
     AError := Format(HelpChatMsg(hcmAttachTooLarge, ALanguage),
-      [LName, HelpChatFormatSize(ALimits.MaxSizeBytes)]);
+      [LName, HelpChatFormatSize(LMaxSize)]);
     Exit;
   end;
 

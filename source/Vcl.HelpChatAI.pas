@@ -125,6 +125,44 @@ type
   TVclHelpChatShowEvent = procedure(Sender: TObject; var AContainer: TWinControl) of object;
 
   /// <summary>
+  ///  Tells when a form is hidden, by listening to its window procedure: what
+  ///  the chat window needs to know of the modal form that owns it. Windows
+  ///  destroys the windows a window owns together with it, and the one moment
+  ///  that always comes before - whoever frees the form, however soon after
+  ///  <c>ShowModal</c> returned - is <c>ShowModal</c> hiding it.
+  ///  <c>Application.OnModalEnd</c> is not enough: it fires when the last
+  ///  modal form closes, so a dialog opened by another dialog took the chat
+  ///  with it. The form is never owned; the watch frees itself when the form
+  ///  goes, or with <c>LetGo</c>.
+  /// </summary>
+  TVclHelpChatHideWatch = class(TComponent)
+  strict private
+    FForm: TCustomForm;
+    FOldProc: TWndMethod;
+    FOnHidden: TNotifyEvent;
+    /// <summary>How many calls of <c>WndProc</c> are on the stack: the watch
+    /// is let go from inside one, by the handler it calls.</summary>
+    FDepth: Integer;
+    FDead: Boolean;
+    procedure WndProc(var AMessage: TMessage);
+    function IsCurrent: Boolean;
+  protected
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+  public
+    /// <summary>Starts listening to <c>AForm</c>. <c>AOnHidden</c> runs
+    /// right after the form stopped showing, with the watch as Sender.</summary>
+    constructor CreateFor(const AForm: TCustomForm; const AOnHidden: TNotifyEvent);
+    /// <summary>Stops listening and frees the watch - now, or when the call
+    /// of its window procedure that is running returns. The procedure of the
+    /// form is given back only while the chain is still ours: if somebody
+    /// hooked after it, the watch stays, passing everything on, until the
+    /// form goes.</summary>
+    procedure LetGo;
+    /// <summary>The form listened to; nil once it is gone.</summary>
+    property Form: TCustomForm read FForm;
+  end;
+
+  /// <summary>
   ///  The default host of the chat panel: a tool window anchored to the
   ///  bottom-right corner of the host form, remembering where the user left it.
   /// </summary>
@@ -167,6 +205,9 @@ type
     FTransport: IHelpChatTransport;
     FView: TVclHelpChatAIPanel;
     FOwnForm: TVclHelpChatAIForm;
+    /// <summary>Listens to the modal form that owns the chat window, while
+    /// one does.</summary>
+    FModalWatch: TVclHelpChatHideWatch;
     FContainer: TWinControl;
     FActiveContainer: TWinControl;
     FBubble: TVclHelpChatAIBubble;
@@ -214,6 +255,15 @@ type
     FOnGetTheme: TVclHelpChatThemeEvent;
     FActions: THelpChatActionBroker;
     FActionsRef: IHelpChatActionInvoker; // owns the broker (it is reference counted)
+    /// <summary>Killed by the destructor: what a call queued for the main
+    /// thread asks before touching this component.</summary>
+    FLife: IHelpChatLifeToken;
+    /// <summary>True from the moment the form given in <c>HostForm</c> is
+    /// destroyed until another one is given: the assistant then has no form.
+    /// It must not move to the form that owns it, or to the main one.</summary>
+    FHostGone: Boolean;
+    /// <summary>True while a PDF is being saved: one at a time.</summary>
+    FPdfBusy: Boolean;
     FActionsEnabled: Boolean;
     FUseSharedActions: Boolean;
     FSkills: THelpChatSkillSet;
@@ -324,6 +374,16 @@ type
     /// <summary>Gives the own window the right owner before showing it: the
     /// active modal form when there is one, the host form otherwise.</summary>
     procedure UpdateOwnFormOwner;
+    /// <summary>The modal form that owns the chat window is being hidden,
+    /// which is how <c>ShowModal</c> ends: the window goes to the modal form
+    /// still up, else back to the host, before its owner can take it along.</summary>
+    procedure ModalOwnerHidden(Sender: TObject);
+    /// <summary>Listens to <c>AOwner</c> when it is a modal form, and to
+    /// nothing otherwise.</summary>
+    procedure WatchModalOwner(const AOwner: TCustomForm);
+    /// <summary>The modal form still showing in front, <c>AExcept</c> and
+    /// the chat window apart; nil when none.</summary>
+    function OtherModalForm(const AExcept: TCustomForm): TCustomForm;
     procedure OwnFormClosedByUser(Sender: TObject);
     procedure ViewCloseRequested(Sender: TObject);
     /// <summary>What the page asked of its host through the server, delivered
@@ -342,6 +402,14 @@ type
     /// the user is asked where it goes, and it is printed with the browser
     /// environment of the panel.</summary>
     procedure PdfRequest(const ADoc: THelpChatPrintableDoc);
+    /// <summary>What <c>PdfRequest</c> does once it knows no other document
+    /// is being saved.</summary>
+    procedure SavePdfDocument(const ADoc: THelpChatPrintableDoc);
+    /// <summary>The page said the server refuses its session (the UI command
+    /// <c>reload</c>): the transport is asked for the URL of the panel again
+    /// - which opens a new session when the old one is gone - and the page
+    /// is loaded again when that URL is another one.</summary>
+    procedure ReloadPanel;
     /// <summary>Registers <c>export_pdf</c> among the actions of this
     /// assistant when <c>Settings.Pdf.Action</c> asks for it; removed again at
     /// deactivation.</summary>
@@ -1164,6 +1232,86 @@ begin
     LItem.Close;
 end;
 
+{ TVclHelpChatHideWatch }
+
+constructor TVclHelpChatHideWatch.CreateFor(const AForm: TCustomForm;
+  const AOnHidden: TNotifyEvent);
+begin
+  inherited Create(nil);
+  FForm := AForm;
+  FOnHidden := AOnHidden;
+  FForm.FreeNotification(Self);
+  FOldProc := FForm.WindowProc;
+  FForm.WindowProc := WndProc;
+end;
+
+function TVclHelpChatHideWatch.IsCurrent: Boolean;
+var
+  LProc: TWndMethod;
+  LOurs, LCurrent: TMethod;
+begin
+  LProc := WndProc;
+  LOurs := TMethod(LProc);
+  LCurrent := TMethod(FForm.WindowProc);
+  Result := (LCurrent.Code = LOurs.Code) and (LCurrent.Data = LOurs.Data);
+end;
+
+procedure TVclHelpChatHideWatch.WndProc(var AMessage: TMessage);
+var
+  LMsg: Cardinal;
+begin
+  LMsg := AMessage.Msg;
+  Inc(FDepth);
+  try
+    if Assigned(FOldProc) then
+      FOldProc(AMessage);
+    // After the form handled it: Showing is what it has become.
+    if (LMsg = CM_SHOWINGCHANGED) and not FDead and Assigned(FForm) and
+       Assigned(FOnHidden) and not FForm.Showing then
+      FOnHidden(Self);
+  finally
+    Dec(FDepth);
+  end;
+  // Let go while this call was running. Last statement on purpose.
+  if FDead and (FDepth = 0) then
+    Free;
+end;
+
+procedure TVclHelpChatHideWatch.LetGo;
+begin
+  FOnHidden := nil;
+  if Assigned(FForm) then
+  begin
+    // Somebody hooked after us: the watch stays in the chain, silent, and
+    // goes with the form.
+    if not IsCurrent then
+      Exit;
+    FForm.WindowProc := FOldProc;
+    FForm.RemoveFreeNotification(Self);
+    FForm := nil;
+  end;
+  if FDepth > 0 then
+    FDead := True
+  else
+    Free;
+end;
+
+procedure TVclHelpChatHideWatch.Notification(AComponent: TComponent; Operation: TOperation);
+begin
+  inherited Notification(AComponent, Operation);
+  if (Operation = opRemove) and (AComponent = FForm) then
+  begin
+    FForm := nil;
+    FOnHidden := nil;
+    // Its window is going: nothing calls the watch again, but one call may
+    // still be on the stack. Last statements on purpose.
+    if FDepth > 0 then
+      FDead := True
+    else
+      Free;
+  end;
+end;
+
 { TVclHelpChatAIForm }
 
 constructor TVclHelpChatAIForm.CreateNew(AOwner: TComponent; Dummy: Integer);
@@ -1193,6 +1341,7 @@ begin
   FSettings := THelpChatSettings.Create;
   FActions := THelpChatActionBroker.Create;
   FActionsRef := FActions; // reference counted from here on
+  FLife := THelpChatLifeToken.Create;
   FActions.OnPending := ActionsPending;
   FActions.OnConfirm := ActionConfirm;
   FActions.OnExecuted := ActionExecuted;
@@ -1218,7 +1367,9 @@ end;
 
 destructor TVclHelpChatAI.Destroy;
 begin
+  FLife.Kill;
   Active := False;
+  WatchModalOwner(nil);
   FreeAndNil(FVoice);
   FreeAndNil(FSkills); // before the broker its skills take their actions from
   FActions.OnPending := nil;
@@ -1254,7 +1405,13 @@ begin
   if Operation = opRemove then
   begin
     if AComponent = FHostForm then
+    begin
+      // The form given in code is gone, and the assistant with it: without
+      // this the next idle turn put its bubble on the main form, and F1
+      // there was answered by the assistant of a form that no longer exists.
       FHostForm := nil;
+      FHostGone := True;
+    end;
     if AComponent = FBubble then
       FBubble := nil;
     if AComponent = FImages then
@@ -1264,6 +1421,8 @@ begin
     end;
     if AComponent = FOwnForm then
       FOwnForm := nil;
+    if AComponent = FModalWatch then
+      FModalWatch := nil;
     if AComponent = FView then
       FView := nil;
     if AComponent = FContainer then
@@ -1374,8 +1533,9 @@ end;
 
 procedure TVclHelpChatAI.SetHostForm(const Value: TCustomForm);
 begin
-  if Value = FHostForm then
+  if (Value = FHostForm) and not FHostGone then
     Exit;
+  FHostGone := False;
   // The notification asked of the old form is left there: it is not
   // counted, and Container may be the same object. One too many costs
   // nothing.
@@ -1514,6 +1674,7 @@ begin
     if Assigned(FOwnForm) then
     begin
       FOwnForm.OnClosedByUser := nil;
+      WatchModalOwner(nil);
       FreeAndNil(FOwnForm);
     end;
     FActiveContainer := nil;
@@ -1617,6 +1778,7 @@ begin
   // the question to ask is simply whether the owner is still the host.
   if Assigned(FOwnForm) and (FOwnForm.PopupParent <> ResolveHostForm) then
     FOwnForm.PopupParent := ResolveHostForm;
+  WatchModalOwner(nil);
 end;
 
 procedure TVclHelpChatAI.CoordinatorIdle;
@@ -1632,7 +1794,7 @@ var
   LOwner: TComponent;
 begin
   Result := FHostForm;
-  if Assigned(Result) then
+  if Assigned(Result) or FHostGone then
     Exit;
   // The form the component was dropped on, through a frame if need be: an
   // assistant on an order form lives on the order form, not on the main one.
@@ -2110,6 +2272,9 @@ begin
       ABounds.Width := LPanel.GetValue<Integer>('width', 0);
       ABounds.Height := LPanel.GetValue<Integer>('height', 0);
       APPI := LPanel.GetValue<Integer>('ppi', 96);
+      // A file edited by hand: the sizes are divided by it.
+      if APPI <= 0 then
+        APPI := 96;
       Result := (ABounds.Width > 100) and (ABounds.Height > 100);
     end;
   finally
@@ -2196,6 +2361,11 @@ begin
   LActive := Screen.ActiveCustomForm;
   if Assigned(LActive) and (LActive <> FOwnForm) and (fsModal in LActive.FormState) then
     LOwner := LActive
+  else if (LActive = FOwnForm) and Assigned(FOwnForm.PopupParent) and
+          (fsModal in FOwnForm.PopupParent.FormState) then
+    // The chat itself is the active form, and a modal form owns it: it
+    // stays there. Going back to the host would put it under that form.
+    LOwner := FOwnForm.PopupParent
   else
     LOwner := ResolveHostForm;      // no modal form: back to the host
 
@@ -2205,15 +2375,78 @@ begin
     LOwner := nil;
   if FOwnForm.PopupParent <> LOwner then
     FOwnForm.PopupParent := LOwner;
+  WatchModalOwner(LOwner);
 
   // The window may have been disabled by the modal form that opened after it.
   if FOwnForm.HandleAllocated and not IsWindowEnabled(FOwnForm.Handle) then
     EnableWindow(FOwnForm.Handle, True);
 end;
 
+procedure TVclHelpChatAI.WatchModalOwner(const AOwner: TCustomForm);
+var
+  LWanted: TCustomForm;
+begin
+  LWanted := nil;
+  if Assigned(AOwner) and (AOwner <> ResolveHostForm) and (fsModal in AOwner.FormState) then
+    LWanted := AOwner;
+  if Assigned(FModalWatch) and (FModalWatch.Form = LWanted) then
+    Exit;
+  if Assigned(FModalWatch) then
+  begin
+    RemoveFreeNotification(FModalWatch);
+    FModalWatch.LetGo;
+    FModalWatch := nil;
+  end;
+  if Assigned(LWanted) then
+  begin
+    FModalWatch := TVclHelpChatHideWatch.CreateFor(LWanted, ModalOwnerHidden);
+    // It frees itself when its form goes: this reference must follow.
+    FModalWatch.FreeNotification(Self);
+  end;
+end;
+
+function TVclHelpChatAI.OtherModalForm(const AExcept: TCustomForm): TCustomForm;
+var
+  I: Integer;
+  LForm: TCustomForm;
+begin
+  Result := nil;
+  // The VCL keeps the forms with the one in front first.
+  for I := 0 to Screen.CustomFormCount - 1 do
+  begin
+    LForm := Screen.CustomForms[I];
+    if (LForm <> AExcept) and (LForm <> FOwnForm) and LForm.Visible and
+       (fsModal in LForm.FormState) and LForm.HandleAllocated then
+      Exit(LForm);
+  end;
+end;
+
+procedure TVclHelpChatAI.ModalOwnerHidden(Sender: TObject);
+var
+  LGone, LNext: TCustomForm;
+begin
+  LGone := TVclHelpChatHideWatch(Sender).Form;
+  if not Assigned(FOwnForm) or (FOwnForm.PopupParent <> LGone) then
+    Exit;
+  // The dialog that opened this one is still modal: the chat goes to it, so
+  // that it stays in front and usable. With none left, back to the host.
+  LNext := OtherModalForm(LGone);
+  if LNext = nil then
+    LNext := ResolveHostForm;
+  if (LNext <> nil) and not LNext.HandleAllocated then
+    LNext := nil;
+  FOwnForm.PopupParent := LNext;
+  WatchModalOwner(LNext);
+  if FOwnForm.HandleAllocated and not IsWindowEnabled(FOwnForm.Handle) then
+    EnableWindow(FOwnForm.Handle, True);
+end;
+
 procedure TVclHelpChatAI.OwnFormClosedByUser(Sender: TObject);
 begin
-  // The user closed the own window (✕ of the tool window).
+  // The user closed the own window (✕ of the tool window). The microphone
+  // goes off with it, as in HideView: a recognizer left listening kept
+  // sending what it heard after the chat was gone.
+  StopVoice;
   SavePanelBounds;
   if Assigned(FOnBeforeHideHelp) then
     FOnBeforeHideHelp(Self);
@@ -2283,7 +2516,9 @@ begin
   LRequest.Asker := Self;
   LRequest.Language := ActiveLanguage;
   LRequest.ActionName := AName;
-  LRequest.Action := FActions.Find(AName);
+  // Resolve, not Find: a shared action is not one of this broker's own, and
+  // without it the question showed neither its description nor its labels.
+  LRequest.Action := FActions.Resolve(AName);
   LRequest.Args := AArgs;
   LRequest.Caption := ResolvedAssistantName;
   LRequest.Title := HelpChatMsgFmt(hcmActionConfirmTitle, [AName], LRequest.Language);
@@ -2316,6 +2551,7 @@ begin
     procedure(const AArgs: THelpChatActionArgs; var AResult: string)
     var
       LDoc: THelpChatPrintableDoc;
+      LLife: IHelpChatLifeToken;
     begin
       LDoc := HelpChatMarkdownDocument(AArgs.AsString('title'),
         AArgs.AsString('markdown'), '');
@@ -2323,10 +2559,14 @@ begin
       // An action handler must return at once - a worker is waiting for it -
       // and a save dialog waits for a human. So the model is answered now and
       // the dialog opens next time round the message loop.
+      LLife := FLife;
       TThread.ForceQueue(nil,
         procedure
         begin
-          PdfRequest(LDoc);
+          // The form may have been closed - and this component freed -
+          // between the answer to the model and this turn of the loop.
+          if LLife.IsAlive then
+            PdfRequest(LDoc);
         end);
       AResult := HelpChatMsg(hcmPdfHandedOver, ActiveLanguage);
     end, False); // the save dialog is the confirmation, and the user may cancel it
@@ -2361,6 +2601,49 @@ begin
 end;
 
 procedure TVclHelpChatAI.PdfRequest(const ADoc: THelpChatPrintableDoc);
+var
+  LLife: IHelpChatLifeToken;
+begin
+  // One at a time: the export dispatches the messages of the thread while
+  // it waits for the browser, and a second request - the button of the page
+  // pressed twice, which is input of another process - would run inside the
+  // first.
+  if FPdfBusy then
+    Exit;
+  LLife := FLife;
+  FPdfBusy := True;
+  try
+    SavePdfDocument(ADoc);
+  finally
+    if LLife.IsAlive then
+      FPdfBusy := False;
+  end;
+end;
+
+procedure TVclHelpChatAI.ReloadPanel;
+var
+  LPanelUrl: string;
+begin
+  if not FActive or not Assigned(FView) or not Assigned(FTransport) then
+    Exit;
+  try
+    LPanelUrl := FTransport.GetPanelUrl;
+  except
+    on E: Exception do
+    begin
+      // The server cannot be reached: the page keeps saying so.
+      LogUi(llInfo, lsError, lcUi, 'Panel not reloaded: ' + E.Message);
+      Exit;
+    end;
+  end;
+  // Another URL is another session: the page loaded with the old token is
+  // refused at every request. The same one means the session is alive, and
+  // the refusal the page met was about something else.
+  if FView.PanelUrl <> LPanelUrl then
+    FView.OpenUrl(LPanelUrl, FTransport.GetPanelOrigin);
+end;
+
+procedure TVclHelpChatAI.SavePdfDocument(const ADoc: THelpChatPrintableDoc);
 var
   LDoc: THelpChatPrintableDoc;
   LPage: THelpChatPdfPage;
@@ -2497,7 +2780,9 @@ begin
   else if ACommand = HELPCHAT_UI_LANGUAGE then
     LanguageChanged
   else if ACommand = HELPCHAT_UI_MODEL then
-    ModelChanged;
+    ModelChanged
+  else if ACommand = HELPCHAT_UI_RELOAD then
+    ReloadPanel;
 end;
 
 { --- dictation ----------------------------------------------------------- }
@@ -2628,13 +2913,21 @@ begin
 end;
 
 procedure TVclHelpChatAI.ViewStyleChanged(Sender: TObject);
+var
+  LLife: IHelpChatLifeToken;
 begin
   if not FActive then
     Exit;
   ApplyTheme;
   // Once the style change has fully settled (windows recreated, WebView
   // reinitialized), apply it once more from the message loop.
-  TThread.ForceQueue(nil, DeferredApplyTheme);
+  LLife := FLife;
+  TThread.ForceQueue(nil,
+    procedure
+    begin
+      if LLife.IsAlive then
+        DeferredApplyTheme;
+    end);
 end;
 
 procedure TVclHelpChatAI.ViewPageReady(Sender: TObject);
@@ -2744,6 +3037,11 @@ var
 begin
   if not FActive then
     Active := True;
+  // Still not active: the owner is being loaded (Active is only remembered
+  // until Loaded) or this is the designer. There is nothing to open yet,
+  // and no transport to give the context to.
+  if not FActive or (FTransport = nil) then
+    Exit;
   FTransport.SetContext(AContext);
   LogUi(llDetail, lsInfo, lcUi, 'Panel opened');
   LogUi(llDebug, lsInfo, lcUi, Format('Screen context: name %s, label "%s", class %s, ' +

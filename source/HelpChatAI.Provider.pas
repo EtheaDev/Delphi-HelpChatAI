@@ -182,6 +182,13 @@ type
     /// if they had been.</summary>
     procedure NoteActionsNotRun(const AText: TStringBuilder;
       const AOnToken: THelpChatTokenProc);
+    /// <summary>The service stopped the reply at the limit of tokens
+    /// (<c>MaxTokens</c>): the reply says so, the way
+    /// <c>NoteActionsNotRun</c> does, instead of ending in the middle of a
+    /// sentence - or, when the thinking of the model used the whole limit,
+    /// as an empty answer.</summary>
+    procedure NoteReplyCut(const AText: TStringBuilder;
+      const AOnToken: THelpChatTokenProc);
     function InvokeAction(const AName, AArgsJson: string;
       const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
   public
@@ -370,8 +377,8 @@ function HelpChatNowText: string;
 ///  True when the model AName of ASettings could answer as it is configured:
 ///  its provider is registered and its <c>ConfigurationIssue</c> has nothing
 ///  to say once that model is applied - a key for <c>claude</c> and
-///  <c>gemini</c>, a key or an endpoint of its own for <c>openai</c>, an
-///  index for <c>docsearch</c>. False for a name that is not in the list.
+///  <c>gemini</c>, a key for <c>openai</c> unless its endpoint is on this
+///  machine or a private network, an index for <c>docsearch</c>. False for a name that is not in the list.
 ///  Works on a copy: ASettings is not touched. A key is resolved the way a
 ///  request resolves it, so <c>OnDecryptSecret</c> may be called.
 /// </summary>
@@ -552,9 +559,13 @@ begin
     LParts := APath.Split(['.']);
     for I := 0 to High(LParts) - 1 do
     begin
-      LChild := LObject.GetValue(LParts[I]) as TJSONObject;
-      if LChild = nil then
+      if LObject.GetValue(LParts[I]) is TJSONObject then
+        LChild := TJSONObject(LObject.GetValue(LParts[I]))
+      else
       begin
+        // Missing, or there as something that cannot hold the value (a null,
+        // a string): an object takes its place.
+        LObject.RemovePair(LParts[I]).Free;
         LChild := TJSONObject.Create;
         LObject.AddPair(LParts[I], LChild);
       end;
@@ -702,7 +713,9 @@ begin
       Continue;
     // "Leads" or "Data model" as written, or "Draft-Proposal" the way the
     // file is called: either says the answer comes from that page.
-    LName := ChangeFileExt(ExtractFileName(LPage.Url.Replace('/', '\')), '');
+    // The name as the user reads it, not as the link encodes it.
+    LName := HelpChatDecodeUrlPath(
+      ChangeFileExt(ExtractFileName(LPage.Url.Replace('/', '\')), ''));
     if not (Named(LPage.Title) or Named(LName)) then
       Continue;
     if LLinks <> '' then
@@ -840,6 +853,21 @@ begin
   end;
 end;
 
+procedure THelpChatProviderBase.NoteReplyCut(const AText: TStringBuilder;
+  const AOnToken: THelpChatTokenProc);
+var
+  LNote: string;
+begin
+  Log(llInfo, lsWarning, lcProvider,
+    'The reply was cut at the limit of tokens (MaxTokens)');
+  LNote := Msg(hcmReplyCut);
+  if AText.Length > 0 then
+    LNote := sLineBreak + sLineBreak + LNote;
+  if Assigned(AOnToken) then
+    AOnToken(LNote);
+  AText.Append(LNote);
+end;
+
 function THelpChatProviderBase.InvokeAction(const AName, AArgsJson: string;
   const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
 var
@@ -860,6 +888,15 @@ begin
     AResult := '';
     Log(llInfo, lsWarning, lcAction, Format('Action %s: no actions here', [AName]));
     Exit(aoUnknown);
+  end;
+  // A call cut in the middle of its arguments (the reply stopped at the
+  // token limit) is not a call with no arguments: it is not run.
+  if not HelpChatActionArgsAreWhole(AArgsJson) then
+  begin
+    AResult := HELPCHAT_ACTION_BROKEN_ARGS_TEXT;
+    Log(llInfo, lsWarning, lcAction, Format('Action %s: not run, its arguments ' +
+      'are not a whole JSON object', [AName]));
+    Exit(aoFailed);
   end;
   LStart := Now;
   Result := FActions.Invoke(AName, AArgsJson, ACancel, AResult);

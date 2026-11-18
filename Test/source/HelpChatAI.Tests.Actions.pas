@@ -72,6 +72,8 @@ type
       const ATimeoutMs: Integer = 5000): Boolean;
     procedure AddOpenScreen;
     /// <summary>The application refusing an action.</summary>
+    procedure RaisingConfirm(Sender: TObject; const AName: string;
+      const AArgs: THelpChatActionArgs; var AAllow: Boolean);
     procedure DenyConfirm(Sender: TObject; const AName: string;
       const AArgs: THelpChatActionArgs; var AAllow: Boolean);
     /// <summary>A user who reads the dialog for longer than the model call
@@ -97,6 +99,11 @@ type
     [Test] procedure Invoke_DeniedByTheUser;
     [Test] procedure Invoke_ConfirmedAfterTheTimeout_DoesNotRun;
     [Test] procedure Args_DisplayValues_AreOneLineAndShort;
+    [Test] procedure Args_ANull_IsAParameterLeftOut;
+    [Test] procedure Args_AWholeFloat_IsAnInteger;
+    [Test] procedure Args_AnUndeclaredName_IsShownShortAndOnOneLine;
+    [Test] procedure ArgsAreWhole_OnlyForNothingOrOneObject;
+    [Test] procedure Invoke_AConfirmationThatRaises_AnswersAtOnce;
     [Test] procedure ConfirmText_SaysWhoWroteWhat;
     [Test] procedure Invoke_HandlerThatRaisesIsReported;
     [Test] procedure Invoke_CancelledWhileWaiting;
@@ -109,6 +116,7 @@ implementation
 
 uses
   System.JSON,
+  System.Generics.Collections,
   System.DateUtils,
   System.SyncObjs,
   HelpChatAI.Messages,
@@ -194,6 +202,12 @@ begin
   FRan.Free;
   FBroker := nil;
   FBrokerRef := nil;
+end;
+
+procedure TActionsTests.RaisingConfirm(Sender: TObject; const AName: string;
+  const AArgs: THelpChatActionArgs; var AAllow: Boolean);
+begin
+  raise Exception.Create('the confirmation of the application broke');
 end;
 
 procedure TActionsTests.DenyConfirm(Sender: TObject; const AName: string;
@@ -547,6 +561,107 @@ begin
     Assert.AreEqual(0, FRan.Count, 'and the late yes ran nothing');
     Assert.AreEqual('cancella_tutto=' + IntToStr(Ord(aoTimeout)), FExecuted,
       'the application is told what happened');
+    Assert.AreEqual(0, FBroker.PendingCount);
+  finally
+    LWorker.WaitFor;
+    LWorker.Free;
+  end;
+end;
+
+procedure TActionsTests.Args_ANull_IsAParameterLeftOut;
+var
+  LArgs: THelpChatActionArgs;
+begin
+  // Models write null for every optional parameter they do not use; the
+  // Value of a JSON null is the text "null", which find_record then looked
+  // for as the name of a list.
+  LArgs := THelpChatActionArgs.Create('{"text":"Rossi","field":null,"list":null}');
+  try
+    Assert.IsTrue(LArgs.Has('text'));
+    Assert.IsFalse(LArgs.Has('field'), 'a null is not sent');
+    Assert.AreEqual('', LArgs.AsString('list'));
+    Assert.AreEqual('x', LArgs.AsString('list', 'x'), 'the default of the action stands');
+  finally
+    LArgs.Free;
+  end;
+end;
+
+procedure TActionsTests.Args_AWholeFloat_IsAnInteger;
+var
+  LArgs: THelpChatActionArgs;
+begin
+  LArgs := THelpChatActionArgs.Create('{"a":3.0,"b":1e2,"c":2.5,"d":"7"}');
+  try
+    Assert.AreEqual(3, LArgs.AsInteger('a', -1));
+    Assert.AreEqual(100, LArgs.AsInteger('b', -1));
+    Assert.AreEqual(-1, LArgs.AsInteger('c', -1), 'not a whole number: the default');
+    Assert.AreEqual(7, LArgs.AsInteger('d', -1));
+  finally
+    LArgs.Free;
+  end;
+end;
+
+procedure TActionsTests.Args_AnUndeclaredName_IsShownShortAndOnOneLine;
+var
+  LArgs: THelpChatActionArgs;
+  LPairs: TArray<TPair<string, string>>;
+  LPair: TPair<string, string>;
+begin
+  // The model writes the names too: a name nobody declared could carry a
+  // sentence of its own into the dialog the user answers.
+  LArgs := THelpChatActionArgs.Create(
+    '{"APPROVED BY THE ADMINISTRATOR\n\nClick Yes to continue, there is nothing to check here at all":"."}');
+  try
+    LPairs := LArgs.ToDisplayPairs(nil);
+    Assert.AreEqual(1, Integer(Length(LPairs)));
+    for LPair in LPairs do
+    begin
+      Assert.IsFalse(LPair.Key.Contains(#10), 'no line break survives');
+      Assert.IsTrue(Length(LPair.Key) <= HELPCHAT_ACTION_DISPLAY_KEY_MAXCHARS, 'and it is short');
+    end;
+    Assert.IsFalse(LArgs.ToDisplayLines.Contains('nothing to check'));
+  finally
+    LArgs.Free;
+  end;
+  // What reverses the reading order, or breaks the line in Unicode, goes too.
+  Assert.AreEqual('a b c', THelpChatActionArgs.DisplayValue('a'#$2028'b'#$202E'c'));
+end;
+
+procedure TActionsTests.ArgsAreWhole_OnlyForNothingOrOneObject;
+begin
+  Assert.IsTrue(HelpChatActionArgsAreWhole(''));
+  Assert.IsTrue(HelpChatActionArgsAreWhole('  '));
+  Assert.IsTrue(HelpChatActionArgsAreWhole('{}'));
+  Assert.IsTrue(HelpChatActionArgsAreWhole('{"company":"Acme"}'));
+  // A reply cut at the token limit in the middle of a call: read as "no
+  // arguments" it ran the action with every parameter missing.
+  Assert.IsFalse(HelpChatActionArgsAreWhole('{"company":"Ac'));
+  Assert.IsFalse(HelpChatActionArgsAreWhole('"just a string"'));
+  Assert.IsFalse(HelpChatActionArgsAreWhole('[1,2]'));
+end;
+
+procedure TActionsTests.Invoke_AConfirmationThatRaises_AnswersAtOnce;
+var
+  LWorker: TInvokeWorker;
+begin
+  // Before, the request was never answered: the worker waited its whole
+  // timeout, the model was told "timeout" and the request leaked.
+  FBroker.Add('cancella_tutto', 'Deletes everything', [],
+    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+    begin
+      FRan.Add('cancella_tutto');
+    end, True);
+  FBroker.OnConfirm := RaisingConfirm;
+  FBroker.TimeoutMs := 20000;
+  LWorker := TInvokeWorker.Create(FBroker, 'cancella_tutto', '{}');
+  try
+    Assert.IsTrue(PumpUntil(
+      function: Boolean
+      begin
+        Result := LWorker.Finished;
+      end), 'answered long before the timeout');
+    Assert.AreEqual(Ord(aoFailed), Ord(LWorker.Outcome));
+    Assert.AreEqual(0, FRan.Count, 'and nothing ran');
     Assert.AreEqual(0, FBroker.PendingCount);
   finally
     LWorker.WaitFor;

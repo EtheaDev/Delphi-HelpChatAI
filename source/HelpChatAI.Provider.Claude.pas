@@ -265,6 +265,12 @@ type
     /// others: the context of the question then goes in the turn of the
     /// user.</summary>
     class function RefusesSystemMessages(const AModel: string): Boolean; static;
+    /// <summary>True when the error of the service says a system message is
+    /// not accepted among the others: "role 'system' is not supported on
+    /// this model". Both words and the refusal, so that "system overloaded"
+    /// or an unknown role is not taken for it: the model would be remembered
+    /// as one that refuses, for the whole process. Public for tests.</summary>
+    class function IsSystemRoleRefusal(const AMessage: string): Boolean; static;
     /// <summary>The content of the user turn the attachments belong to: a
     /// <c>document</c> block per PDF, an <c>image</c> block per picture, and
     /// the text last - the order Anthropic recommends, because a question
@@ -464,7 +470,7 @@ begin
     if LType = 'message_start' then
     begin
       // The model that answers and the input counts, cache included.
-      LDelta := LRoot.GetValue('message') as TJSONObject;
+      LDelta := HelpChatJsonObject(LRoot, 'message');
       if LDelta <> nil then
       begin
         FUsage.Model := LDelta.GetValue<string>('model', '');
@@ -476,7 +482,7 @@ begin
       StartBlock(LRoot.GetValue<Integer>('index', -1), LRoot.GetValue('content_block'))
     else if LType = 'content_block_delta' then
     begin
-      LDelta := LRoot.GetValue('delta') as TJSONObject;
+      LDelta := HelpChatJsonObject(LRoot, 'delta');
       if LDelta <> nil then
       begin
         LIndex := LRoot.GetValue<Integer>('index', -1);
@@ -498,14 +504,14 @@ begin
     end
     else if LType = 'message_delta' then
     begin
-      LDelta := LRoot.GetValue('delta') as TJSONObject;
+      LDelta := HelpChatJsonObject(LRoot, 'delta');
       if LDelta <> nil then
         FStopReason := LDelta.GetValue<string>('stop_reason', '');
       ReadUsage(LRoot.GetValue('usage'));
     end
     else if LType = 'error' then
     begin
-      LErr := LRoot.GetValue('error') as TJSONObject;
+      LErr := HelpChatJsonObject(LRoot, 'error');
       if LErr <> nil then
         FError := LErr.GetValue<string>('message', '');
       if FError = '' then
@@ -636,6 +642,12 @@ var
   // for the whole process: asking each of them once is enough.
   GRefusingModels: TStringList;
 
+type
+  /// <summary>An <c>error</c> event that arrived inside a stream that had
+  /// started well (overloaded, for instance): told apart from a refused
+  /// request, which is the only error a round is repeated for.</summary>
+  EHelpChatClaudeStreamError = class(EHelpChatError);
+
 class function THelpChatClaudeProvider.RefusesSystemMessages(const AModel: string): Boolean;
 begin
   TMonitor.Enter(GRefusingModels);
@@ -658,12 +670,11 @@ begin
   end;
 end;
 
-/// <summary>True when the error of the service says a system message is
-/// not accepted: "role 'system' is not supported on this model".</summary>
-function IsSystemRoleRefusal(const AMessage: string): Boolean;
+class function THelpChatClaudeProvider.IsSystemRoleRefusal(const AMessage: string): Boolean;
 begin
-  Result := ContainsText(AMessage, 'system') and
-    (ContainsText(AMessage, 'not supported') or ContainsText(AMessage, 'role'));
+  Result := ContainsText(AMessage, 'system') and ContainsText(AMessage, 'role') and
+    (ContainsText(AMessage, 'not supported') or ContainsText(AMessage, 'unsupported') or
+     ContainsText(AMessage, 'not allowed') or ContainsText(AMessage, 'not permitted'));
 end;
 
 { THelpChatClaudeProvider }
@@ -972,7 +983,7 @@ begin
       try
         if LValue is TJSONObject then
         begin
-          LErr := TJSONObject(LValue).GetValue('error') as TJSONObject;
+          LErr := HelpChatJsonObject(TJSONObject(LValue), 'error');
           if LErr <> nil then
             Result := LErr.GetValue<string>('message', '');
         end;
@@ -1010,6 +1021,9 @@ begin
       LClient.ConnectionTimeout := Settings.Claude.ConnectTimeoutMs;
       LClient.ResponseTimeout := Settings.Claude.ResponseTimeoutMs;
       LClient.OnReceiveData := LWatcher.OnReceiveData;
+      // No redirect is followed: the client would repeat the headers - the
+      // key among them - at whatever address the answer names.
+      LClient.HandleRedirects := False;
 
       LHeaders := [
         TNetHeader.Create('x-api-key', Settings.Claude.ResolveApiKey),
@@ -1039,12 +1053,13 @@ begin
 
       // A refused request is a plain JSON object, not a stream: it went
       // through the same sink, so it is in Raw. An error event inside a
-      // stream that started well (overloaded, for instance) is in Error.
-      if LResponse.StatusCode >= 400 then
+      // stream that started well (overloaded, for instance) is in Error. A
+      // redirect is an error too: it was not followed.
+      if LResponse.StatusCode >= 300 then
         raise EHelpChatError.Create(ExtractApiError(Result.Raw, LResponse.StatusCode,
           LResponse.StatusText, Settings));
       if Result.Error <> '' then
-        raise EHelpChatError.Create(Result.Error);
+        raise EHelpChatClaudeStreamError.Create(Result.Error);
     except
       Result.Free;
       raise;
@@ -1103,7 +1118,11 @@ var
       // in the turn of the user, for this request and for the process.
       on E: EHelpChatError do
       begin
-        if LAsUserText or (E is EHelpChatCancelled) or not IsSystemRoleRefusal(E.Message) then
+        // An error that arrived inside a stream is never that refusal - a
+        // refused request streams nothing - and repeating the round would
+        // write its text twice.
+        if LAsUserText or (E is EHelpChatCancelled) or (E is EHelpChatClaudeStreamError) or
+           not IsSystemRoleRefusal(E.Message) then
           raise;
         RememberRefusingModel(LModel);
         LogRetry('the context goes in the turn of the user, the model refuses a ' +
@@ -1155,7 +1174,11 @@ begin
         // Nothing to do, or nobody to do it: this is the reply.
         if (LStream.StopReason <> 'tool_use') or (Length(LCalls) = 0) or
            (LTools = '') then
+        begin
+          if LStream.StopReason = 'max_tokens' then
+            NoteReplyCut(LText, AOnToken);
           Break;
+        end;
         // The last round ends here as well, with the actions it asked for
         // not run - running them would need one more request to tell the
         // model how they went - and the reply says so.

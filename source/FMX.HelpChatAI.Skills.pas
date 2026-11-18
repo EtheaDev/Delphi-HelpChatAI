@@ -64,9 +64,15 @@ type
   /// them.</summary>
   THelpChatFmxFieldAdapter = class abstract
   public
+    /// <summary>True for a control this adapter reads and writes.</summary>
     class function Accepts(const AControl: TControl): Boolean; virtual; abstract;
+    /// <summary>Fills what the model is told of the field: kind, choices,
+    /// read-only, secret.</summary>
     class procedure Describe(const AField: THelpChatFmxField); virtual; abstract;
+    /// <summary>The value of the control, as text.</summary>
     class function ReadValue(const AField: THelpChatFmxField): string; virtual; abstract;
+    /// <summary>Writes <c>AText</c> into the control: empty when written
+    /// (<c>AShown</c> is what the control now shows), else why not.</summary>
     class function WriteValue(const AField: THelpChatFmxField; const AText: string;
       out AShown: string): string; virtual; abstract;
   end;
@@ -76,12 +82,16 @@ type
   /// <summary>One field of the form, with the control behind it.</summary>
   THelpChatFmxField = class(THelpChatDataField)
   public
+    /// <summary>The control of the field.</summary>
     Control: TControl;
     /// <summary>The radio buttons of a group, which are one field.</summary>
     Controls: TArray<TControl>;
     /// <summary>nil for a field bound by LiveBindings.</summary>
     Adapter: THelpChatFmxFieldAdapterClass;
+    /// <summary>The caption the control carries itself.</summary>
     OwnCaption: string;
+    /// <summary>The text prompt of an edit: the last resort of a
+    /// caption.</summary>
     Placeholder: string;
     /// <summary>The LiveBindings link that binds it, if any.</summary>
     Link: TComponent;
@@ -93,12 +103,17 @@ type
   /// <summary>One button the skills may press.</summary>
   THelpChatFmxCommand = class(THelpChatSkillCommand)
   public
+    /// <summary>The control that is pressed.</summary>
     Control: TControl;
   end;
 
   THelpChatFmxTargetEvent = procedure(Sender: TObject; var ATarget: TFmxObject) of object;
+  /// <summary>Every field the skills found, before the model hears of it:
+  /// correct what it says or set <c>AAccept</c> False to hide it.</summary>
   THelpChatFmxFieldEvent = procedure(Sender: TObject; const AField: THelpChatFmxField;
     var AAccept: Boolean) of object;
+  /// <summary>Every button the skills found: <c>AAccept</c> arrives False
+  /// for one that looks like a save, True otherwise.</summary>
   THelpChatFmxCommandEvent = procedure(Sender: TObject; const ACommand: THelpChatFmxCommand;
     var AAccept: Boolean) of object;
 
@@ -112,20 +127,33 @@ type
     function GetHideFieldValues: Boolean;
     procedure SetHideFieldValues(const Value: Boolean);
   public
+    /// <summary>The model is told whether a field is filled, never its
+    /// value (<c>HelpChatSkillsHideFieldValues</c>, the same for every
+    /// framework). A password is never read anyway.</summary>
     property HideFieldValues: Boolean read GetHideFieldValues write SetHideFieldValues;
+    /// <summary>Which form or control the skills work on, when it is not
+    /// the form the user is on.</summary>
     property OnGetTarget: THelpChatFmxTargetEvent read FOnGetTarget write FOnGetTarget;
+    /// <summary>Corrects or hides a field before the model hears of it.</summary>
     property OnDescribeField: THelpChatFmxFieldEvent read FOnDescribeField write FOnDescribeField;
+    /// <summary>Decides which buttons the assistant may press.</summary>
     property OnCommand: THelpChatFmxCommandEvent read FOnCommand write FOnCommand;
   end;
 
+/// <summary>The options of the FireMonkey skills.</summary>
 function HelpChatFmxSkills: THelpChatFmxSkillOptions;
+/// <summary>Teaches the skills a kind of control. Asked before the ones
+/// registered earlier and the built-in ones.</summary>
 procedure RegisterHelpChatFmxFieldAdapter(const AAdapter: THelpChatFmxFieldAdapterClass);
+/// <summary>Takes an adapter of the application away again.</summary>
 procedure UnregisterHelpChatFmxFieldAdapter(const AAdapter: THelpChatFmxFieldAdapterClass);
 
 /// <summary>The form the user is working on: the active form, unless it is
 /// the window of the chat or a dialog of the library, else the visible form
 /// activated last. nil when none.</summary>
 function HelpChatFmxWorkingForm: TCommonCustomForm;
+/// <summary>What the skills of that assistant work on:
+/// <see cref="HelpChatFmxWorkingForm" />, as <c>OnGetTarget</c> may change it.</summary>
 function HelpChatFmxTarget(const AHost: TComponent): TFmxObject;
 
 /// <summary>The screen of a form or a control, for code of the application
@@ -140,7 +168,7 @@ function HelpChatFmxCollectFields(const ARoot: TFmxObject;
 implementation
 
 uses
-  System.StrUtils, System.Math, System.TypInfo, System.UITypes, System.Messaging,
+  System.StrUtils, System.Math, System.TypInfo, System.Rtti, System.UITypes, System.Messaging,
   System.Actions, System.Generics.Defaults, System.Types,
   FMX.StdCtrls, FMX.Edit, FMX.Memo, FMX.ListBox, FMX.ComboEdit, FMX.DateTimeCtrls,
   FMX.TabControl, FMX.ActnList,
@@ -727,7 +755,11 @@ end;
 
 class function TCheckAdapter.Accepts(const AControl: TControl): Boolean;
 begin
-  Result := Supports(AControl, IIsChecked) and not (AControl is TRadioButton);
+  // Not a button: in FireMonkey every TSpeedButton is IIsChecked, and each
+  // one of a tool bar was described as a yes/no field that fill_form could
+  // set.
+  Result := Supports(AControl, IIsChecked) and not (AControl is TRadioButton) and
+    not (AControl is TCustomButton);
 end;
 
 class procedure TCheckAdapter.Describe(const AField: THelpChatFmxField);
@@ -1041,7 +1073,7 @@ begin
     AField.LookupOf := AField.LookupDataSet.Name;
     HelpChatFillLookupChoices(AField);
   end
-  else if Supports(AField.Control, IIsChecked) then
+  else if Supports(AField.Control, IIsChecked) and not (AField.Control is TCustomButton) then
   begin
     AField.Kind := hfkBoolean;
     AField.OwnCaption := ControlText(AField.Control);
@@ -1199,9 +1231,97 @@ begin
   AList.Add(ACommand);
 end;
 
+// A property read through extended RTTI: the public ones too, which the
+// navigator of the LiveBindings keeps what matters in.
+function RttiProp(const AObject: TObject; const AName: string; out AValue: TValue): Boolean;
+var
+  LContext: TRttiContext;
+  LProperty: TRttiProperty;
+begin
+  Result := False;
+  if AObject = nil then
+    Exit;
+  LProperty := LContext.GetType(AObject.ClassType).GetProperty(AName);
+  if Assigned(LProperty) and LProperty.IsReadable then
+    try
+      AValue := LProperty.GetValue(AObject);
+      Result := True;
+    except
+      Result := False;
+    end;
+end;
+
+// True when the bind source ASource (a TBindSourceDB, a prototype source) is
+// editing a record.
+function SourceIsEditing(const ASource: TObject): Boolean;
+var
+  LValue: TValue;
+begin
+  Result := HelpChatIsEditing(DataSetOfSource(ASource));
+  if not Result and RttiProp(ASource, 'Editing', LValue) and (LValue.Kind = tkEnumeration) then
+    Result := LValue.AsBoolean;
+end;
+
+// What a button of a TBindNavigator, or a button with one of the bind
+// navigator actions, does: AIsPost for the ones that save, and the result
+// True for the ones that move to another record, insert one or reload while
+// their source is editing - pressing those posts the record, which is
+// saving. A button of the navigator is told by its Index (TNavigateButton),
+// never by its hint: the hint is a localized text of the RTL.
+function NavigationWhileEditing(const AControl: TControl; const AAction: TBasicAction;
+  out AIsPost: Boolean): Boolean;
+const
+  // TNavigateButton, in Data.Bind.Controls.
+  KIND_FIRST = 0; KIND_PRIOR = 1; KIND_NEXT = 2; KIND_LAST = 3; KIND_INSERT = 4;
+  KIND_POST = 7; KIND_REFRESH = 9; KIND_APPLY = 10;
+  MOVING: array[0..5] of string = ('First', 'Prior', 'Next', 'Last', 'Insert', 'Refresh');
+var
+  LValue: TValue;
+  LSource: TObject;
+  LOwner: TFmxObject;
+  LKind: Integer;
+  LMoves: Boolean;
+  LName: string;
+begin
+  Result := False;
+  AIsPost := False;
+  LSource := nil;
+  LMoves := False;
+  if InheritsFromName(AControl, 'TBindNavButton') then
+  begin
+    if not RttiProp(AControl, 'Index', LValue) or (LValue.Kind <> tkEnumeration) then
+      Exit;
+    LKind := LValue.AsOrdinal;
+    AIsPost := (LKind = KIND_POST) or (LKind = KIND_APPLY);
+    LMoves := LKind in [KIND_FIRST, KIND_PRIOR, KIND_NEXT, KIND_LAST, KIND_INSERT, KIND_REFRESH];
+    LOwner := AControl.Parent;
+    while Assigned(LOwner) and (LSource = nil) do
+    begin
+      if RttiProp(LOwner, 'DataSource', LValue) and LValue.IsObject then
+        LSource := LValue.AsObject;
+      LOwner := LOwner.Parent;
+    end;
+  end
+  else if Assigned(AAction) then
+  begin
+    AIsPost := InheritsFromName(AAction, 'TFMXBindNavigatePost') or
+      InheritsFromName(AAction, 'TBindNavigatePost') or
+      InheritsFromName(AAction, 'TFMXBindNavigateApplyUpdates') or
+      InheritsFromName(AAction, 'TBindNavigateApplyUpdates');
+    for LName in MOVING do
+      if InheritsFromName(AAction, 'TFMXBindNavigate' + LName) or
+         InheritsFromName(AAction, 'TBindNavigate' + LName) then
+        LMoves := True;
+    if LMoves and RttiProp(AAction, 'DataSource', LValue) and LValue.IsObject then
+      LSource := LValue.AsObject;
+  end;
+  Result := LMoves and Assigned(LSource) and SourceIsEditing(LSource);
+end;
+
 procedure CollectCommands(const ARoot: TFmxObject; const AList: THelpChatSkillCommandList;
   const ASender: TObject);
 var
+  LIsPost: Boolean;
   LAll: TList<TControl>;
   LControl: TControl;
   LCommand: THelpChatFmxCommand;
@@ -1214,10 +1334,13 @@ begin
     begin
       if not (LControl is TCustomButton) or not IsUsable(LControl) then
         Continue;
+      LAction := TControlAccess(LControl).Action;
+      // Moving or inserting while a record is edited posts it: not offered.
+      if NavigationWhileEditing(LControl, LAction, LIsPost) then
+        Continue;
       LCommand := THelpChatFmxCommand.Create;
       LCommand.Control := LControl;
       LCommand.Caption := HelpChatCleanCaption(ControlText(LControl));
-      LAction := TControlAccess(LControl).Action;
       if (LCommand.Caption = '') and (LControl.Hint <> '') then
         LCommand.Caption := HelpChatCleanCaption(LControl.Hint);
       if (LCommand.Caption = '') and (LAction is TCustomAction) then
@@ -1230,8 +1353,7 @@ begin
       LCommand.Id := LControl.Name;
       if LCommand.Id = '' then
         LCommand.Id := 'button';
-      LCommand.IsSave := InheritsFromName(LAction, 'TFMXBindNavigatePost') or
-        InheritsFromName(LAction, 'TBindNavigatePost') or
+      LCommand.IsSave := LIsPost or
         (TCustomButton(LControl).ModalResult in [mrOk, mrYes, mrAll, mrYesToAll]) or
         HelpChatLooksLikeSave(LCommand.Caption, LControl.Name);
       AddCommand(AList, LCommand, ASender);

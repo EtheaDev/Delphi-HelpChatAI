@@ -66,9 +66,12 @@ function FmxHelpChatEnsureWebView2Loader(const ABaseFolder: string;
 /// the built application would see (the caller reads them and frees them):
 /// the copy runs on its own copy of them. Returns when the window is closed;
 /// by then the copy is stopped and freed, and the engine it held with it.
-/// <c>AChat</c> is never activated or changed.</summary>
+/// <c>AChat</c> is never activated or changed. <c>ABaseFolder</c> is the
+/// folder the application is built in: the files the component names with a
+/// relative path are read there.</summary>
 procedure FmxHelpChatDesignPreview(const AChat: TFmxHelpChatAI;
-  const ASettings: THelpChatSettings; const AIssues: THelpChatIssues);
+  const ASettings: THelpChatSettings; const AIssues: THelpChatIssues;
+  const ABaseFolder: string = '');
 
 implementation
 
@@ -277,7 +280,8 @@ end;
 { the preview }
 
 procedure FmxHelpChatDesignPreview(const AChat: TFmxHelpChatAI;
-  const ASettings: THelpChatSettings; const AIssues: THelpChatIssues);
+  const ASettings: THelpChatSettings; const AIssues: THelpChatIssues;
+  const ABaseFolder: string);
 var
   LForm: TFmxHelpChatPreviewForm;
   LClone: TFmxHelpChatPreviewChat;
@@ -300,6 +304,13 @@ begin
     // property forgotten the day it was added (the icon was).
     LClone := TFmxHelpChatPreviewChat.Create(nil);
     LClone.Assign(AChat);
+    // The files the component names are read next to the executable, which
+    // here is bds.exe: the copy gets them as the application would find
+    // them, in the folder of the project.
+    LClone.PanelStyleSheet := HelpChatFileInFolder(LClone.PanelStyleSheet, ABaseFolder);
+    LClone.PdfStyleSheet := HelpChatFileInFolder(LClone.PdfStyleSheet, ABaseFolder);
+    LClone.PdfHeaderFile := HelpChatFileInFolder(LClone.PdfHeaderFile, ABaseFolder);
+    LClone.PdfFooterFile := HelpChatFileInFolder(LClone.PdfFooterFile, ABaseFolder);
     LClone.Settings := ASettings;      // assigned: the copy keeps its own
     LClone.ShowBubble := False;        // the window is the preview itself
     LClone.RegisterHelpViewer := False;

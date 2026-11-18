@@ -149,6 +149,12 @@ type
     procedure CountdownTimerTimer(Sender: TObject);
   private
     FSecondsLeft: Integer;
+    /// <summary>The text of the No button without the countdown, in the
+    /// language of the request.</summary>
+    FNoText: string;
+    /// <summary>The scroll box the values go into when the form would be
+    /// taller than its display; nil for a question that fits.</summary>
+    FValuesScroll: TVertScrollBox;
     /// <summary>Writes the seconds left on the No button, the one the
     /// countdown will press.</summary>
     procedure ShowSecondsLeft;
@@ -167,9 +173,22 @@ type
     /// its caption.</summary>
     function NewLabel(const AText: string; const AX, AY, AWidth: Single;
       const ABold: Boolean): TLabel;
+    /// <summary>The height the client area may take on the display of
+    /// <c>AHost</c> (the primary one with no host): the work area less the
+    /// title bar and a margin.</summary>
+    function RoomFor(const AHost: TCommonCustomForm): Single;
+    /// <summary>Moves the values layout into a scroll box <c>AHeight</c>
+    /// tall, between the header and the footer.</summary>
+    procedure ScrollValues(const AHeight: Single);
   public
     /// <summary>Lays the request out - the header, the values in two
-    /// columns, the footer only under values - sizes the form to it, starts
+    /// columns, the footer only under values - and sizes the form to it,
+    /// never taller than the work area of its display: values that would
+    /// not fit scroll. Yes and No are written in <c>ARequest.Language</c>.
+    /// Shows nothing; <see cref="Execute" /> calls it, once per
+    /// instance.</summary>
+    procedure Prepare(const ARequest: TFmxHelpChatConfirmRequest);
+    /// <summary>Lays the request out (<see cref="Prepare" />), starts
     /// the countdown when <c>TimeoutMs</c> is positive and shows the form
     /// modally with No focused. True only for Yes: No, the countdown, the
     /// close button and <c>Dismiss</c> all answer False. Desktop only: it
@@ -202,7 +221,8 @@ function HelpChatFmxCanConfirm: Boolean;
 
 /// <summary>Asks with the registered dialog, created for the question and
 /// owned by the host, and returns True when the user allowed the action.
-/// A dialog still open from a previous question is dismissed first. False,
+/// A dialog still open from a previous question of the same assistant is
+/// dismissed first; another assistant's opens over it. False,
 /// without asking, where <see cref="HelpChatFmxCanConfirm" /> is False.</summary>
 function HelpChatFmxConfirmAction(const ARequest: TFmxHelpChatConfirmRequest): Boolean;
 
@@ -214,7 +234,6 @@ uses
   System.Math,
   FMX.TextLayout,
   FMX.Graphics,
-  FMX.Consts,
   HelpChatAI.Types;
 
 var
@@ -377,6 +396,9 @@ begin
   Result := TLabel.Create(Self);
   Result.Parent := ValuesLayout;
   Result.SetBounds(AX, AY, AWidth, 20);
+  // A value is shown as it is: with the default prefix style "R&D" lost its
+  // ampersand, and the user confirmed a value that was not the one written.
+  Result.PrefixStyle := TPrefixStyle.NoPrefix;
   Result.TextSettings.WordWrap := True;
   Result.TextSettings.VertAlign := TTextAlign.Leading;
   Result.StyledSettings := Result.StyledSettings - [TStyledSetting.Other];
@@ -389,23 +411,76 @@ begin
   FitLabel(Result);
 end;
 
-function TFmxHelpChatConfirmDialog.Execute(const ARequest: TFmxHelpChatConfirmRequest): Boolean;
+function TFmxHelpChatConfirmDialog.RoomFor(const AHost: TCommonCustomForm): Single;
+const
+  TITLE_BAR = 40;
+  MARGIN = 16;
+begin
+  if Assigned(AHost) then
+    Result := Screen.DisplayFromForm(AHost).Workarea.Height
+  else
+    Result := Screen.WorkAreaRect.Height;
+  Result := Result - TITLE_BAR - 2 * MARGIN;
+end;
+
+procedure TFmxHelpChatConfirmDialog.ScrollValues(const AHeight: Single);
+var
+  LWidth, LFull: Single;
+begin
+  LWidth := ValuesLayout.Width;
+  LFull := ValuesLayout.Height;
+  FValuesScroll := TVertScrollBox.Create(Self);
+  FValuesScroll.Parent := Self;
+  // Under the header and above the footer: top-aligned controls are
+  // ordered by where they are.
+  FValuesScroll.SetBounds(0, HeaderLayout.Height + 1, ClientWidth, AHeight);
+  FValuesScroll.Align := TAlignLayout.Top;
+  ValuesLayout.Align := TAlignLayout.None;
+  ValuesLayout.Parent := FValuesScroll;
+  ValuesLayout.SetBounds(0, 0, LWidth, LFull);
+end;
+
+procedure TFmxHelpChatConfirmDialog.Prepare(const ARequest: TFmxHelpChatConfirmRequest);
 const
   GAP = 8;
   MARGIN = 16;
+  SCROLL_BAR = 20;  // what the scroll bar of a style takes, roughly
+  MIN_VALUES = 72;  // the least the values keep on a screen too small for all
 var
-  LTop, LLeft, LLabelWidth, LHeight: Single;
-  LLabel, LValue: TLabel;
+  LTop, LLeft, LLabelWidth, LHeight, LFixed, LRoom: Single;
+  LLabels, LValues: TArray<TLabel>;
   LLayout: TTextLayout;
   I: Integer;
+
+  // The two columns from the top, the values ARight short of the right
+  // edge; sizes the layout to them.
+  procedure PlaceValues(const ARight: Single);
+  var
+    J: Integer;
+  begin
+    LTop := 0;
+    for J := 0 to High(LLabels) do
+    begin
+      LLabels[J].Position.Y := LTop;
+      LValues[J].SetBounds(LLeft + LLabelWidth, LTop,
+        ValuesLayout.Width - LLeft - LLabelWidth - ARight, 20);
+      FitLabel(LValues[J]);
+      LTop := LTop + Max(LLabels[J].Height, LValues[J].Height) + GAP / 2;
+    end;
+    ValuesLayout.Height := LTop + GAP;
+  end;
+
 begin
   // The style of the host, when it has one of its own; a style set through
   // the style manager reaches this form like every other.
   if Assigned(ARequest.Host) and Assigned(ARequest.Host.StyleBook) then
     StyleBook := ARequest.Host.StyleBook;
   Caption := ARequest.Caption;
-  YesButton.Text := SMsgDlgYes;
-  NoButton.Text := SMsgDlgNo;
+  // In the language of the chat: FireMonkey has these two words in the
+  // language it was built with.
+  FNoText := HelpChatMsg(hcmConfirmNo, ARequest.Language);
+  YesButton.Text := HelpChatMsg(hcmConfirmYes, ARequest.Language);
+  NoButton.Text := FNoText;
   AddWarningSign(HeaderLayout, MARGIN, MARGIN, 32);
   LLeft := DescriptionLabel.Position.X;
 
@@ -413,6 +488,8 @@ begin
   TitleLabel.StyledSettings := TitleLabel.StyledSettings - [TStyledSetting.Size, TStyledSetting.Other];
   TitleLabel.TextSettings.Font.Size := 16;
   TitleLabel.TextSettings.WordWrap := True;
+  TitleLabel.PrefixStyle := TPrefixStyle.NoPrefix;
+  DescriptionLabel.PrefixStyle := TPrefixStyle.NoPrefix;
   TitleLabel.Text := ARequest.Title;
   FitLabel(TitleLabel);
   DescriptionLabel.StyledSettings := DescriptionLabel.StyledSettings - [TStyledSetting.Other];
@@ -448,15 +525,15 @@ begin
       LLayout.Free;
     end;
     LLabelWidth := Min(LLabelWidth + GAP, (ValuesLayout.Width - LLeft - MARGIN) / 2);
-    LTop := 0;
+    SetLength(LLabels, Length(ARequest.Values));
+    SetLength(LValues, Length(ARequest.Values));
     for I := Low(ARequest.Values) to High(ARequest.Values) do
     begin
-      LLabel := NewLabel(ARequest.Values[I].Key + ':', LLeft, LTop, LLabelWidth, False);
-      LValue := NewLabel(ARequest.Values[I].Value, LLeft + LLabelWidth, LTop,
+      LLabels[I] := NewLabel(ARequest.Values[I].Key + ':', LLeft, 0, LLabelWidth, False);
+      LValues[I] := NewLabel(ARequest.Values[I].Value, LLeft + LLabelWidth, 0,
         ValuesLayout.Width - LLeft - LLabelWidth - MARGIN, True);
-      LTop := LTop + Max(LLabel.Height, LValue.Height) + GAP / 2;
     end;
-    ValuesLayout.Height := LTop + GAP;
+    PlaceValues(MARGIN);
     LHeight := ValuesLayout.Height;
   end;
 
@@ -465,16 +542,31 @@ begin
   FooterLabel.TextSettings.WordWrap := True;
   FooterLabel.Text := Trim(ARequest.Footer);
   FooterLayout.Visible := ValuesLayout.Visible and (FooterLabel.Text <> '');
+  LFixed := HeaderLayout.Height + ButtonsLayout.Height;
   if FooterLayout.Visible then
   begin
     AddInfoSign(FooterLayout, MARGIN, FooterLabel.Position.Y, 16);
     FitLabel(FooterLabel);
     FooterLayout.Height := FooterLabel.Position.Y + FooterLabel.Height + GAP;
-    LHeight := LHeight + FooterLayout.Height;
+    LFixed := LFixed + FooterLayout.Height;
   end;
 
-  ClientHeight := Round(HeaderLayout.Height + LHeight + ButtonsLayout.Height);
+  // Never taller than the screen: an action with many parameters, or long
+  // values, pushed the buttons off it. The values scroll then, laid out
+  // again without the strip the scroll bar takes.
+  LRoom := RoomFor(ARequest.Host);
+  if ValuesLayout.Visible and (LFixed + LHeight > LRoom) then
+  begin
+    PlaceValues(MARGIN + SCROLL_BAR);
+    LHeight := Max(LRoom - LFixed, MIN_VALUES);
+    ScrollValues(LHeight);
+  end;
+  ClientHeight := Round(LFixed + LHeight);
+end;
 
+function TFmxHelpChatConfirmDialog.Execute(const ARequest: TFmxHelpChatConfirmRequest): Boolean;
+begin
+  Prepare(ARequest);
   if ARequest.TimeoutMs > 0 then
   begin
     FSecondsLeft := (ARequest.TimeoutMs + 999) div 1000;
@@ -488,7 +580,7 @@ end;
 
 procedure TFmxHelpChatConfirmDialog.ShowSecondsLeft;
 begin
-  NoButton.Text := Format('%s (%d)', [SMsgDlgNo, FSecondsLeft]);
+  NoButton.Text := Format('%s (%d)', [FNoText, FSecondsLeft]);
 end;
 
 procedure TFmxHelpChatConfirmDialog.CountdownTimerTimer(Sender: TObject);

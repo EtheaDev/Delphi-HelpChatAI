@@ -67,6 +67,8 @@ type
     [Test]
     procedure HostForm_SetInCode_Wins;
     [Test]
+    procedure HostForm_SetInCode_ThenDestroyed_LeavesTheAssistantWithoutAForm;
+    [Test]
     procedure CurrentAssistant_NoneActive_IsNil;
     [Test]
     procedure TwoBubblesOnOneForm_LeaveInAnyOrder;
@@ -230,6 +232,33 @@ begin
   LChat := NewAssistant(LOwner);
   LChat.HostForm := LHost;
   Assert.AreSame(LHost, LChat.ResolvedHostForm);
+end;
+
+procedure TCoordinatorTests.HostForm_SetInCode_ThenDestroyed_LeavesTheAssistantWithoutAForm;
+var
+  LOwner, LHost: TForm;
+  LChat: TVclHelpChatAI;
+begin
+  // The form given in code was closed: the assistant used to move to the
+  // form that owns it - a second bubble there, and F1 answered by the
+  // assistant of a form that no longer exists.
+  LOwner := NewForm('OwnerForm');
+  LHost := NewForm('OrderForm');
+  LChat := NewAssistant(LOwner);
+  LChat.HostForm := LHost;
+  FForms.Remove(LHost);
+  LHost.Free;
+  Assert.IsNull(LChat.ResolvedHostForm, 'no form, not another one');
+  Assert.IsNull(LChat.HostForm);
+  // Until the application gives it one, or says "the default" again.
+  LChat.HostForm := LOwner;
+  Assert.AreSame(LOwner, LChat.ResolvedHostForm);
+  LHost := NewForm('InvoiceForm');
+  LChat.HostForm := LHost;
+  FForms.Remove(LHost);
+  LHost.Free;
+  LChat.HostForm := nil;
+  Assert.AreSame(LOwner, LChat.ResolvedHostForm, 'nil is "the form that owns me" again');
 end;
 
 procedure TCoordinatorTests.CurrentAssistant_NoneActive_IsNil;

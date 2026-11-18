@@ -82,6 +82,9 @@ type
     FUrl: string;
     FOrigin: string;
     FPageReady: Boolean;
+    /// <summary>The navigation in progress is a link this panel cancelled:
+    /// its completion says nothing about the page shown.</summary>
+    FLinkCancelled: Boolean;
     FPendingScripts: TStringList;
     FOnCloseRequested: TNotifyEvent;
     FOnStyleChanged: TNotifyEvent;
@@ -348,6 +351,7 @@ begin
   if not IsPanelUrl(LUrl) then
   begin
     Args.ArgsInterface.Set_Cancel(1);
+    FLinkCancelled := True;
     OpenLink(LUrl);
   end
   else
@@ -357,8 +361,18 @@ end;
 procedure TVclHelpChatAIPanel.BrowserNavigationCompleted(Sender: TCustomEdgeBrowser;
   IsSuccess: Boolean; WebErrorStatus: COREWEBVIEW2_WEB_ERROR_STATUS);
 begin
-  // A navigation that failed (the server is gone, a cancelled link) leaves
-  // the scripts queued: they run after the next page that does load.
+  // A link this panel cancelled (it opens outside) completes as a failure
+  // too, but the page that was there is still there: taking it for a page
+  // that failed queued every later script and reloaded the panel - the
+  // documentation view and the text being typed with it - at the next opening.
+  if FLinkCancelled and not IsSuccess then
+  begin
+    FLinkCancelled := False;
+    Exit;
+  end;
+  FLinkCancelled := False;
+  // A navigation that failed (the server is gone) leaves the scripts
+  // queued: they run after the next page that does load.
   FPageReady := IsSuccess;
   if FPageReady then
   begin

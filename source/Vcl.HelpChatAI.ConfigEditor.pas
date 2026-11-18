@@ -172,10 +172,11 @@ type
     ModelModelEdit: TEdit;
     ModelUrlLabel: TLabel;
     ModelUrlEdit: TEdit;
-    ModelIconLabel: TLabel;
-    ModelIconEdit: TEdit;
     ModelKeyLabel: TLabel;
     ModelKeyEdit: TEdit;
+    ProviderKeyLabel: TLabel;
+    ProviderKeyEdit: TEdit;
+    ProviderKeySetButton: TButton;
     ModelAddButton: TButton;
     ModelUpdateButton: TButton;
     ModelDeleteButton: TButton;
@@ -214,6 +215,8 @@ type
     procedure RemoveComponentButtonClick(Sender: TObject);
     procedure ModelsListSelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure ModelAddButtonClick(Sender: TObject);
+    procedure ModelProviderComboChange(Sender: TObject);
+    procedure ProviderKeySetButtonClick(Sender: TObject);
     procedure ModelUpdateButtonClick(Sender: TObject);
     procedure ModelDeleteButtonClick(Sender: TObject);
     procedure ProfileModelsButtonClick(Sender: TObject);
@@ -331,6 +334,17 @@ type
     /// profile offers. Only the catalogue of the file being edited is
     /// listed: a model another file defines cannot be ticked from here.</summary>
     procedure RefreshModels;
+    /// <summary>The row of the key of the provider chosen in the Models
+    /// page: its caption, and whether this file has one.</summary>
+    procedure RefreshProviderKey;
+    /// <summary>Writes a key typed in the row of the provider's key and not
+    /// confirmed with Set, and empties the box: Add, Save, closing and a
+    /// change of file take it as Set does - it used to be dropped without a
+    /// word. True when there was one.</summary>
+    function CommitProviderKey: Boolean;
+    /// <summary>The Models page, when the configuration has no model at all
+    /// (<c>NeedsModel</c>): it is the first thing a new one needs.</summary>
+    procedure ShowModelsWhenNone;
     /// <summary>Puts the selected setting in the edit panel: the memo, or
     /// the masked edit box for a secret, filled with what the file says in
     /// the profile, else at the root - the value itself and not the masked
@@ -408,6 +422,7 @@ uses
   Vcl.Dialogs,
   Winapi.Windows,
   Winapi.ShellAPI,
+  System.Win.Registry,
   ToolsAPI,
   BrandingAPI,
   IDETheme.Utils;
@@ -418,12 +433,97 @@ const
   SCOPE_TEXT: array[Boolean] of string = ('', 'set');
 
 var
-  // Where the editor was when it was closed, for as long as the IDE runs:
-  // the bounds of the normal window, whether it was maximized, and the page.
-  // The way the editor of StyledComponents does it.
+  // Where the editor was when it was closed: the bounds of the normal
+  // window, whether it was maximized, and the page. Kept here while the IDE
+  // runs, and in the registry of the IDE (LoadPlacement, StorePlacement), so
+  // that a restart or a package loaded again does not forget it.
   GSavedBounds: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
   GSavedWindowState: TWindowState = wsNormal;
   GSavedPageIndex: Integer = -1;
+
+const
+  // Under the key of the Delphi that runs: each version keeps its own.
+  PLACEMENT_KEY = '\HelpChatAI\ConfigEditorVcl';
+
+var
+  GPlacementLoaded: Boolean = False;
+
+function PlacementKey: string;
+var
+  LServices: IOTAServices;
+begin
+  Result := '';
+  if Supports(BorlandIDEServices, IOTAServices, LServices) then
+    Result := LServices.GetBaseRegistryKey + PLACEMENT_KEY;
+end;
+
+procedure LoadPlacement;
+var
+  LReg: TRegistry;
+  LKey: string;
+begin
+  // Once per IDE session, the first time the editor opens: from then on the
+  // variables are what counts. Never an error: an editor that does not open
+  // because of where it was last time would be worse than one that forgot.
+  if GPlacementLoaded then
+    Exit;
+  GPlacementLoaded := True;
+  LKey := PlacementKey;
+  if LKey = '' then
+    Exit;
+  try
+    LReg := TRegistry.Create(KEY_READ);
+    try
+      LReg.RootKey := HKEY_CURRENT_USER;
+      if not LReg.OpenKeyReadOnly(LKey) then
+        Exit;
+      if LReg.ValueExists('Width') and LReg.ValueExists('Height') and
+         LReg.ValueExists('Left') and LReg.ValueExists('Top') and
+         (LReg.ReadInteger('Width') > 0) and (LReg.ReadInteger('Height') > 0) then
+        GSavedBounds := TRect.Create(TPoint.Create(LReg.ReadInteger('Left'),
+          LReg.ReadInteger('Top')), LReg.ReadInteger('Width'), LReg.ReadInteger('Height'));
+      if LReg.ValueExists('Maximized') and LReg.ReadBool('Maximized') then
+        GSavedWindowState := wsMaximized;
+      if LReg.ValueExists('Page') then
+        GSavedPageIndex := LReg.ReadInteger('Page');
+    finally
+      LReg.Free;
+    end;
+  except
+    // Left as it was: the editor opens where its form file says.
+  end;
+end;
+
+procedure StorePlacement;
+var
+  LReg: TRegistry;
+  LKey: string;
+begin
+  LKey := PlacementKey;
+  if LKey = '' then
+    Exit;
+  try
+    LReg := TRegistry.Create(KEY_WRITE);
+    try
+      LReg.RootKey := HKEY_CURRENT_USER;
+      if not LReg.OpenKey(LKey, True) then
+        Exit;
+      if GSavedBounds.Width > 0 then
+      begin
+        LReg.WriteInteger('Left', GSavedBounds.Left);
+        LReg.WriteInteger('Top', GSavedBounds.Top);
+        LReg.WriteInteger('Width', GSavedBounds.Width);
+        LReg.WriteInteger('Height', GSavedBounds.Height);
+      end;
+      LReg.WriteBool('Maximized', GSavedWindowState = wsMaximized);
+      LReg.WriteInteger('Page', GSavedPageIndex);
+    finally
+      LReg.Free;
+    end;
+  except
+    // Remembered for this session only.
+  end;
+end;
 
 procedure SaveEditorPlacement(const AEditor: TVclHelpChatConfigEditor);
 begin
@@ -436,10 +536,12 @@ begin
   else
     GSavedWindowState := wsNormal;
   GSavedPageIndex := AEditor.PageControl.ActivePageIndex;
+  StorePlacement;
 end;
 
 procedure RestoreEditorPlacement(const AEditor: TVclHelpChatConfigEditor);
 begin
+  LoadPlacement;
   if GSavedBounds.Width > 0 then
   begin
     AEditor.Position := poDesigned;
@@ -474,18 +576,19 @@ begin
     LForm.FOnComponentChanged := AOnComponentChanged;
     LForm.FOnTest := AOnTest;
     LForm.TestButton.Enabled := Assigned(AOnTest);
+    LoadPlacement;
     // The page it was left on, Appearance the first time; then the list goes
-    // where that page wants it.
+    // where that page wants it - through the handler of a change of page,
+    // which leaves it alone on a page that shows no settings (Models,
+    // Profiles): put there, it covered the controls of that page.
     if (GSavedPageIndex >= 0) and (GSavedPageIndex < LForm.PageControl.PageCount) then
       LForm.PageControl.ActivePageIndex := GSavedPageIndex
     else
       LForm.PageControl.ActivePage := LForm.AppearanceTab;
-    if LForm.PageControl.ActivePage = LForm.AppearanceTab then
-      LForm.GridPanel.Parent := LForm.AppearanceLeftPanel
-    else
-      LForm.GridPanel.Parent := LForm.PageControl.ActivePage;
+    LForm.PageControlChange(LForm.PageControl);
     RestoreEditorPlacement(LForm);
     LForm.RefreshAll;
+    LForm.ShowModelsWhenNone;
     LForm.RefreshIcons;
     LForm.ShowModal;
     SaveEditorPlacement(LForm);
@@ -498,6 +601,7 @@ procedure TVclHelpChatConfigEditor.FormCreate(Sender: TObject);
 var
   LStyle: TCustomStyleServices;
   LWindow: TColor;
+  LProvider: string;
 
   procedure PaintPanel(const APanel: TPanel);
   begin
@@ -553,6 +657,9 @@ begin
   ProfileCombo.OnChange := nil;
   ProfileCombo.OnSelect := ProfileComboChange;
   ProfileCombo.OnExit := ProfileComboChange;
+  ModelProviderCombo.Items.Clear;
+  for LProvider in THelpChatConfigController.ModelProviders do
+    ModelProviderCombo.Items.Add(LProvider);
 end;
 
 procedure TVclHelpChatConfigEditor.FormDestroy(Sender: TObject);
@@ -567,6 +674,7 @@ begin
   // changes of the file; a Save that fails keeps the editor open.
   if not Assigned(FController) then
     Exit;
+  CommitProviderKey;
   // A profile typed and not confirmed by leaving the box.
   if not SameText(Trim(ProfileCombo.Text), FController.Profile) then
     ProfileComboChange(ProfileCombo);
@@ -888,7 +996,9 @@ begin
     cvkMemo: Result := Trim(ValueMemo.Text);
     cvkSecret: Result := Trim(SecretEdit.Text);
     cvkBoolean: Result := LowerCase(BoolToStr(ValueCheck.Checked, True));
-    cvkNumber: Result := IntToStr(StrToIntDef(Trim(NumberEdit.Text), 0));
+    // As typed: the controller refuses what is not a number, an emptied
+    // box included, instead of writing 0.
+    cvkNumber: Result := Trim(NumberEdit.Text);
     cvkLanguage, cvkChoice: Result := Trim(ValueCombo.Text);
     cvkLanguages, cvkSet:
       // The choice, not the caption shown for it.
@@ -915,6 +1025,7 @@ begin
     Exit;
   // Changing the file reloads the controller, which drops what was not
   // saved: ask first, and put the combo back when the user stays.
+  CommitProviderKey;
   if FController.Modified then
     case MessageDlg('Save the changes to ' + FController.Files[FController.TargetIndex].FileName +
       ' first?', mtConfirmation, [mbYes, mbNo, mbCancel], 0) of
@@ -933,16 +1044,20 @@ begin
     end;
   FController.TargetIndex := FileCombo.ItemIndex;
   RefreshFile;
+  ShowModelsWhenNone;
 end;
 
 procedure TVclHelpChatConfigEditor.ReloadButtonClick(Sender: TObject);
 begin
+  // Reload drops what was not saved, a key typed and not set included.
+  ProviderKeyEdit.Text := '';
   FController.Reload;
   RefreshFile;
 end;
 
 procedure TVclHelpChatConfigEditor.SaveButtonClick(Sender: TObject);
 begin
+  CommitProviderKey;
   if FController.Save then
     RefreshFile
   else
@@ -1122,7 +1237,6 @@ begin
       LItem.SubItems.Add(LModel.Provider);
       LItem.SubItems.Add(LModel.Model);
       LItem.SubItems.Add(LModel.BaseUrl);
-      LItem.SubItems.Add(LModel.Icon);
       LItem.SubItems.Add(SCOPE_TEXT[LModel.ApiKey <> '']);
     end;
   finally
@@ -1148,6 +1262,72 @@ begin
       ' (none checked = all)'
   else
     ProfileModelsLabel.Caption := 'Choose a profile to say which models it offers';
+  RefreshProviderKey;
+end;
+
+procedure TVclHelpChatConfigEditor.ShowModelsWhenNone;
+begin
+  if FController.NeedsModel then
+    PageControl.ActivePage := ModelsTab;
+end;
+
+function TVclHelpChatConfigEditor.CommitProviderKey: Boolean;
+var
+  LPath: string;
+begin
+  // For the provider the boxes show now: a key pasted before the right
+  // provider was picked goes where the user ended up, not where it started.
+  LPath := THelpChatConfigController.ProviderKeyPath(Trim(ModelProviderCombo.Text));
+  Result := (LPath <> '') and (Trim(ProviderKeyEdit.Text) <> '');
+  if not Result then
+    Exit;
+  // At the root, where the Settings page writes it: taking it away is
+  // done there.
+  FController.SetValue(LPath, ccsRoot, Trim(ProviderKeyEdit.Text));
+  ProviderKeyEdit.Text := '';
+end;
+
+procedure TVclHelpChatConfigEditor.RefreshProviderKey;
+var
+  LProvider, LPath, LText: string;
+begin
+  LProvider := Trim(ModelProviderCombo.Text);
+  LPath := THelpChatConfigController.ProviderKeyPath(LProvider);
+  // What is being typed stays, and follows the provider: every refresh of
+  // the page used to empty the box, so Add lost the key typed before it.
+  ProviderKeyEdit.Enabled := LPath <> '';
+  ProviderKeySetButton.Enabled := LPath <> '';
+  if LPath = '' then
+  begin
+    ProviderKeyEdit.Text := '';
+    ProviderKeyLabel.Caption := 'Provider key';
+    if LProvider = '' then
+      ProviderKeyEdit.TextHint := 'Choose a provider'
+    else
+      ProviderKeyEdit.TextHint := 'No key for ' + LProvider;
+    Exit;
+  end;
+  // The key of the section, as the Settings page has it: every model on
+  // this provider with no key of its own uses it.
+  ProviderKeyLabel.Caption := LPath.Split(['.'])[0] + ' API key';
+  if FController.GetValue(LPath, ccsRoot, LText) and (LText <> '') then
+    // Short enough to be read whole in the box: the last four characters
+    // only, never the length (MaskSecret is for the list).
+    ProviderKeyEdit.TextHint := 'Set in this file (****' + Copy(LText, Length(LText) - 3, 4) +
+      '): type a new one to replace it'
+  else
+    ProviderKeyEdit.TextHint := 'Not in this file: type it, then Set';
+end;
+
+procedure TVclHelpChatConfigEditor.ModelProviderComboChange(Sender: TObject);
+begin
+  RefreshProviderKey;
+end;
+
+procedure TVclHelpChatConfigEditor.ProviderKeySetButtonClick(Sender: TObject);
+begin
+  if CommitProviderKey then
+    RefreshFile;
 end;
 
 procedure TVclHelpChatConfigEditor.ModelsListSelectItem(Sender: TObject; Item: TListItem;
@@ -1162,8 +1342,8 @@ begin
   ModelProviderCombo.Text := LModel.Provider;
   ModelModelEdit.Text := LModel.Model;
   ModelUrlEdit.Text := LModel.BaseUrl;
-  ModelIconEdit.Text := LModel.Icon;
   ModelKeyEdit.Text := LModel.ApiKey;
+  RefreshProviderKey;
 end;
 
 function TVclHelpChatConfigEditor.ModelFromEdits: THelpChatConfigModel;
@@ -1173,7 +1353,6 @@ begin
   Result.Provider := Trim(ModelProviderCombo.Text);
   Result.Model := Trim(ModelModelEdit.Text);
   Result.BaseUrl := Trim(ModelUrlEdit.Text);
-  Result.Icon := Trim(ModelIconEdit.Text);
   Result.ApiKey := Trim(ModelKeyEdit.Text);
 end;
 
@@ -1181,6 +1360,7 @@ procedure TVclHelpChatConfigEditor.ModelAddButtonClick(Sender: TObject);
 begin
   if Trim(ModelNameEdit.Text) = '' then
     Exit;
+  CommitProviderKey;
   FController.SetModels(FModels + [ModelFromEdits]);
   RefreshModels;
   Changed;
@@ -1198,6 +1378,7 @@ begin
   LModels := Copy(FModels);
   LModels[ModelsList.Selected.Index] := ModelFromEdits;
   LModels[ModelsList.Selected.Index].Original := FModels[ModelsList.Selected.Index].Original;
+  CommitProviderKey;
   FController.SetModels(LModels);
   RefreshModels;
   Changed;
@@ -1284,6 +1465,7 @@ procedure TVclHelpChatConfigEditor.TestButtonClick(Sender: TObject);
 begin
   // The preview builds its settings from the files on disk and from the
   // component, not from this editor: what is not saved would not be in it.
+  CommitProviderKey;
   if FController.Modified then
     case MessageDlg('The preview reads the files: save the changes first?',
       mtConfirmation, [mbYes, mbNo, mbCancel], 0) of

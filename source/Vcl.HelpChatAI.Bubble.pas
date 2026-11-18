@@ -417,7 +417,17 @@ type
     FParent: TWinControl;
     FOldProc: TWndMethod;
     FBubbles: TList<TVclHelpChatAIBubble>;
+    /// <summary>How many calls of <c>WndProc</c> are on the stack.</summary>
+    FDepth: Integer;
+    /// <summary>The hook was let go while one of them was: it frees itself
+    /// when the last returns.</summary>
+    FDead: Boolean;
     procedure WndProc(var AMessage: TMessage);
+    /// <summary>Frees the hook - at once, or when <c>WndProc</c> returns if
+    /// the message being handled is the one that lets it go: CM_RELEASE of
+    /// the parent form frees the form, and with it the hook, from inside the
+    /// call the hook passed on, and the hook then read its own freed list.</summary>
+    procedure LetGo;
     function IsCurrent: Boolean;
     class function Find(const AParent: TWinControl): TBubbleParentHook; static;
   protected
@@ -506,8 +516,21 @@ begin
   if (LHook.FBubbles.Count = 0) and LHook.IsCurrent then
   begin
     AParent.WindowProc := LHook.FOldProc;
-    LHook.Free;
+    LHook.LetGo;
   end;
+end;
+
+procedure TBubbleParentHook.LetGo;
+begin
+  if FDepth = 0 then
+  begin
+    Free;
+    Exit;
+  end;
+  FDead := True;
+  // Nobody may find it from now on: its parent may be gone already.
+  if Assigned(GParentHooks) then
+    GParentHooks.Remove(Self);
 end;
 
 procedure TBubbleParentHook.WndProc(var AMessage: TMessage);
@@ -516,8 +539,20 @@ var
   LMsg: Cardinal;
 begin
   LMsg := AMessage.Msg;
-  if Assigned(FOldProc) then
-    FOldProc(AMessage);
+  Inc(FDepth);
+  try
+    if Assigned(FOldProc) then
+      FOldProc(AMessage);
+  finally
+    Dec(FDepth);
+  end;
+  if FDead then
+  begin
+    // Let go while that call was running. Last statement on purpose.
+    if FDepth = 0 then
+      Free;
+    Exit;
+  end;
   // By index and backwards: handling the message may have removed a bubble.
   for I := FBubbles.Count - 1 downto 0 do
     if I < FBubbles.Count then
@@ -527,10 +562,11 @@ end;
 procedure TBubbleParentHook.Notification(AComponent: TComponent; Operation: TOperation);
 begin
   inherited Notification(AComponent, Operation);
-  // The parent is going, its window is already gone: nothing calls the hook
-  // again. Last statement of the method on purpose.
+  // The parent is going: nothing calls the hook again - but one call may
+  // still be on the stack, when the message it passed on is what frees the
+  // parent. Last statement of the method on purpose.
   if (Operation = opRemove) and (AComponent = FParent) then
-    Free;
+    LetGo;
 end;
 
 function HelpChatAssistantIcons: TImageCollection;

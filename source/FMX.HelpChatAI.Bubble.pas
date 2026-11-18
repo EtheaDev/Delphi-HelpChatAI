@@ -98,6 +98,9 @@ type
     function WindowRect: TRect;
     /// <summary>The cursor, in screen pixels.</summary>
     class function CursorPos: TPoint; static;
+    /// <summary>True when AHost already has a floating bubble: a form takes
+    /// one, because its window is hooked once.</summary>
+    class function HostHasBubble(const AHost: TCommonCustomForm): Boolean; static;
     /// <summary>Moves and sizes the window, in screen pixels.</summary>
     procedure MoveTo(const ALeft, ATop, ASize: Integer);
     /// <summary>Shows it without taking the activation from anyone, or
@@ -135,6 +138,8 @@ uses
 const
   PROP_BUBBLE = 'HelpChatAI.FmxBubble';
   PROP_HOST = 'HelpChatAI.FmxBubbleHost';
+  // The window procedure a host hook that could not be removed passes on to.
+  PROP_HOST_OLD = 'HelpChatAI.FmxBubbleHostOld';
   // ShowModal disables every window of the thread: the bubble enables itself
   // again once the disabling is over.
   HELPCHAT_FMX_CM_REENABLE = WM_APP + 118;
@@ -202,10 +207,20 @@ function HostWndProc(AWnd: HWND; AMsg: UINT; AWParam: WPARAM;
   ALParam: LPARAM): LRESULT; stdcall;
 var
   LForm: TFmxHelpChatBubbleForm;
+  LOld: Pointer;
 begin
   LForm := TFmxHelpChatBubbleForm(GetProp(AWnd, PROP_HOST));
   if LForm = nil then
+  begin
+    // The bubble is gone and this hook could not be taken out (somebody
+    // subclassed the window after it): it passes everything on to the
+    // procedure it had replaced. Answering with DefWindowProc here cut the
+    // window procedure of FireMonkey off, and the main form went dead.
+    LOld := Pointer(GetProp(AWnd, PROP_HOST_OLD));
+    if LOld <> nil then
+      Exit(CallWindowProc(LOld, AWnd, AMsg, AWParam, ALParam));
     Exit(DefWindowProc(AWnd, AMsg, AWParam, ALParam));
+  end;
   Result := CallWindowProc(LForm.FHostOldProc, AWnd, AMsg, AWParam, ALParam);
   case AMsg of
     WM_WINDOWPOSCHANGED, WM_SIZE:
@@ -315,7 +330,16 @@ begin
     Exit;
   end;
   SetProp(FHostWnd, PROP_HOST, THandle(Self));
-  FHostOldProc := Pointer(SetWindowLongPtr(FHostWnd, GWLP_WNDPROC, LONG_PTR(@HostWndProc)));
+  if GetProp(FHostWnd, PROP_HOST_OLD) <> 0 then
+  begin
+    // The hook of an earlier bubble is still in the chain (see UnhookHost):
+    // it is taken over, not installed a second time - two of them would call
+    // each other for ever.
+    FHostOldProc := Pointer(GetProp(FHostWnd, PROP_HOST_OLD));
+    RemoveProp(FHostWnd, PROP_HOST_OLD);
+  end
+  else
+    FHostOldProc := Pointer(SetWindowLongPtr(FHostWnd, GWLP_WNDPROC, LONG_PTR(@HostWndProc)));
 {$ENDIF}
 end;
 
@@ -329,9 +353,10 @@ begin
     if Pointer(GetWindowLongPtr(FHostWnd, GWLP_WNDPROC)) = @HostWndProc then
       SetWindowLongPtr(FHostWnd, GWLP_WNDPROC, LONG_PTR(FHostOldProc))
     else
-      // Somebody chained after us: the hook stays, passing everything on,
-      // and the property goes, so it no longer calls this object.
-      ;
+      // Somebody chained after us: the hook stays, passing everything on to
+      // the procedure it replaced - kept in a property of the window, since
+      // this object is going - and no longer calls this object.
+      SetProp(FHostWnd, PROP_HOST_OLD, THandle(FHostOldProc));
     RemoveProp(FHostWnd, PROP_HOST);
   end;
   FHostOldProc := nil;
@@ -401,6 +426,15 @@ begin
 {$IFDEF MSWINDOWS}
   if (FWnd = 0) or not GetWindowRect(FWnd, Result) then
     Result := TRect.Empty;
+{$ENDIF}
+end;
+
+class function TFmxHelpChatBubbleForm.HostHasBubble(const AHost: TCommonCustomForm): Boolean;
+begin
+  Result := False;
+{$IFDEF MSWINDOWS}
+  if Assigned(AHost) and (AHost.Handle <> nil) then
+    Result := GetProp(FormToHWND(AHost), PROP_HOST) <> 0;
 {$ENDIF}
 end;
 

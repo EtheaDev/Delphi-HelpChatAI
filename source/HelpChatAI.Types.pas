@@ -43,7 +43,7 @@ uses
 
 const
   /// <summary>Library version (major.minor.release).</summary>
-  HELPCHAT_VERSION = '1.13.0';
+  HELPCHAT_VERSION = '2.0.0';
 
 type
   /// <summary>Author of a chat message.</summary>
@@ -137,6 +137,33 @@ type
     procedure Cancel;
   end;
 
+  /// <summary>
+  ///  Whether the object a queued call is meant for is still there. A call
+  ///  handed to <c>TThread.Queue</c> cannot be taken back, and it holds a
+  ///  method of an object - a component, usually - that may be freed before
+  ///  the message loop gets to it: the closure captures this token with the
+  ///  method, the object kills it in its destructor, and the closure asks
+  ///  before calling. Reference counted, so it outlives both. Killed and
+  ///  asked on the main thread: it needs no lock.
+  /// </summary>
+  IHelpChatLifeToken = interface
+    ['{6B1D8E55-0C2F-4B49-9A57-3F1E2D7C8A41}']
+    /// <summary>True until <c>Kill</c>.</summary>
+    function IsAlive: Boolean;
+    /// <summary>The object is going: every call still queued for it does
+    /// nothing.</summary>
+    procedure Kill;
+  end;
+
+  /// <summary>Default <see cref="IHelpChatLifeToken" /> implementation.</summary>
+  THelpChatLifeToken = class(TInterfacedObject, IHelpChatLifeToken)
+  strict private
+    FDead: Boolean;
+  public
+    function IsAlive: Boolean;
+    procedure Kill;
+  end;
+
   /// <summary>Base class of all HelpChat exceptions.</summary>
   EHelpChatError = class(Exception);
   /// <summary>Raised when a provider is missing a required setting (e.g. the API key).</summary>
@@ -177,7 +204,76 @@ type
 /// <summary>Joins a base URL and a relative path with exactly one slash.</summary>
 function HelpChatJoinUrl(const ABase, ARelative: string): string;
 
+/// <summary>A relative path of the manual as a link may carry it: a space,
+/// a parenthesis, a bracket, <c>%</c>, <c>#</c>, <c>?</c> and the other
+/// characters that end or break the target of a Markdown link become
+/// <c>%XX</c>. Letters of any alphabet, digits and <c>/</c> stay as they
+/// are, so the path of a page named in plain words is unchanged.</summary>
+function HelpChatEncodeUrlPath(const APath: string): string;
+
+/// <summary>The inverse of <see cref="HelpChatEncodeUrlPath" />: every
+/// <c>%XX</c> becomes its byte, the bytes are read as UTF-8. A <c>+</c> stays
+/// a plus, and a text that is not well formed comes back as it is.</summary>
+function HelpChatDecodeUrlPath(const APath: string): string;
+
 implementation
+
+function HelpChatEncodeUrlPath(const APath: string): string;
+const
+  UNSAFE = ' %()<>[]{}"#?`^|\';
+var
+  LChar: Char;
+begin
+  Result := '';
+  for LChar in APath do
+    if (LChar <= ' ') or (LChar = #127) or (Pos(LChar, UNSAFE) > 0) then
+      Result := Result + '%' + IntToHex(Ord(LChar), 2)
+    else
+      Result := Result + LChar;
+end;
+
+function HelpChatDecodeUrlPath(const APath: string): string;
+var
+  LBytes, LPart: TBytes;
+  LCount, I, LByte: Integer;
+begin
+  if Pos('%', APath) = 0 then
+    Exit(APath);
+  SetLength(LBytes, APath.Length * 4);
+  LCount := 0;
+  I := 1;
+  while I <= APath.Length do
+  begin
+    if (APath[I] = '%') and (I + 2 <= APath.Length) and
+      TryStrToInt('$' + Copy(APath, I + 1, 2), LByte) then
+    begin
+      LBytes[LCount] := LByte;
+      Inc(LCount);
+      Inc(I, 3);
+    end
+    else
+    begin
+      LPart := TEncoding.UTF8.GetBytes(APath[I]);
+      // Both halves of a surrogate pair together.
+      if APath[I].IsHighSurrogate and (I < APath.Length) then
+      begin
+        LPart := TEncoding.UTF8.GetBytes(Copy(APath, I, 2));
+        Inc(I);
+      end;
+      Move(LPart[0], LBytes[LCount], Length(LPart));
+      Inc(LCount, Length(LPart));
+      Inc(I);
+    end;
+  end;
+  try
+    Result := TEncoding.UTF8.GetString(LBytes, 0, LCount);
+  except
+    Result := '';
+  end;
+  // Bytes that are not UTF-8 decode to nothing, or raise: as it was.
+  if (Result = '') and (LCount > 0) then
+    Result := APath;
+end;
 
 function HelpChatJoinUrl(const ABase, ARelative: string): string;
 begin
@@ -258,6 +354,16 @@ end;
 function THelpChatCancelToken.IsCancelled: Boolean;
 begin
   Result := AtomicCmpExchange(FCancelled, 0, 0) <> 0;
+end;
+
+function THelpChatLifeToken.IsAlive: Boolean;
+begin
+  Result := not FDead;
+end;
+
+procedure THelpChatLifeToken.Kill;
+begin
+  FDead := True;
 end;
 
 procedure THelpChatCancelToken.Cancel;

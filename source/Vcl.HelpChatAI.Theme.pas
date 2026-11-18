@@ -339,6 +339,12 @@ begin
     Result.Background := '#ffffff';
     if HelpChatLuminance(Result.Surface) > 0.97 then
       Result.Surface := HelpChatBlend(Result.Surface, '#000000', 0.04);
+    // The text of the style was chosen for the colour of its panels, and a
+    // light style may have dark ones (the 'Raize Frost' family: white on
+    // blue): on the white page it would be white on white.
+    if (Result.Text <> '') and
+       (Abs(HelpChatLuminance(Result.Text) - HelpChatLuminance(Result.Background)) < 0.4) then
+      Result.Text := HelpChatContrastText(Result.Background);
   end;
 
   if Screen.MessageFont.Name <> '' then

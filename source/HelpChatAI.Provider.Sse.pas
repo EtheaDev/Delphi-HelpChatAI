@@ -127,6 +127,20 @@ type
     property Error: string read FError;
   end;
 
+/// <summary>The object under <c>AName</c>, or nil when it is missing or is
+/// anything else: a JSON <c>null</c>, a string, an array. Unlike
+/// <c>GetValue(...) as TJSONObject</c>, which raises for those - and a
+/// compatible server that writes <c>"tool_calls": null</c> on every chunk
+/// then ended the reply as "Invalid class typecast".</summary>
+function HelpChatJsonObject(const AParent: TJSONObject; const AName: string): TJSONObject;
+/// <summary>The array under <c>AName</c>, or nil when it is missing or is
+/// anything else.</summary>
+function HelpChatJsonArray(const AParent: TJSONObject; const AName: string): TJSONArray;
+/// <summary>What a service says went wrong: <c>error.message</c>, or
+/// <c>error</c> itself when it is a string (Ollama, LM Studio); empty when
+/// the object carries neither.</summary>
+function HelpChatJsonErrorText(const ARoot: TJSONObject): string;
+
 implementation
 
 { THelpChatSseStreamBase }
@@ -283,6 +297,44 @@ begin
   end;
 
   FPending := LRemainder;
+end;
+
+function HelpChatJsonObject(const AParent: TJSONObject; const AName: string): TJSONObject;
+var
+  LValue: TJSONValue;
+begin
+  Result := nil;
+  if AParent = nil then
+    Exit;
+  LValue := AParent.GetValue(AName);
+  if LValue is TJSONObject then
+    Result := TJSONObject(LValue);
+end;
+
+function HelpChatJsonArray(const AParent: TJSONObject; const AName: string): TJSONArray;
+var
+  LValue: TJSONValue;
+begin
+  Result := nil;
+  if AParent = nil then
+    Exit;
+  LValue := AParent.GetValue(AName);
+  if LValue is TJSONArray then
+    Result := TJSONArray(LValue);
+end;
+
+function HelpChatJsonErrorText(const ARoot: TJSONObject): string;
+var
+  LValue: TJSONValue;
+begin
+  Result := '';
+  if ARoot = nil then
+    Exit;
+  LValue := ARoot.GetValue('error');
+  if LValue is TJSONObject then
+    Result := TJSONObject(LValue).GetValue<string>('message', '')
+  else if LValue is TJSONString then
+    Result := LValue.Value;
 end;
 
 end.

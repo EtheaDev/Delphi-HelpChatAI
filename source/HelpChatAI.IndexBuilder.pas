@@ -275,7 +275,8 @@ uses
   System.JSON,
   System.NetEncoding,
   System.RegularExpressions,
-  System.Generics.Defaults;
+  System.Generics.Defaults,
+  HelpChatAI.Types;
 
 { THelpChatIndexBuilderOptions }
 
@@ -645,7 +646,10 @@ begin
       LPage := System.Default(THelpChatIndexPage);
       LPage.SourceFile := LRelative;
       LPage.Id := TPath.ChangeExtension(LRelative, '').TrimRight(['.']);
-      LPage.Url := AOptions.UrlPrefix + TPath.ChangeExtension(LRelative, '').TrimRight(['.']) +
+      // The name as a link carries it: "My page (1)" written as it is would
+      // end the target of the Markdown link at its first space.
+      LPage.Url := AOptions.UrlPrefix +
+        HelpChatEncodeUrlPath(TPath.ChangeExtension(LRelative, '').TrimRight(['.'])) +
         IfThen(AOptions.UrlExtension <> '', AOptions.UrlExtension, '.md');
 
       LPage.Title := ExtractTitle(LBody, LFrontMatter);

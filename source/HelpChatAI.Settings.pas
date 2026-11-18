@@ -74,7 +74,7 @@ const
   // Defaults shared by every model provider: what differs between claude,
   // openai and gemini is the endpoint, the key and the name of the model, not
   // how many tokens to ask for or how much documentation to inject.
-  HELPCHAT_MODEL_DEF_MAXTOKENS = 1024;
+  HELPCHAT_MODEL_DEF_MAXTOKENS = 4096;
   HELPCHAT_MODEL_DEF_GROUNDING = 3;
   HELPCHAT_MODEL_DEF_GROUNDING_CHARS = 2000;
   HELPCHAT_MODEL_DEF_CONNECTTIMEOUTMS = 15000;
@@ -84,7 +84,7 @@ const
   HELPCHAT_MODEL_DEF_MAXTOOLROUNDS = 4;
   /// <summary>Built-in system prompt, used when <c>Settings.SystemPrompt</c> is empty. It
   /// is an instruction to the model, not a UI string, so it is English only: the
-  /// model is told to answer in the language of the user. It deliberately forbids
+  /// model is told to answer in the language of the chat. It deliberately forbids
   /// generic answers: the assistant must stick to the documentation excerpts.</summary>
   HELPCHAT_MODEL_DEF_SYSTEMPROMPT =
     'You are the in-app help assistant of a desktop application. Your only job is to explain ' +
@@ -980,7 +980,9 @@ type
     /// one of <c>Languages</c>; otherwise English if offered, else the first
     /// language offered.</summary>
     function ResolveLanguage: THelpChatLanguage;
-    /// <summary>The conversation file: <c>ConversationFile</c> when set, else
+    /// <summary>The conversation file: <c>ConversationFile</c> when set
+    /// (relative to the executable when not absolute, and used as it is: an
+    /// application that names one file for two profiles makes them share it), else
     /// <c>helpchatai-conversation.json</c> in the per-user application data
     /// folder - <c>helpchatai-conversation-&lt;Profile&gt;.json</c> for an
     /// assistant with a profile, so that two of them never share one.</summary>
@@ -1047,6 +1049,12 @@ type
     /// settings shared by every HelpChat application of this user, typically the
     /// API key alone. Lowest priority.</summary>
     class function SharedUserConfigFile: string; static;
+    /// <summary>The text of a configuration file, empty when the file is
+    /// missing or holds nothing but blanks (and a byte order mark): such a
+    /// file is a configuration not written yet - what an editor or a script
+    /// leaves after emptying it - and counts as no file at all, never as a
+    /// malformed one.</summary>
+    class function ReadConfigText(const AFileName: string): string; static;
     /// <summary>helpchatai.json next to the executable: application defaults shipped
     /// with the program (provider, index, documentation URL).</summary>
     class function AppConfigFile: string; static;
@@ -1228,7 +1236,7 @@ function HelpChatResolveSecret(const AOwner: THelpChatSettings;
   const AName, AClear, AEncrypted: string): string;
 
 /// <summary>Per-user writable data folder of the running application
-/// (e.g. %LOCALAPPDATA%\&lt;ExeName&gt; on Windows), created on demand.</summary>
+/// (%APPDATA%\&lt;ExeName&gt; on Windows), created on demand.</summary>
 function HelpChatAppDataFolder: string;
 
 /// <summary>How a provider is called when nothing else names it: Claude,
@@ -1247,7 +1255,9 @@ function HelpChatRuleIssue(const ARule: string; const ACount: Integer): string;
 implementation
 
 uses
+  System.Character,
   System.IOUtils,
+  System.StrUtils,
   System.SyncObjs;
 
 var
@@ -1355,7 +1365,14 @@ var
 begin
   LValue := JsonFind(AObject, AName);
   if LValue is TJSONNumber then
-    Result := TJSONNumber(LValue).AsInt
+  begin
+    // Not AsInt: that is StrToInt on the text of the number, so 2048.0, 1e3
+    // or a value beyond 32 bits left LoadFromJSON as an EConvertError that
+    // named neither the key nor the file.
+    if not TryStrToInt(LValue.Value, Result) then
+      raise EHelpChatConfigError.CreateFmt('"%s": %s is not a whole number',
+        [AName, LValue.Value]);
+  end
   else if (LValue is TJSONString) and TryStrToInt(LValue.Value, Result) then
     Exit
   else
@@ -1664,11 +1681,15 @@ procedure THelpChatModelSettings.SaveToJSONObject(const AObject: TJSONObject);
 begin
   AObject.AddPair('ApiKey', FApiKey);
   AObject.AddPair('ApiKeyEncrypted', FApiKeyEncrypted);
-  AObject.AddPair('Model', FModel);
+  // Empty when it is the default of the library, as the other sections have
+  // always written it: the Claude section starts filled (see its
+  // constructor), and a file that carried the model of the day it was
+  // saved stopped following the library.
+  AObject.AddPair('Model', IfThen(IsModelStored, FModel, ''));
   AObject.AddPair('MaxTokens', TJSONNumber.Create(FMaxTokens));
   AObject.AddPair('GroundingMaxPages', TJSONNumber.Create(FGroundingMaxPages));
   AObject.AddPair('GroundingMaxChars', TJSONNumber.Create(FGroundingMaxChars));
-  AObject.AddPair('BaseUrl', FBaseUrl);
+  AObject.AddPair('BaseUrl', IfThen(IsBaseUrlStored, FBaseUrl, ''));
   AObject.AddPair('ConnectTimeoutMs', TJSONNumber.Create(FConnectTimeoutMs));
   AObject.AddPair('ResponseTimeoutMs', TJSONNumber.Create(FResponseTimeoutMs));
   AObject.AddPair('MaxToolRounds', TJSONNumber.Create(FMaxToolRounds));
@@ -1728,6 +1749,12 @@ begin
   inherited LoadFromJSONObject(AObject);
   if AObject = nil then
     Exit;
+  // An empty value in a file is the default: this section keeps it written
+  // out, so that code reading Claude.Model sees the string it always saw.
+  if FModel = '' then
+    FModel := HELPCHAT_CLAUDE_DEF_MODEL;
+  if FBaseUrl = '' then
+    FBaseUrl := HELPCHAT_CLAUDE_DEF_BASEURL;
   FApiVersion := JsonStr(AObject, 'ApiVersion', FApiVersion);
   FPromptCaching := JsonBool(AObject, 'PromptCaching', FPromptCaching);
 end;
@@ -1793,12 +1820,19 @@ begin
 end;
 
 function THelpChatOpenAISettings.UsesResponses: Boolean;
+var
+  LUrl: string;
 begin
   if SameText(Trim(FApi), HELPCHAT_OPENAI_API_RESPONSES) then
     Exit(True);
   if SameText(Trim(FApi), HELPCHAT_OPENAI_API_CHAT) then
     Exit(False);
-  Result := not IsAzure and SameText(NormalizedBaseUrl, DefaultBaseUrl);
+  // The endpoint of OpenAI is the same one with the version written after
+  // it, which is how many write it: "https://api.openai.com/v1".
+  LUrl := NormalizedBaseUrl;
+  if LUrl.EndsWith('/v1', True) then
+    LUrl := LUrl.Substring(0, LUrl.Length - 3);
+  Result := not IsAzure and SameText(LUrl, DefaultBaseUrl);
 end;
 
 procedure THelpChatOpenAISettings.LoadFromJSONObject(const AObject: TJSONObject);
@@ -2284,20 +2318,27 @@ begin
   LPrevious := THelpChatModelEntries.Create(nil);
   try
     LPrevious.Assign(FModels);
-    FModels.Clear;
-    for LItem in TJSONArray(AValue) do
-      if LItem is TJSONObject then
-        FModels.Add.LoadFromJSONObject(TJSONObject(LItem))
-      else if LItem is TJSONString then
-      begin
-        LFound := FCatalogue.Find(TJSONString(LItem).Value);
-        if LFound = nil then
-          LFound := LPrevious.Find(TJSONString(LItem).Value);
-        if LFound = nil then
-          raise EHelpChatConfigError.CreateFmt('"Models" names "%s", which is not ' +
-            'a model of the configuration', [TJSONString(LItem).Value]);
-        FModels.Add.Assign(LFound);
-      end;
+    try
+      FModels.Clear;
+      for LItem in TJSONArray(AValue) do
+        if LItem is TJSONObject then
+          FModels.Add.LoadFromJSONObject(TJSONObject(LItem))
+        else if LItem is TJSONString then
+        begin
+          LFound := FCatalogue.Find(TJSONString(LItem).Value);
+          if LFound = nil then
+            LFound := LPrevious.Find(TJSONString(LItem).Value);
+          if LFound = nil then
+            raise EHelpChatConfigError.CreateFmt('"Models" names "%s", which is not ' +
+              'a model of the configuration', [TJSONString(LItem).Value]);
+          FModels.Add.Assign(LFound);
+        end;
+    except
+      // All of the list or none of it: whoever catches the error (the
+      // configuration check does) must not go on with half a list.
+      FModels.Assign(LPrevious);
+      raise;
+    end;
   finally
     LPrevious.Free;
   end;
@@ -2788,7 +2829,9 @@ function THelpChatSettings.ResolveGreeting: string;
 begin
   Result := Trim(FGreeting);
   if Result = '' then
-    Result := HelpChatMsg(hcmGreeting, FLanguage);
+    // The language of this chat, never hclAuto: that would be the default of
+    // the process, the language of whichever assistant started last.
+    Result := HelpChatMsg(hcmGreeting, ResolveLanguage);
 end;
 
 function THelpChatSettings.ResolveLanguage: THelpChatLanguage;
@@ -2816,7 +2859,10 @@ var
 begin
   Result := '';
   for LChar in Trim(FProfile) do
-    if CharInSet(LChar, ['A'..'Z', 'a'..'z', '0'..'9', '-', '_']) then
+    // Letters and digits of any alphabet: with ASCII only, two profiles
+    // written in Cyrillic or Greek both became a row of underscores and
+    // shared one conversation, one state and one window file.
+    if LChar.IsLetterOrDigit or (LChar = '-') or (LChar = '_') then
       Result := Result + LChar
     else
       Result := Result + '_';
@@ -2836,7 +2882,12 @@ begin
   Result := Trim(FConversationFile);
   if Result = '' then
     Result := ProfileFileName(TPath.Combine(HelpChatAppDataFolder,
-      HELPCHAT_DEF_CONVERSATION_FILENAME));
+      HELPCHAT_DEF_CONVERSATION_FILENAME))
+  else if TPath.IsRelativePath(Result) then
+    // Against the executable, like DocIndexFile: against the current
+    // directory the file moved with every file dialog, and a bare name left
+    // the state file without a folder to be written in.
+    Result := ExpandFileName(TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), Result));
 end;
 
 function THelpChatSettings.ResolveStateFile: string;
@@ -3052,13 +3103,31 @@ begin
   end;
 end;
 
-function THelpChatSettings.LoadFromFile(const AFileName: string): Boolean;
+class function THelpChatSettings.ReadConfigText(const AFileName: string): string;
 begin
-  Result := (AFileName <> '') and TFile.Exists(AFileName);
+  Result := '';
+  if (AFileName = '') or not TFile.Exists(AFileName) then
+    Exit;
+  Result := TFile.ReadAllText(AFileName, TEncoding.UTF8);
+  if Result.StartsWith(#$FEFF) then
+    Result := Result.Substring(1);
+  if Trim(Result) = '' then
+    Result := '';
+end;
+
+function THelpChatSettings.LoadFromFile(const AFileName: string): Boolean;
+var
+  LText: string;
+begin
+  // An empty file is a configuration nobody wrote yet: before, it raised
+  // "expected a JSON object" and stopped every application of the user
+  // when it was the shared one.
+  LText := ReadConfigText(AFileName);
+  Result := LText <> '';
   if not Result then
     Exit;
   try
-    LoadFromJSON(TFile.ReadAllText(AFileName, TEncoding.UTF8));
+    LoadFromJSON(LText);
   except
     on E: EHelpChatConfigError do
       raise EHelpChatConfigError.CreateFmt('%s (%s)', [E.Message, AFileName]);

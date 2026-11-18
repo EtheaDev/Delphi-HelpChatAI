@@ -23,6 +23,7 @@ type
     [Test] procedure PendingAssistant_Fail;
     [Test] procedure Update_UnknownId_IsNoOp;
     [Test] procedure GetHistory_FiltersAndLimits;
+    [Test] procedure GetHistory_ACutHistory_OpensWithAQuestion;
     [Test] procedure PendingIds_And_Count;
     [Test] procedure Prune_KeepsMostRecent_NeverPending;
     [Test] procedure Clear_RemovesConversation;
@@ -150,13 +151,36 @@ begin
     Assert.AreNotEqual(hcrSystem, LHistory[I].Role);
   end;
 
+  // The most recent ones are kept - and the cut never leaves an answer in
+  // front: a3 would open the conversation with the assistant, which the
+  // Anthropic API refuses.
   LHistory := FStore.GetHistory(K, 3);
-  Assert.AreEqual(3, Integer(Length(LHistory)));
-  Assert.AreEqual('a3', LHistory[0].Content, 'the most recent ones are kept');
-  Assert.AreEqual('q4', LHistory[1].Content);
-  Assert.AreEqual('a4', LHistory[2].Content);
+  Assert.AreEqual(2, Integer(Length(LHistory)));
+  Assert.AreEqual('q4', LHistory[0].Content);
+  Assert.AreEqual('a4', LHistory[1].Content);
 
   Assert.AreEqual(0, Integer(Length(FStore.GetHistory('missing', 0))));
+end;
+
+procedure TStoreTests.GetHistory_ACutHistory_OpensWithAQuestion;
+var
+  LHistory: TArray<THelpChatMessage>;
+  I: Integer;
+begin
+  // The default limit is even (50): after 25 answered questions the 26th
+  // made 51 messages, the cut dropped the first question alone and every
+  // later request of that conversation started with an answer.
+  for I := 1 to 25 do
+  begin
+    FStore.AddUserMessage(K, 'q' + IntToStr(I));
+    FStore.CompleteAssistant(K, FStore.AddPendingAssistant(K), 'a' + IntToStr(I));
+  end;
+  FStore.AddUserMessage(K, 'q26');
+  LHistory := FStore.GetHistory(K, 50);
+  Assert.AreEqual(Ord(hcrUser), Ord(LHistory[0].Role), 'a question first');
+  Assert.AreEqual('q2', LHistory[0].Content);
+  Assert.AreEqual('q26', LHistory[High(LHistory)].Content, 'and the one being asked last');
+  Assert.AreEqual(49, Integer(Length(LHistory)));
 end;
 
 procedure TStoreTests.PendingIds_And_Count;

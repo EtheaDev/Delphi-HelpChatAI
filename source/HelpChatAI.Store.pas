@@ -428,6 +428,13 @@ begin
           LKept.Add(LList[I]);
       if (AMaxMessages > 0) and (LKept.Count > AMaxMessages) then
         LKept.DeleteRange(0, LKept.Count - AMaxMessages);
+      // A cut history must still open with a question: with an even limit
+      // the cut falls between a question and its answer, and a conversation
+      // that starts with the assistant is refused by the Anthropic API (and
+      // by Gemini) - every later question of a long conversation failed.
+      if (AMaxMessages > 0) and (LKept.Count > 1) then
+        while (LKept.Count > 1) and (LKept[0].Role <> hcrUser) do
+          LKept.Delete(0);
       Result := LKept.ToArray;
     finally
       LKept.Free;

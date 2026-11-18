@@ -70,6 +70,9 @@ type
     [TearDown] procedure TearDown;
     [Test] procedure Start_WithoutAppKey_Raises;
     [Test] procedure Session_RequiresKnownAppKey;
+    [Test] procedure ABodyTooLarge_IsRefusedBeforeTheKeyIsAsked;
+    [Test] procedure Check_IsNotACommandOfARemoteSession;
+    [Test] procedure SameSecret_ComparesWholeStrings;
     [Test] procedure Page_RequiresSessionToken;
     [Test] procedure Sessions_AreIsolated;
     [Test] procedure InMemory_TheConversationEndsWithTheSession;
@@ -79,7 +82,10 @@ type
     [Test] procedure Health_ReportsTheServer;
     [Test] procedure Sweep_EndsIdleSessions;
     [Test] procedure Disk_KeepsTheConversation;
+    [Test] procedure Disk_WhatARequestLeftAfterTheSessionEnded_DoesNotReplaceTheConversation;
     [Test] procedure KeyToFileName_IsSafeAndStable;
+    [Test] procedure KeyToFileName_OfALongKey_HasALongHash;
+    [Test] procedure Disk_AnAnonymousConversation_IsNotWritten;
     [Test] procedure HostChannel_DeliversCommands_WithCorsAndToken;
     [Test] procedure Transport_EndToEnd;
     [Test] procedure Transport_UnreachableServer_Raises;
@@ -294,6 +300,58 @@ begin
   Assert.AreEqual(1, FServer.SessionCount);
 end;
 
+procedure TRemoteTests.ABodyTooLarge_IsRefusedBeforeTheKeyIsAsked;
+var
+  LHeaders: TNetHeaders;
+  LBody: TStringStream;
+  LStatus: Integer;
+begin
+  // Indy reads the whole body before the request reaches the server, so a
+  // stranger with no key could make it hold whatever they sent: the length
+  // is looked at first, and the answer is 413, not the 403 of a wrong key.
+  StartServer;
+  LHeaders := [TNetHeader.Create(HELPCHAT_KEY_HEADER, 'not-the-key'),
+    TNetHeader.Create('Content-Type', 'application/x-www-form-urlencoded')];
+  LBody := TStringStream.Create('user=' + StringOfChar('x', HELPCHAT_SERVER_MAX_BODY_BYTES + 1024),
+    TEncoding.UTF8);
+  try
+    try
+      LStatus := FClient.Post(Url(HELPCHAT_SESSION_PATH), LBody, nil, LHeaders).StatusCode;
+    except
+      // The server may close the connection while the client is still
+      // sending: refused all the same.
+      LStatus := 413;
+    end;
+  finally
+    LBody.Free;
+  end;
+  Assert.AreEqual(413, LStatus);
+  // And the server is still there for a request of a normal size.
+  Assert.AreNotEqual('', OpenSession('mario', TEST_APP_KEY, ''));
+end;
+
+procedure TRemoteTests.Check_IsNotACommandOfARemoteSession;
+var
+  LToken: string;
+begin
+  // /check prints the folders, the files and the missing keys of the machine
+  // the engine runs on - here, the server.
+  StartServer;
+  LToken := OpenSession('mario', TEST_APP_KEY, '');
+  Assert.AreEqual(403, Post(HELPCHAT_API_COMMAND, 'name=check', LToken).StatusCode);
+  Assert.AreEqual(200, Post(HELPCHAT_API_COMMAND, 'name=pages', LToken).StatusCode);
+end;
+
+procedure TRemoteTests.SameSecret_ComparesWholeStrings;
+begin
+  Assert.IsTrue(HelpChatSameSecret('abc123', 'abc123'));
+  Assert.IsFalse(HelpChatSameSecret('abc124', 'abc123'));
+  Assert.IsFalse(HelpChatSameSecret('abc12', 'abc123'), 'a prefix is not the secret');
+  Assert.IsFalse(HelpChatSameSecret('abc1234', 'abc123'));
+  Assert.IsFalse(HelpChatSameSecret('', 'abc123'));
+  Assert.IsFalse(HelpChatSameSecret('', ''), 'an empty secret never matches');
+end;
+
 procedure TRemoteTests.Page_RequiresSessionToken;
 var
   LToken, LPage: string;
@@ -445,6 +503,70 @@ begin
   // An unknown user starts from the greeting.
   LToken := OpenSession('zoe');
   Assert.DoesNotContain(Get(HELPCHAT_API_HISTORY, LToken).ContentAsString(TEncoding.UTF8), 'remember');
+end;
+
+procedure TRemoteTests.Disk_WhatARequestLeftAfterTheSessionEnded_DoesNotReplaceTheConversation;
+var
+  LToken, LHistory: string;
+  LResult: THelpChatSendResult;
+  LMessage: THelpChatMessage;
+  I: Integer;
+begin
+  StartServer(hssDisk);
+  LToken := OpenSession('ann');
+  Assert.Contains(Ask(LToken, 'remember'), 'echo:remember');
+  Post(HELPCHAT_SESSION_END_PATH, '', LToken);    // saved, and out of memory
+  Assert.AreEqual(0, FEngine.Store.Count('u:ann'));
+  // What a request that was past the token check did a moment later: a
+  // question in a conversation nobody holds any more.
+  LResult := FEngine.Send('u:ann', 'late', Default(THelpChatContext));
+  Assert.IsTrue(LResult.Sent);
+  for I := 1 to 200 do
+  begin
+    if FEngine.TryGetMessage(LResult.AssistantMessage.Id, LMessage) and not LMessage.Pending then
+      Break;
+    Sleep(10);
+  end;
+  Assert.IsTrue(FEngine.Store.Count('u:ann') > 0, 'the leftover is in memory');
+  // It used to be taken for the conversation: the file was not read, and
+  // the next save replaced it.
+  LToken := OpenSession('ann');
+  LHistory := Get(HELPCHAT_API_HISTORY, LToken).ContentAsString(TEncoding.UTF8);
+  Assert.Contains(LHistory, 'remember', 'the conversation that was saved');
+  Assert.DoesNotContain(LHistory, 'late');
+end;
+
+procedure TRemoteTests.KeyToFileName_OfALongKey_HasALongHash;
+var
+  LLong, LName, LShort: string;
+begin
+  // 60 characters of the key are kept: past that two ids differ only by the
+  // hash, and 32 bits can be made to collide by whoever chooses the ids.
+  LLong := 'u:' + StringOfChar('a', 80);
+  LName := HelpChatKeyToFileName(LLong + '1');
+  Assert.AreNotEqual(LName, HelpChatKeyToFileName(LLong + '2'));
+  Assert.AreEqual(LName, HelpChatKeyToFileName(LLong + '1'), 'stable');
+  Assert.IsTrue(LName.Length >= 60 + 1 + 8 + 1 + 24 + 5, 'both hashes are in the name: ' + LName);
+  // A key that fits keeps the name it always had.
+  LShort := HelpChatKeyToFileName('u:bob');
+  Assert.AreEqual(Length('u_bob-') + 8 + Length('.json'), Length(LShort), LShort);
+end;
+
+procedure TRemoteTests.Disk_AnAnonymousConversation_IsNotWritten;
+var
+  LToken: string;
+begin
+  // Its key is its session: nobody can ask for it again, and the folder
+  // only grew.
+  StartServer(hssDisk);
+  LToken := OpenSession('');
+  Assert.Contains(Ask(LToken, 'nobody'), 'echo:nobody');
+  Post(HELPCHAT_SESSION_END_PATH, '', LToken);
+  LToken := OpenSession('ann');
+  Assert.Contains(Ask(LToken, 'somebody'), 'echo:somebody');
+  StopServer;
+  Assert.AreEqual(1, Integer(Length(TDirectory.GetFiles(FFolder, '*.json'))),
+    'the file of ann, and no other');
 end;
 
 procedure TRemoteTests.KeyToFileName_IsSafeAndStable;

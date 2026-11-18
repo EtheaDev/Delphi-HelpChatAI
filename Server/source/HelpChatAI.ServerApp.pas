@@ -91,10 +91,14 @@ type
     procedure WriteSampleConfig(const AFileName: string);
     procedure ShowUsage;
     procedure Report;
+    /// <summary>What <c>Run</c> does.</summary>
+    function Serve: Integer;
   public
     constructor Create;
     destructor Destroy; override;
-    /// <summary>Configures, starts, waits for Ctrl+C, stops. Returns the exit code.</summary>
+    /// <summary>Configures, starts, waits for Ctrl+C, stops. Returns the
+    /// exit code. On the way out it tells the console handler that the
+    /// server stopped: a closed window waits for that.</summary>
     function Run: Integer;
   end;
 
@@ -127,6 +131,15 @@ begin
     Result := TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), Result);
 end;
 
+const
+  // How long the console handler waits for the server to stop when the
+  // window is closed: Windows gives a handler five seconds.
+  STOP_WAIT_MS = 4500;
+
+var
+  // Signalled when Run is over, the conversations saved.
+  GStopped: TEvent;
+
 function ConsoleHandler(ACtrlType: DWORD): BOOL; stdcall;
 begin
   // Ctrl+C, the close button, the end of a session: all mean "stop cleanly".
@@ -134,6 +147,13 @@ begin
     CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT];
   if Result and Assigned(HelpChatShutdown) then
     HelpChatShutdown.SetEvent;
+  // A closed window, a logoff, a shutdown: Windows ends the process as soon
+  // as this handler returns, and the main thread would never get to stop
+  // the server - which is when the conversations still open are written.
+  // So the handler, which runs on a thread of its own, waits for it.
+  if Result and (ACtrlType in [CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT]) and
+     Assigned(GStopped) then
+    GStopped.WaitFor(STOP_WAIT_MS);
 end;
 
 { THelpChatServerApp }
@@ -160,8 +180,15 @@ procedure THelpChatServerApp.Say(const AText: string);
 begin
   if FQuiet then
     Exit;
-  Writeln(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now) + '  ' + AText);
-  Flush(Output);
+  // The connection threads and the sweeper write here too: one line at a
+  // time, or two of them come out mixed.
+  System.TMonitor.Enter(Self);
+  try
+    Writeln(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now) + '  ' + AText);
+    Flush(Output);
+  finally
+    System.TMonitor.Exit(Self);
+  end;
 end;
 
 procedure THelpChatServerApp.Say(const AFormat: string; const AArgs: array of const);
@@ -390,7 +417,7 @@ begin
   Say('Press Ctrl+C to stop.');
 end;
 
-function THelpChatServerApp.Run: Integer;
+function THelpChatServerApp.Serve: Integer;
 var
   I: Integer;
   LOption, LValue: string;
@@ -480,12 +507,24 @@ begin
   end;
 end;
 
+function THelpChatServerApp.Run: Integer;
+begin
+  try
+    Result := Serve;
+  finally
+    // Whoever closed the window is waiting for this.
+    GStopped.SetEvent;
+  end;
+end;
+
 initialization
   HelpChatShutdown := TEvent.Create(nil, True, False, '');
+  GStopped := TEvent.Create(nil, True, False, '');
   SetConsoleCtrlHandler(@ConsoleHandler, True);
 
 finalization
   SetConsoleCtrlHandler(@ConsoleHandler, False);
   HelpChatShutdown.Free;
+  FreeAndNil(GStopped);
 
 end.

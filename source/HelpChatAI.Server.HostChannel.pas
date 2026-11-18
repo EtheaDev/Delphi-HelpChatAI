@@ -58,6 +58,7 @@ uses
   IdHTTPServer,
   IdCustomHTTPServer,
   IdContext,
+  HelpChatAI.Types,
   HelpChatAI.Transport,
   HelpChatAI.Panel;
 
@@ -78,6 +79,8 @@ type
     FBoundPort: Integer;
     FAllowedOrigin: string;
     FOnCommand: THelpChatUiCommandEvent;
+    FLife: IHelpChatLifeToken;
+    procedure SetOnCommand(const AValue: THelpChatUiCommandEvent);
     /// <summary>Every request, on a connection thread of Indy. The handler
     /// is copied and queued to the main thread; the request returns without
     /// waiting for it.</summary>
@@ -117,7 +120,7 @@ type
     /// main thread, through <c>TThread.Queue</c>: a console host has to call
     /// <c>CheckSynchronize</c> to get it. nil = every command is answered
     /// 404. Set it from the main thread.</summary>
-    property OnCommand: THelpChatUiCommandEvent read FOnCommand write FOnCommand;
+    property OnCommand: THelpChatUiCommandEvent read FOnCommand write SetOnCommand;
   end;
 
 implementation
@@ -218,6 +221,7 @@ procedure THelpChatHostChannel.HandleCommand(AContext: TIdContext;
 var
   LCommand: string;
   LHandler: THelpChatUiCommandEvent;
+  LLife: IHelpChatLifeToken;
 begin
   AResponseInfo.CustomHeaders.Values['X-Content-Type-Options'] := 'nosniff';
   WriteCors(AResponseInfo);
@@ -234,7 +238,7 @@ begin
     WriteEmpty(AResponseInfo, 404);
     Exit;
   end;
-  if (FToken = '') or (ARequestInfo.RawHeaders.Values[HELPCHAT_TOKEN_HEADER] <> FToken) then
+  if not HelpChatSameSecret(ARequestInfo.RawHeaders.Values[HELPCHAT_TOKEN_HEADER], FToken) then
   begin
     WriteEmpty(AResponseInfo, 403);
     Exit;
@@ -243,6 +247,7 @@ begin
   FLock.Enter;
   try
     LHandler := FOnCommand;
+    LLife := FLife;
   finally
     FLock.Leave;
   end;
@@ -254,9 +259,27 @@ begin
   TThread.Queue(nil,
     procedure
     begin
-      LHandler(LCommand);
+      // The handler may have been taken away - its component deactivated -
+      // since this was queued.
+      if (LLife = nil) or LLife.IsAlive then
+        LHandler(LCommand);
     end);
   WriteEmpty(AResponseInfo, 204);
+end;
+
+procedure THelpChatHostChannel.SetOnCommand(const AValue: THelpChatUiCommandEvent);
+begin
+  // Under the lock the HTTP threads read it with: a method pointer is two
+  // words, and one of them could be read half written.
+  FLock.Enter;
+  try
+    if Assigned(FLife) then
+      FLife.Kill;
+    FLife := THelpChatLifeToken.Create;
+    FOnCommand := AValue;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 end.

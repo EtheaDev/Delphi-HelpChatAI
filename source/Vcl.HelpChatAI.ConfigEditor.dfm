@@ -1493,10 +1493,6 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
             Width = 170
           end
           item
-            Caption = 'Icon'
-            Width = 60
-          end
-          item
             Caption = 'Key'
             Width = 40
           end>
@@ -1544,19 +1540,19 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
           Height = 15
           Caption = 'Endpoint'
         end
-        object ModelIconLabel: TLabel
-          Left = 330
-          Top = 42
-          Width = 23
-          Height = 15
-          Caption = 'Icon'
-        end
         object ModelKeyLabel: TLabel
           Left = 330
-          Top = 72
+          Top = 42
           Width = 105
           Height = 15
-          Caption = 'Key (clear, optional)'
+          Caption = 'Own key (optional)'
+        end
+        object ProviderKeyLabel: TLabel
+          Left = 330
+          Top = 72
+          Width = 66
+          Height = 15
+          Caption = 'Provider key'
         end
         object ModelNameEdit: TEdit
           Left = 80
@@ -1571,12 +1567,7 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
           Width = 230
           Height = 23
           TabOrder = 1
-          Items.Strings = (
-            'claude'
-            'openai'
-            'gemini'
-            'docsearch'
-            'stub')
+          OnChange = ModelProviderComboChange
         end
         object ModelModelEdit: TEdit
           Left = 80
@@ -1588,24 +1579,48 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
         object ModelUrlEdit: TEdit
           Left = 446
           Top = 8
-          Width = 260
+          Width = 438
           Height = 23
+          Anchors = [akLeft, akTop, akRight]
           TabOrder = 3
-        end
-        object ModelIconEdit: TEdit
-          Left = 446
-          Top = 38
-          Width = 260
-          Height = 23
-          TabOrder = 4
         end
         object ModelKeyEdit: TEdit
           Left = 446
-          Top = 68
-          Width = 260
+          Top = 38
+          Width = 438
           Height = 23
+          Anchors = [akLeft, akTop, akRight]
+          Hint =
+            'The key of this model only: for a service of its own. Empty = th' +
+            'e key of the provider below'
+          ParentShowHint = False
           PasswordChar = '*'
+          ShowHint = True
+          TabOrder = 4
+        end
+        object ProviderKeyEdit: TEdit
+          Left = 446
+          Top = 68
+          Width = 358
+          Height = 23
+          Anchors = [akLeft, akTop, akRight]
+          Hint =
+            'The API key of the provider (the same as on the Settings page), ' +
+            'for every model on it with no key of its own'
+          ParentShowHint = False
+          PasswordChar = '*'
+          ShowHint = True
           TabOrder = 5
+        end
+        object ProviderKeySetButton: TButton
+          Left = 810
+          Top = 67
+          Width = 74
+          Height = 25
+          Anchors = [akTop, akRight]
+          Caption = 'Set'
+          TabOrder = 6
+          OnClick = ProviderKeySetButtonClick
         end
         object ModelAddButton: TButton
           Left = 80
@@ -1613,7 +1628,7 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
           Width = 110
           Height = 25
           Caption = 'Add'
-          TabOrder = 6
+          TabOrder = 7
           OnClick = ModelAddButtonClick
         end
         object ModelUpdateButton: TButton
@@ -1622,7 +1637,7 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
           Width = 110
           Height = 25
           Caption = 'Update selected'
-          TabOrder = 7
+          TabOrder = 8
           OnClick = ModelUpdateButtonClick
         end
         object ModelDeleteButton: TButton
@@ -1631,7 +1646,7 @@ object VclHelpChatConfigEditor: TVclHelpChatConfigEditor
           Width = 110
           Height = 25
           Caption = 'Delete selected'
-          TabOrder = 8
+          TabOrder = 9
           OnClick = ModelDeleteButtonClick
         end
       end

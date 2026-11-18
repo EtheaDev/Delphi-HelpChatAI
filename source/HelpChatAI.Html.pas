@@ -109,9 +109,9 @@ function HelpChatRoleClass(const ARole: THelpChatRole): string;
 ///  Who wrote the content decides how it is rendered: a reply of the
 ///  assistant, pending or complete, is Markdown in safe mode; a question, a
 ///  system message and an error are plain text, never Markdown - an error
-///  even when its role is the assistant's. The message id is written into
-///  the attribute unencoded: it is expected to be an id the store generated
-///  (a persisted conversation brings back the ids its file holds).
+///  even when its role is the assistant's. The message id is HTML-encoded
+///  in its attribute: a persisted conversation brings back the ids its file
+///  holds, and a file may have been written by anybody.
 /// </summary>
 function HelpChatRenderBubble(const AMessage: THelpChatMessage): string;
 
@@ -298,7 +298,11 @@ begin
   LLinker := TBareUrlLinker.Create;
   LBuilder := TStringBuilder.Create(AHtml.Length + 64);
   try
-    LUrlRegEx := TRegEx.Create('https?://[^\s<>"'']+', [roIgnoreCase]);
+    // This is HTML: a quote or an angle bracket after the address is
+    // written as an entity, and the address ends there too - "https://x.com"
+    // in a reply was linked with the closing quote inside.
+    LUrlRegEx := TRegEx.Create(
+      'https?://(?:(?!&quot;|&#39;|&#x27;|&apos;|&lt;|&gt;)[^\s<>"''])+', [roIgnoreCase]);
     LDepth := 0; // nesting of a/code/pre: text inside them is left alone
     LPos := 0;
     while LPos < AHtml.Length do
@@ -401,7 +405,7 @@ begin
   Result :=
     '<div class="' + HELPCHAT_CSS_PREFIX + '-msg ' + HELPCHAT_CSS_PREFIX + '-' + HelpChatRoleClass(AMessage.Role) +
       IfThen(AMessage.IsError, ' ' + HELPCHAT_CSS_PREFIX + '-msg-error', '') + '"' +
-      ' data-msgid="' + AMessage.Id + '"' + LExtra + '>' +
+      ' data-msgid="' + TNetEncoding.HTML.Encode(AMessage.Id) + '"' + LExtra + '>' +
       '<div class="' + HELPCHAT_CSS_PREFIX + '-bubble">' + LBody + '</div>' +
     '</div>';
 end;
@@ -449,6 +453,11 @@ begin
     LSb.Append('<html lang="').Append(TNetEncoding.HTML.Encode(LLang)).Append('">'#13#10);
     LSb.Append('<head>'#13#10);
     LSb.Append('<meta charset="utf-8">'#13#10);
+    // What is printed is what the model wrote, and nothing else guards this
+    // page: the panel has a policy of its own, this document had none, so an
+    // image the model named on another site was fetched when the PDF was
+    // made - with whatever the address carried. Images come inline or not at all.
+    LSb.Append('<meta http-equiv="Content-Security-Policy" content="img-src data:">'#13#10);
     LSb.Append('<title>').Append(TNetEncoding.HTML.Encode(Title)).Append('</title>'#13#10);
     LSb.Append('<style>'#13#10).Append(Css).Append(#13#10'</style>'#13#10);
     LSb.Append('</head>'#13#10);

@@ -92,6 +92,9 @@ const
   /// <summary>Default of <c>MaxSessions</c>: beyond it <c>POST /session</c>
   /// answers 503 until a session ends or expires.</summary>
   HELPCHAT_REMOTE_DEF_MAX_SESSIONS = 500;
+  /// <summary>The connections the listener serves at once
+  /// (<c>MaxConnections</c>); beyond it a new one is closed.</summary>
+  HELPCHAT_REMOTE_DEF_MAX_CONNECTIONS = 256;
   /// <summary>How often the sweeper looks for idle sessions: an expiry is
   /// late by at most this much.</summary>
   HELPCHAT_REMOTE_SWEEP_SECONDS = 30;
@@ -272,7 +275,8 @@ type
     /// token, polling parameters, language of the server).</summary>
     function OpenSession(ARequestInfo: TIdHTTPRequestInfo; out AJson: string;
       out AError: string): Boolean;
-    /// <summary>Removes and frees the session of that token and releases its
+    /// <summary>Removes and retires the session of that token (it is freed
+    /// later: a request may still be using it) and releases its
     /// conversation; an unknown token does nothing.</summary>
     procedure CloseSession(const AToken: string);
     /// <summary>Takes the session of that token out of the dictionary
@@ -309,6 +313,10 @@ type
     /// <summary>False, for the same reason: the language is a setting of the
     /// one engine, and the page of every session is rendered in it.</summary>
     function CanSelectLanguage(const AEngine: THelpChatEngine): Boolean; override;
+    /// <summary>A sentence that says nothing about this machine: what an
+    /// exception carries - a path, an address, the name of a file - goes to
+    /// <c>OnLog</c>, not to whoever sent the request.</summary>
+    function ErrorTextFor(const AError: Exception): string; override;
     /// <summary>Hands a line to <c>OnLog</c>, on the calling thread; nothing
     /// when no handler is set.</summary>
     procedure Log(const AText: string); overload;
@@ -348,8 +356,8 @@ type
     property AppKeys: TStringList read FAppKeys;
     /// <summary>Whether a conversation survives the last session on it: see
     /// <see cref="THelpChatSessionStorage" />. Only conversations keyed by
-    /// user can be found again; an anonymous one is saved too, under a key
-    /// nobody will present twice.</summary>
+    /// user can be found again: an anonymous one - its key is its session,
+    /// which nobody will present twice - is not written.</summary>
     property Storage: THelpChatSessionStorage read FStorage write FStorage default hssMemory;
     /// <summary>Folder of the conversation files when Storage is hssDisk.</summary>
     property SessionFolder: string read FSessionFolder write FSessionFolder;
@@ -377,7 +385,10 @@ type
   end;
 
 /// <summary>A file name for an arbitrary conversation key: readable when it can
-/// be, always unambiguous (a hash is appended when characters were replaced).</summary>
+/// be, always unambiguous (a hash is appended when characters were replaced).
+/// A key too long to be kept whole gets a second, longer hash (SHA-256): the
+/// 32 bits of the first are few for ids a client may choose, and two of them
+/// made to collide would share one conversation.</summary>
 function HelpChatKeyToFileName(const AKey: string): string;
 
 implementation
@@ -386,6 +397,7 @@ uses
   System.IOUtils,
   System.JSON,
   System.DateUtils,
+  System.Hash,
   HelpChatAI.Messages,
   HelpChatAI.Log,
   HelpChatAI.Store;
@@ -400,7 +412,7 @@ var
   LChar: Char;
   LHash: Cardinal;
   LClean: string;
-  LChanged: Boolean;
+  LChanged, LCut: Boolean;
 begin
   LClean := '';
   LChanged := False;
@@ -417,7 +429,8 @@ begin
       LChanged := True;
     end;
   end;
-  if LClean.Length > CMaxLen then
+  LCut := LClean.Length > CMaxLen;
+  if LCut then
   begin
     LClean := LClean.Substring(0, CMaxLen);
     LChanged := True;
@@ -425,6 +438,9 @@ begin
   Result := LClean.ToLower;
   if LChanged then
     Result := Result + '-' + IntToHex(LHash, 8).ToLower;
+  // What was cut off is in the name only through the hash: a longer one.
+  if LCut then
+    Result := Result + '-' + THashSHA2.GetHashString(AKey).Substring(0, 24).ToLower;
   Result := Result + '.json';
 end;
 {$IFDEF HC_QON}{$Q+}{$UNDEF HC_QON}{$ENDIF}
@@ -483,6 +499,7 @@ begin
   FStorage := hssMemory;
   FIdleSeconds := HELPCHAT_REMOTE_DEF_IDLE_MINUTES * 60;
   FMaxSessions := HELPCHAT_REMOTE_DEF_MAX_SESSIONS;
+  MaxConnections := HELPCHAT_REMOTE_DEF_MAX_CONNECTIONS;
   Port := HELPCHAT_REMOTE_DEF_PORT;
   // A server is reached from outside; the local one stays on 127.0.0.1.
   BindIP := '0.0.0.0';
@@ -513,6 +530,12 @@ end;
 procedure THelpChatRemoteServer.SetIdleMinutes(const Value: Integer);
 begin
   FIdleSeconds := Value * 60;
+end;
+
+function THelpChatRemoteServer.ErrorTextFor(const AError: Exception): string;
+begin
+  Log('Request failed: %s: %s', [AError.ClassName, AError.Message]);
+  Result := 'The server could not answer this request.';
 end;
 
 procedure THelpChatRemoteServer.Log(const AText: string);
@@ -565,6 +588,8 @@ var
   LPair: TPair<string, THelpChatServerSession>;
 begin
   LPair := FSessions.ExtractPair(AToken);
+  if Assigned(LPair.Value) then
+    LPair.Value.MarkEnded;
   if Assigned(LPair.Value) then
     FRetired.Add(TPair<TDateTime, THelpChatServerSession>.Create(Now, LPair.Value));
 end;
@@ -630,13 +655,15 @@ begin
     Exit(False);
   FLock.Enter;
   try
+    // Every key is compared, and each in constant time: this is the one
+    // secret a stranger on the network can guess at.
+    Result := False;
     for I := 0 to FAppKeys.Count - 1 do
-      if FAppKeys[I] = AKey then
-        Exit(True);
+      if HelpChatSameSecret(AKey, FAppKeys[I]) then
+        Result := True;
   finally
     FLock.Leave;
   end;
-  Result := False;
 end;
 
 function THelpChatRemoteServer.ConversationFile(const AProfile, AConversationKey: string): string;
@@ -670,6 +697,11 @@ end;
 procedure THelpChatRemoteServer.SaveConversation(const ASession: THelpChatServerSession);
 begin
   if FStorage <> hssDisk then
+    Exit;
+  // The conversation of an anonymous session is keyed by the session: no
+  // later one can ask for it, and its file would stay in the folder for
+  // ever. A key the application gave (OnAuthenticate) is not that one.
+  if ASession.ConversationKey = HELPCHAT_KEY_SESSION_PREFIX + ASession.Id then
     Exit;
   try
     EngineOf(ASession).Store.SaveToFile(ASession.ConversationKey,
@@ -856,6 +888,12 @@ begin
       AError := 'too many sessions';
       Exit(False);
     end;
+    // Nobody else is in this conversation, so what is in memory for it was
+    // left by a request that was still running when its last session ended:
+    // the conversation is the one that was saved then, not that leftover -
+    // which would keep the file from being read and then replace it.
+    if (LEngine.Store.Count(LKey) > 0) and not KeyInUse(LEngine, LKey, '') then
+      LEngine.Clear(LKey);
     LoadConversation(LEngine, LProfileUsed, LKey);
     // The default engine stays nil in the session: EngineOf finds it.
     if LProfileUsed <> '' then

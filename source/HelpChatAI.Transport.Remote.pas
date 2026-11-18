@@ -123,6 +123,11 @@ type
     FLogSettings: THelpChatSettings;
     FOnUiCommand: THelpChatUiCommandEvent;
     FOnPdfRequest: THelpChatPdfRequestEvent;
+    /// <summary>What the host channel delivers, on the main thread. A
+    /// <c>reload</c> is the page saying its session is refused: the next
+    /// <c>GetPanelUrl</c> must check the session however recently the server
+    /// answered. Then the command goes to the component.</summary>
+    procedure ChannelCommand(const ACommand: string);
     /// <summary>One form-encoded POST to the server, with the application key
     /// and, once there is one, the session token. Returns the HTTP status and
     /// the body; raises what the HTTP client raises when the server cannot be
@@ -389,6 +394,9 @@ begin
     LClient.ConnectionTimeout := FTimeoutMs;
     LClient.ResponseTimeout := FTimeoutMs;
     LClient.SendTimeout := FTimeoutMs;
+    // No redirect is followed: the application key and the token of the
+    // session would go to whatever address the answer names.
+    LClient.HandleRedirects := False;
     LClient.CustomHeaders[HELPCHAT_KEY_HEADER] := FAppKey;
     if FToken <> '' then
       LClient.CustomHeaders[HELPCHAT_TOKEN_HEADER] := FToken;
@@ -524,7 +532,7 @@ begin
   begin
     FChannel := THelpChatHostChannel.Create;
     FChannel.AllowedOrigin := GetPanelOrigin;
-    FChannel.OnCommand := FOnUiCommand;
+    FChannel.OnCommand := ChannelCommand;
     // Not being able to listen is not fatal: the page simply has nobody to
     // send its host commands to (Escape closes nothing).
     if not FChannel.Start then
@@ -805,8 +813,24 @@ end;
 procedure THelpChatRemoteTransport.SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
 begin
   FOnUiCommand := AHandler;
+  // Set again, so that the channel changes the token its queued calls ask:
+  // a command queued for the handler that left is dropped.
   if Assigned(FChannel) then
-    FChannel.OnCommand := AHandler;
+    if Assigned(AHandler) then
+      FChannel.OnCommand := ChannelCommand
+    else
+      FChannel.OnCommand := nil;
+end;
+
+procedure THelpChatRemoteTransport.ChannelCommand(const ACommand: string);
+var
+  LHandler: THelpChatUiCommandEvent;
+begin
+  if ACommand = HELPCHAT_UI_RELOAD then
+    FLastContact := 0;
+  LHandler := FOnUiCommand;
+  if Assigned(LHandler) then
+    LHandler(ACommand);
 end;
 
 end.

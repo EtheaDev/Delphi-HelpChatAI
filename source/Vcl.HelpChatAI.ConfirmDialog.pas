@@ -170,6 +170,23 @@ type
   private
     /// <summary>Seconds before the automatic No, shown on the No button.</summary>
     FSecondsLeft: Integer;
+    /// <summary>The caption of the No button without the countdown, in the
+    /// language of the request.</summary>
+    FNoText: string;
+    /// <summary>The scroll box the values go into when the form would be
+    /// taller than its monitor; nil for a question that fits.</summary>
+    FValuesScroll: TScrollBox;
+    /// <summary>The height the client area may take on the monitor of
+    /// <c>AHost</c> (of the dialog with no host): the work area less the
+    /// frame of the form and a margin.</summary>
+    function RoomFor(const AHost: TCustomForm): Integer;
+    /// <summary>Moves the values panel into a scroll box <c>AHeight</c>
+    /// tall, between the header and the footer.</summary>
+    procedure ScrollValues(const AHeight: Integer);
+    /// <summary>The wheel scrolls the values: no control of the dialog
+    /// that takes the focus would.</summary>
+    procedure ValuesWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer;
+      MousePos: TPoint; var Handled: Boolean);
     /// <summary>Puts a stock icon of Windows (IDI_WARNING...) into
     /// <c>AImage</c> at the size the image has now, that is after the form
     /// was scaled for its monitor. Leaves the image empty when the system
@@ -184,7 +201,12 @@ type
       const ABold: Boolean): TLabel;
   public
     /// <summary>Lays the request out - header, values in two columns, the
-    /// footer only when there are values - sizes the form to it, starts the
+    /// footer only when there are values - and sizes the form to it, never
+    /// taller than the work area of its monitor: values that would not fit
+    /// scroll. Yes and No are written in <c>ARequest.Language</c>. Shows
+    /// nothing; <see cref="Execute" /> calls it, once per instance.</summary>
+    procedure Prepare(const ARequest: TVclHelpChatConfirmRequest);
+    /// <summary>Lays the request out (<see cref="Prepare" />), starts the
     /// countdown and shows it modally over <c>ARequest.Host</c>. True only
     /// for Yes: closing the window, the timeout and <see cref="Dismiss" />
     /// are all No. Main thread; returns when the dialog closed.</summary>
@@ -210,9 +232,9 @@ procedure RegisterVclHelpChatConfirmDialog(const AClass: TComponentClass);
 
 /// <summary>Asks with the registered dialog, created for the question and
 /// owned by the host, and returns True when the user allowed the action.
-/// A dialog still open from a previous question is dismissed first - also
-/// when that question was another assistant's: there is one dialog per
-/// process. Main thread only; it blocks in a modal loop until the user
+/// A dialog still open from a previous question of the same assistant is
+/// dismissed first, as a No; the question of another assistant opens over it
+/// and leaves it waiting. Main thread only; it blocks in a modal loop until the user
 /// answers or <c>ARequest.TimeoutMs</c> passes. The dialog is freed before
 /// returning.</summary>
 function HelpChatVclConfirmAction(const ARequest: TVclHelpChatConfirmRequest): Boolean;
@@ -224,7 +246,6 @@ implementation
 uses
   System.Math,
   System.UITypes,
-  Vcl.Consts,
   Winapi.CommCtrl,
   HelpChatAI.Types;
 
@@ -331,18 +352,96 @@ begin
   Result.AutoSize := True;
 end;
 
-function TVclHelpChatConfirmDialog.Execute(const ARequest: TVclHelpChatConfirmRequest): Boolean;
+function TVclHelpChatConfirmDialog.RoomFor(const AHost: TCustomForm): Integer;
 var
-  LGap, LMargin, LTop, LLeft, LLabelWidth, LHeight, I: Integer;
-  LLabel, LValue: TLabel;
+  LMonitor: TMonitor;
+begin
+  LMonitor := nil;
+  if Assigned(AHost) then
+    LMonitor := AHost.Monitor;
+  if LMonitor = nil then
+    LMonitor := Monitor;
+  if Assigned(LMonitor) then
+    Result := LMonitor.WorkareaRect.Height
+  else
+    Result := Screen.WorkAreaHeight;
+  Result := Result - (Height - ClientHeight) - 2 * ScaleValue(16);
+end;
+
+procedure TVclHelpChatConfirmDialog.ScrollValues(const AHeight: Integer);
+var
+  LWidth, LFull: Integer;
+begin
+  LWidth := ValuesPanel.Width;
+  LFull := ValuesPanel.Height;
+  FValuesScroll := TScrollBox.Create(Self);
+  FValuesScroll.BorderStyle := bsNone;
+  FValuesScroll.HorzScrollBar.Visible := False;
+  FValuesScroll.VertScrollBar.Tracking := True;
+  FValuesScroll.Parent := Self;
+  // Under the header and above the footer: top-aligned controls are
+  // ordered by where they are when they are aligned.
+  FValuesScroll.SetBounds(0, HeaderPanel.Height, ClientWidth, AHeight);
+  FValuesScroll.Align := alTop;
+  // The panel keeps its width: what the scroll bar covers is the margin the
+  // values were laid out with.
+  ValuesPanel.Align := alNone;
+  ValuesPanel.Parent := FValuesScroll;
+  ValuesPanel.SetBounds(0, 0, LWidth, LFull);
+  OnMouseWheel := ValuesWheel;
+end;
+
+procedure TVclHelpChatConfirmDialog.ValuesWheel(Sender: TObject; Shift: TShiftState;
+  WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+begin
+  if Assigned(FValuesScroll) then
+  begin
+    FValuesScroll.VertScrollBar.Position :=
+      FValuesScroll.VertScrollBar.Position - WheelDelta div 2;
+    Handled := True;
+  end;
+end;
+
+procedure TVclHelpChatConfirmDialog.Prepare(const ARequest: TVclHelpChatConfirmRequest);
+const
+  SCROLL_BAR = 18;  // what a vertical scroll bar takes, at 96 DPI
+  MIN_VALUES = 72;  // the least the values keep on a screen too small for all
+var
+  LGap, LMargin, LTop, LLeft, LLabelWidth, LHeight, LFixed, LRoom, I: Integer;
+  LLabels, LValues: TArray<TLabel>;
+
+  // The two columns from the top, the values ARight short of the right
+  // edge; sizes the panel to them.
+  procedure PlaceValues(const ARight: Integer);
+  var
+    J: Integer;
+  begin
+    LTop := 0;
+    for J := 0 to High(LLabels) do
+    begin
+      LLabels[J].Top := LTop;
+      // Off and on again: a label is measured when AutoSize changes, not
+      // when its width does.
+      LValues[J].AutoSize := False;
+      LValues[J].SetBounds(LLeft + LLabelWidth, LTop,
+        ValuesPanel.ClientWidth - LLeft - LLabelWidth - ARight, 0);
+      LValues[J].AutoSize := True;
+      LTop := LTop + Max(LLabels[J].Height, LValues[J].Height) + LGap div 2;
+    end;
+    ValuesPanel.Height := LTop + LGap;
+  end;
+
 begin
   if Assigned(ARequest.Host) then
     PopupParent := ARequest.Host; // above the host, and above the window of the chat
   Caption := ARequest.Caption;
   LoadStockIcon(IconImage, IDI_WARNING);
   LoadStockIcon(FooterImage, IDI_INFORMATION);
-  YesButton.Caption := SMsgDlgYes;
-  NoButton.Caption := SMsgDlgNo;
+  // In the language of the chat: the RTL has these two words in the
+  // language it was built with, which an Italian user read as Yes and No.
+  FNoText := HelpChatMsg(hcmConfirmNo, ARequest.Language);
+  YesButton.Caption := HelpChatMsg(hcmConfirmYes, ARequest.Language);
+  NoButton.Caption := FNoText;
   // The form was scaled for its monitor when it was created: what the DFM
   // says in 96-DPI pixels is already converted, and ScaleValue converts the
   // few distances computed here. The designed labels have AutoSize off so
@@ -375,15 +474,15 @@ begin
     for I := Low(ARequest.Values) to High(ARequest.Values) do
       LLabelWidth := Max(LLabelWidth, Canvas.TextWidth(ARequest.Values[I].Key + ':'));
     LLabelWidth := Min(LLabelWidth + LGap, (ValuesPanel.ClientWidth - LLeft - LMargin) div 2);
-    LTop := 0;
+    SetLength(LLabels, Length(ARequest.Values));
+    SetLength(LValues, Length(ARequest.Values));
     for I := Low(ARequest.Values) to High(ARequest.Values) do
     begin
-      LLabel := NewLabel(ARequest.Values[I].Key + ':', LLeft, LTop, LLabelWidth, False);
-      LValue := NewLabel(ARequest.Values[I].Value, LLeft + LLabelWidth, LTop,
+      LLabels[I] := NewLabel(ARequest.Values[I].Key + ':', LLeft, 0, LLabelWidth, False);
+      LValues[I] := NewLabel(ARequest.Values[I].Value, LLeft + LLabelWidth, 0,
         ValuesPanel.ClientWidth - LLeft - LLabelWidth - LMargin, True);
-      LTop := LTop + Max(LLabel.Height, LValue.Height) + LGap div 2;
     end;
-    ValuesPanel.Height := LTop + LGap;
+    PlaceValues(LMargin);
     LHeight := ValuesPanel.Height;
   end;
 
@@ -391,14 +490,29 @@ begin
   FooterLabel.Caption := Trim(ARequest.Footer);
   FooterLabel.AutoSize := True;
   FooterPanel.Visible := ValuesPanel.Visible and (FooterLabel.Caption <> '');
+  LFixed := HeaderPanel.Height + ButtonsPanel.Height;
   if FooterPanel.Visible then
   begin
     FooterPanel.Height := FooterLabel.Top + FooterLabel.Height + LGap;
-    LHeight := LHeight + FooterPanel.Height;
+    LFixed := LFixed + FooterPanel.Height;
   end;
 
-  ClientHeight := HeaderPanel.Height + LHeight + ButtonsPanel.Height;
+  // Never taller than the screen: an action with many parameters, or long
+  // values, pushed the buttons below the taskbar. The values scroll then,
+  // laid out again without the strip the scroll bar takes.
+  LRoom := RoomFor(ARequest.Host);
+  if ValuesPanel.Visible and (LFixed + LHeight > LRoom) then
+  begin
+    PlaceValues(LMargin + ScaleValue(SCROLL_BAR));
+    LHeight := Max(LRoom - LFixed, ScaleValue(MIN_VALUES));
+    ScrollValues(LHeight);
+  end;
+  ClientHeight := LFixed + LHeight;
+end;
 
+function TVclHelpChatConfirmDialog.Execute(const ARequest: TVclHelpChatConfirmRequest): Boolean;
+begin
+  Prepare(ARequest);
   if ARequest.TimeoutMs > 0 then
   begin
     FSecondsLeft := (ARequest.TimeoutMs + 999) div 1000;
@@ -412,7 +526,7 @@ end;
 
 procedure TVclHelpChatConfirmDialog.ShowSecondsLeft;
 begin
-  NoButton.Caption := Format('%s (%d)', [SMsgDlgNo, FSecondsLeft]);
+  NoButton.Caption := Format('%s (%d)', [FNoText, FSecondsLeft]);
 end;
 
 procedure TVclHelpChatConfirmDialog.CountdownTimerTimer(Sender: TObject);

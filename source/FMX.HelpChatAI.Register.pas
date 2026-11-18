@@ -69,16 +69,30 @@ type
 
   /// <summary>Which face the assistant wears: the icons compiled into the
   /// component. A drop-down and not a free string, because nothing else would
-  /// tell anybody what the four names are. It stays editable: with an image
+  /// tell anybody what the names are. It stays editable: with an image
   /// list of the application the name is that list's, not ours. Unlike the
   /// VCL editor it draws no image next to the name, and there is no editor
   /// for <c>ImageIndex</c>.</summary>
   TFmxHelpChatImageNameProperty = class(TStringProperty)
   public
-    /// <summary>Editable text, no <c>paValueList</c>.</summary>
+    /// <summary>A drop-down whose text stays editable.</summary>
     function GetAttributes: TPropertyAttributes; override;
     /// <summary>The names of <c>HelpChatAssistantIconNames</c>.</summary>
     procedure GetValues(Proc: TGetStrProc); override;
+  end;
+
+  /// <summary>The configuration file, with a file dialog behind the
+  /// ellipsis: the twin of the VCL editor. An empty value means the three
+  /// default files; a named one is the whole configuration, and must exist
+  /// when the component activates.</summary>
+  TFmxHelpChatConfigFileNameProperty = class(TStringProperty)
+  public
+    /// <summary>A dialog, and the value can be reverted.</summary>
+    function GetAttributes: TPropertyAttributes; override;
+    /// <summary>Asks for an existing file and stores the full path the
+    /// dialog returns. A path relative to the executable - what an
+    /// application that is deployed wants - has to be typed.</summary>
+    procedure Edit; override;
   end;
 
   /// <summary>Verbs of the component, in this order: the configuration
@@ -408,7 +422,7 @@ begin
     // A conversation of this project, not the one of bds.exe that every
     // preview of every project would share.
     HelpChatUsePreviewConversation(LSettings, DesignExeFile);
-    FmxHelpChatDesignPreview(AChat, LSettings, LIssues);
+    FmxHelpChatDesignPreview(AChat, LSettings, LIssues, LBaseFolder);
   finally
     LSettings.Free;
   end;
@@ -515,6 +529,29 @@ begin
     Proc(LName);
 end;
 
+function TFmxHelpChatConfigFileNameProperty.GetAttributes: TPropertyAttributes;
+begin
+  Result := [paDialog, paRevertable];
+end;
+
+procedure TFmxHelpChatConfigFileNameProperty.Edit;
+var
+  LDialog: TOpenDialog;
+begin
+  // The dialog of the VCL: this code runs inside the IDE, which is one.
+  LDialog := TOpenDialog.Create(nil);
+  try
+    LDialog.Title := 'HelpChat configuration file';
+    LDialog.Filter := 'HelpChat configuration (*.json)|*.json|All files (*.*)|*.*';
+    LDialog.Options := LDialog.Options + [ofFileMustExist, ofPathMustExist];
+    LDialog.FileName := GetValue;
+    if LDialog.Execute then
+      SetValue(LDialog.FileName);
+  finally
+    LDialog.Free;
+  end;
+end;
+
 function TFmxHelpChatImageNameProperty.GetAttributes: TPropertyAttributes;
 begin
   // paValueList is what makes the Object Inspector call GetValues at all: it
@@ -542,6 +579,8 @@ begin
     THelpChatSettings, 'Provider', TFmxHelpChatProviderProperty);
   RegisterPropertyEditor(TypeInfo(string),
     TFmxHelpChatAI, 'ImageName', TFmxHelpChatImageNameProperty);
+  RegisterPropertyEditor(TypeInfo(TFileName),
+    TFmxHelpChatAI, 'ConfigFileName', TFmxHelpChatConfigFileNameProperty);
 end;
 
 end.

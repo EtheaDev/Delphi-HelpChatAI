@@ -34,8 +34,10 @@
 ///  An action the application registered under the same name wins: a skill
 ///  never replaces what the code wrote. And a skill named in the configuration
 ///  is wanted by it, so its actions pass <c>AllowedActions</c> too.
-///  The skills that read and fill the user's screen live in the framework
-///  units (<c>Vcl.HelpChatAI.Skills</c>); what does not depend on a framework
+///  The skills that read and fill the user's screen are written once, in
+///  <c>HelpChatAI.Skills.Screen</c>, over the screen a framework unit gives
+///  them (<c>Vcl.HelpChatAI.Skills</c>, <c>FMX.HelpChatAI.Skills</c>); what
+///  does not depend on a framework
 ///  - the kinds of field, how a field is described to the model, how the
 ///  values it writes are read - is here, so that the FireMonkey ones say the
 ///  same things in the same words.
@@ -83,6 +85,10 @@ type
     FHost: TComponent;
     FBroker: THelpChatActionBroker;
     FAdded: TList<string>;
+    /// <summary>The action objects behind <c>FAdded</c>, same order: what
+    /// <c>Detach</c> compares before removing, so that an action the
+    /// application registered later under the same name is left alone.</summary>
+    FAddedActions: TList<Pointer>;
   protected
     /// <summary>Adds an action of the skill to the broker - unless the broker,
     /// or the shared actions it consults, already have one by that name:
@@ -94,6 +100,9 @@ type
     /// <summary>Where the skill adds its actions.</summary>
     procedure RegisterActions; virtual; abstract;
   public
+    /// <summary>A skill of the assistant <c>AHost</c>, which will add its
+    /// actions to <c>ABroker</c>. Nothing is added until
+    /// <c>Attach</c>.</summary>
     constructor Create(const AHost: TComponent; const ABroker: THelpChatActionBroker); virtual;
     destructor Destroy; override;
     /// <summary>The name <c>Settings.Skills</c> uses, lower case.</summary>
@@ -114,6 +123,7 @@ type
     /// <summary>The assistant (a <c>TVclHelpChatAI</c>, a
     /// <c>TFmxHelpChatAI</c>, or whatever created the set).</summary>
     property Host: TComponent read FHost;
+    /// <summary>The broker of the assistant, where the actions go.</summary>
     property Broker: THelpChatActionBroker read FBroker;
   end;
 
@@ -125,6 +135,7 @@ type
     FSkills: TObjectList<THelpChatSkill>;
     FUnknown: TArray<string>;
   public
+    /// <summary>An empty set: no skill until <c>Attach</c>.</summary>
     constructor Create;
     destructor Destroy; override;
     /// <summary>Creates and attaches the skill of each name (the registered
@@ -173,10 +184,14 @@ type
     Hint: string;
     /// <summary>The data field behind the control, when there is one.</summary>
     DataField: string;
+    /// <summary>What kind of value it holds: decides how it is described and
+    /// how what the model writes is read.</summary>
     Kind: THelpChatFieldKind;
     /// <summary>For text: the longest value, 0 = no limit.</summary>
     MaxLength: Integer;
+    /// <summary>True when the record cannot be saved without it.</summary>
     Required: Boolean;
+    /// <summary>True when it is shown and cannot be written.</summary>
     ReadOnly: Boolean;
     /// <summary>A password: its value is never read to the model.</summary>
     Secret: Boolean;
@@ -207,6 +222,8 @@ type
 /// <summary>Makes a skill available by its name: called in the
 /// <c>initialization</c> of its unit.</summary>
 procedure HelpChatRegisterSkill(const AClass: THelpChatSkillClass);
+/// <summary>Takes a skill out of the registry: called in the
+/// <c>finalization</c> of its unit.</summary>
 procedure HelpChatUnregisterSkill(const AClass: THelpChatSkillClass);
 /// <summary>The names registered, once each, in the order of
 /// registration.</summary>
@@ -278,11 +295,13 @@ begin
   FHost := AHost;
   FBroker := ABroker;
   FAdded := TList<string>.Create;
+  FAddedActions := TList<Pointer>.Create;
 end;
 
 destructor THelpChatSkill.Destroy;
 begin
   Detach;
+  FAddedActions.Free;
   FAdded.Free;
   inherited;
 end;
@@ -304,6 +323,7 @@ begin
     Exit;
   Result := FBroker.Add(AName, ADescription, AParams, AHandler, AConfirm);
   FAdded.Add(AName);
+  FAddedActions.Add(Result);
 end;
 
 procedure THelpChatSkill.Attach;
@@ -314,12 +334,18 @@ end;
 
 procedure THelpChatSkill.Detach;
 var
-  LName: string;
+  I: Integer;
 begin
+  // Only what is still the action this skill added: an application whose
+  // component is active from the form file registers its own in FormCreate,
+  // after the skills - its action replaced the skill's, and removing by name
+  // took the application's away at the next deactivation.
   if Assigned(FBroker) then
-    for LName in FAdded do
-      FBroker.Remove(LName);
+    for I := 0 to FAdded.Count - 1 do
+      if Pointer(FBroker.Find(FAdded[I])) = FAddedActions[I] then
+        FBroker.Remove(FAdded[I]);
   FAdded.Clear;
+  FAddedActions.Clear;
 end;
 
 function THelpChatSkill.ActionNames: TArray<string>;

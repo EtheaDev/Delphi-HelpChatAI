@@ -37,7 +37,7 @@ interface
 uses
   System.Classes,
   Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ComCtrls,
-  Vcl.DBCtrls, Vcl.DBGrids, Data.DB,
+  Vcl.DBCtrls, Vcl.DBGrids, Vcl.ActnList, Vcl.DBActns, Data.DB,
   FireDAC.Comp.Client,
   DUnitX.TestFramework;
 
@@ -48,6 +48,7 @@ type
     [Test] procedure TheVclSkills_AreRegistered;
     [Test] procedure SkillSet_AddsTheActions_AndTakesThemAway;
     [Test] procedure SkillSet_TheApplicationsActionWins;
+    [Test] procedure SkillSet_AnActionAddedLater_SurvivesDetach;
     [Test] procedure SkillSet_NamingASkill_AllowsItsActions;
     [Test] procedure SkillSet_UnknownName_IsSkipped;
     [Test] procedure Settings_Skills_StringOrArray_RoundTrip;
@@ -86,11 +87,15 @@ type
     [Test] procedure Fill_PlainControls_AndCancelPutsThemBack;
     [Test] procedure Fill_ReportsWhatItCouldNotDo;
     [Test] procedure DataAware_Describe_ReadsTheField;
+    [Test] procedure DataAware_APasswordEdit_IsNeverRead;
+    [Test] procedure Lookup_BeingEdited_IsNeitherPostedNorCancelled;
     [Test] procedure DataAware_FillInsert_NeverPosts_AndCancelDropsIt;
     [Test] procedure DataAware_Lookup_ByDescription_WritesTheCode;
     [Test] procedure DataAware_NoAutoEdit_CurrentModeRefuses;
     [Test] procedure Records_CountAndFind_RefusingWhileEditing;
+    [Test] procedure Records_FindRecord_NeitherSearchesNorReportsAPassword;
     [Test] procedure Commands_LeaveOutTheSaves_AndPress;
+    [Test] procedure Commands_WhileEditing_LeaveOutWhatMovesTheRecord;
     [Test] procedure Pages_ShowANestedPage;
   end;
 
@@ -160,6 +165,32 @@ begin
     Assert.AreEqual('Mine.', LBroker.Find('describe_form').Description);
     LSet.Detach;
     Assert.IsNotNull(LBroker.Find('describe_form'), 'the skill never takes away what it did not add');
+  finally
+    LSet.Free;
+  end;
+end;
+
+procedure TSkillRegistryTests.SkillSet_AnActionAddedLater_SurvivesDetach;
+var
+  LBroker: THelpChatActionBroker;
+  LRef: IHelpChatActionInvoker;
+  LSet: THelpChatSkillSet;
+begin
+  // A component active from the form file attaches its skills in Loaded,
+  // before FormCreate registers the actions of the application: one of them
+  // under the name of a skill's replaces it, and must not go with the skill.
+  LBroker := THelpChatActionBroker.Create;
+  LRef := LBroker;
+  LSet := THelpChatSkillSet.Create;
+  try
+    LSet.Attach(nil, LBroker, ['pages']);
+    Assert.IsNotNull(LBroker.Find('show_page'));
+    LBroker.Add('show_page', 'Mine.',
+      procedure(const AArgs: THelpChatActionArgs; var AResult: string) begin end, False);
+    LSet.Detach;
+    Assert.IsNotNull(LBroker.Find('show_page'), 'the action of the application stays');
+    Assert.AreEqual('Mine.', LBroker.Find('show_page').Description);
+    Assert.IsNull(LBroker.Find('list_pages'), 'what the skill added goes');
   finally
     LSet.Free;
   end;
@@ -713,6 +744,46 @@ begin
   end;
 end;
 
+procedure TVclSkillTests.DataAware_APasswordEdit_IsNeverRead;
+var
+  LEdit: TDBEdit;
+  LText: string;
+begin
+  // The data-aware adapter is asked before the plain edit one, which was
+  // the only one to know a password when it saw one.
+  BuildDataForm;
+  LEdit := FForm.FindComponent('edCompany') as TDBEdit;
+  LEdit.PasswordChar := '*';
+  FTable.Edit;
+  FTable.FieldByName('CompanyName').AsString := 'TopSecret42';
+  try
+    LText := HelpChatVclDescribeForm(FForm, False);
+    Assert.DoesNotContain(LText, 'TopSecret42', 'the value never reaches the model');
+  finally
+    FTable.Cancel;
+  end;
+end;
+
+procedure TVclSkillTests.Lookup_BeingEdited_IsNeitherPostedNorCancelled;
+begin
+  // Describing a form reads its lookup lists, and reading used to walk them
+  // with First/Next - which posts the record somebody is editing there.
+  BuildDataForm;
+  FRegions.Locate('Id', 2, []);
+  FRegions.Edit;
+  FRegions.FieldByName('Description').AsString := 'Changed';
+  HelpChatVclDescribeForm(FForm, False);
+  Assert.AreEqual(Ord(dsEdit), Ord(FRegions.State), 'still being edited after describe_form');
+  try
+    HelpChatVclFindChoice(FForm, 'cbRegion', 'lig');
+  except
+    // It may refuse - what it must not do is save.
+  end;
+  Assert.AreEqual(Ord(dsEdit), Ord(FRegions.State), 'and after find_choice');
+  FRegions.Cancel;
+  Assert.AreEqual('Piemonte', FRegions.FieldByName('Description').AsString, 'nothing was saved');
+end;
+
 procedure TVclSkillTests.DataAware_Describe_ReadsTheField;
 var
   LText: string;
@@ -812,6 +883,23 @@ begin
   end;
 end;
 
+procedure TVclSkillTests.Records_FindRecord_NeitherSearchesNorReportsAPassword;
+var
+  LEdit: TDBEdit;
+  LResult: string;
+begin
+  // describe_form said "filled" for a masked edit, and find_record then
+  // reported the same field in clear with the record it found.
+  BuildDataForm;
+  LEdit := FForm.FindComponent('edCompany') as TDBEdit;
+  LEdit.PasswordChar := '*';
+  LResult := HelpChatVclFindRecord(FForm, 'C2', 'Code', '', False);
+  Assert.Contains(LResult, 'on the record found');
+  Assert.DoesNotContain(LResult, FTable.FieldByName('CompanyName').AsString, True);
+  // Nor is it searched: a search that finds tells what the field holds.
+  Assert.Contains(HelpChatVclFindRecord(FForm, 'rossi', '', '', False), 'was not found');
+end;
+
 procedure TVclSkillTests.Records_CountAndFind_RefusingWhileEditing;
 var
   LResult: string;
@@ -832,6 +920,36 @@ begin
     end, Exception);
   Assert.AreEqual(dsEdit, FTable.State, 'moving would have posted');
   FTable.Cancel;
+end;
+
+procedure TVclSkillTests.Commands_WhileEditing_LeaveOutWhatMovesTheRecord;
+var
+  LActions: TActionList;
+  LNext: TDataSetNext;
+  LButton: TButton;
+begin
+  // A button with one of the standard data set actions: Next posts the
+  // record being edited, which is saving - the one thing the skills never do.
+  BuildDataForm;
+  LActions := TActionList.Create(FForm);
+  LNext := TDataSetNext.Create(FForm);
+  LNext.ActionList := LActions;
+  LNext.DataSource := FSource;
+  LNext.Caption := 'Following record';
+  LButton := TButton.Create(FForm);
+  LButton.Name := 'btnFollowing';
+  LButton.Parent := FForm;
+  LButton.SetBounds(10, 400, 120, 25);
+  LButton.Action := LNext;
+  FTable.First;
+  Assert.Contains(HelpChatVclListCommands(FForm), 'btnFollowing', 'offered while browsing');
+  FTable.Edit;
+  try
+    Assert.DoesNotContain(HelpChatVclListCommands(FForm), 'btnFollowing',
+      'not while a record is being edited');
+  finally
+    FTable.Cancel;
+  end;
 end;
 
 procedure TVclSkillTests.Commands_LeaveOutTheSaves_AndPress;

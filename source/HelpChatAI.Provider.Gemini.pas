@@ -293,7 +293,7 @@ begin
   // request when it does not come back.
   LSignature := APart.GetValue<string>('thoughtSignature', '');
 
-  LFunctionCall := APart.GetValue('functionCall') as TJSONObject;
+  LFunctionCall := HelpChatJsonObject(APart, 'functionCall');
   if LFunctionCall <> nil then
   begin
     LCall.Id := LFunctionCall.GetValue<string>('id', '');
@@ -329,7 +329,7 @@ begin
   if LRoot = nil then
     Exit;
   try
-    LErr := LRoot.GetValue('error') as TJSONObject;
+    LErr := HelpChatJsonObject(LRoot, 'error');
     if LErr <> nil then
     begin
       FError := LErr.GetValue<string>('message', '');
@@ -350,21 +350,21 @@ begin
         LRoot.GetValue<Integer>('usageMetadata.thoughtsTokenCount', 0);
     end;
 
-    LCandidates := LRoot.GetValue('candidates') as TJSONArray;
+    LCandidates := HelpChatJsonArray(LRoot, 'candidates');
     if (LCandidates = nil) or (LCandidates.Count = 0) then
       Exit;
-    LCandidate := LCandidates.Items[0] as TJSONObject;
-    if LCandidate = nil then
+    if not (LCandidates.Items[0] is TJSONObject) then
       Exit;
+    LCandidate := TJSONObject(LCandidates.Items[0]);
 
     LFinish := LCandidate.GetValue<string>('finishReason', '');
     if LFinish <> '' then
       FFinishReason := LFinish;
 
-    LContent := LCandidate.GetValue('content') as TJSONObject;
+    LContent := HelpChatJsonObject(LCandidate, 'content');
     if LContent = nil then
       Exit;
-    LParts := LContent.GetValue('parts') as TJSONArray;
+    LParts := HelpChatJsonArray(LContent, 'parts');
     if LParts = nil then
       Exit;
     for LItem in LParts do
@@ -440,7 +440,12 @@ begin
       LDeclaration.AddPair('name', LAction.GetValue<string>('name', ''));
       LDeclaration.AddPair('description', LAction.GetValue<string>('description', ''));
       LSchema := LAction.GetValue('input_schema');
-      if LSchema <> nil then
+      // An action with no parameters is declared without "parameters": this
+      // API has refused an OBJECT schema whose properties are empty, and
+      // leaving the member out says the same thing in a form it always took.
+      if (LSchema is TJSONObject) and
+         (HelpChatJsonObject(TJSONObject(LSchema), 'properties') <> nil) and
+         (HelpChatJsonObject(TJSONObject(LSchema), 'properties').Count > 0) then
         LDeclaration.AddPair('parameters', LSchema.Clone as TJSONValue);
       LDeclarations.AddElement(LDeclaration);
     end;
@@ -730,7 +735,7 @@ begin
           LHolder := TJSONArray(LHolder).Items[0];
         if LHolder is TJSONObject then
         begin
-          LErr := TJSONObject(LHolder).GetValue('error') as TJSONObject;
+          LErr := HelpChatJsonObject(TJSONObject(LHolder), 'error');
           if LErr <> nil then
             Result := LErr.GetValue<string>('message', '');
         end;
@@ -768,6 +773,9 @@ begin
       LClient.ConnectionTimeout := Settings.Gemini.ConnectTimeoutMs;
       LClient.ResponseTimeout := Settings.Gemini.ResponseTimeoutMs;
       LClient.OnReceiveData := LWatcher.OnReceiveData;
+      // No redirect is followed: the client would repeat the headers - the
+      // key among them - at whatever address the answer names.
+      LClient.HandleRedirects := False;
 
       LHeaders := [
         TNetHeader.Create(HELPCHAT_GEMINI_KEY_HEADER, Settings.Gemini.ResolveApiKey),
@@ -792,7 +800,8 @@ begin
         TThread.GetTickCount - LStart, Result.Raw);
       CheckCancelled(ACancel);
 
-      if LResponse.StatusCode >= 400 then
+      // A redirect is an error too: it was not followed.
+      if LResponse.StatusCode >= 300 then
         raise EHelpChatError.Create(ExtractApiError(Result.Raw, LResponse.StatusCode,
           LResponse.StatusText, Settings));
       if Result.Error <> '' then
@@ -888,7 +897,11 @@ begin
         // A function call part is the whole signal here: this API does not
         // flag the turn the way the other two do.
         if (Length(LCalls) = 0) or (LTools = '') then
+        begin
+          if SameText(LStream.FinishReason, 'MAX_TOKENS') then
+            NoteReplyCut(LText, AOnToken);
           Break;
+        end;
         // The last round ends here as well, with the actions it asked for
         // not run, and the reply says so.
         if LRound = LMaxRounds then

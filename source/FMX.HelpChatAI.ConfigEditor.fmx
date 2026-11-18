@@ -1446,6 +1446,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
           TabOrder = 3
           ItemHeight = 19
           ItemIndex = -1
+          OnChange = ModelProviderComboChange
         end
         object ModelModelLabel: TLabel
           Position.X = 8
@@ -1476,49 +1477,72 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
         end
         object ModelUrlEdit: TEdit
           Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Anchors = [akLeft, akTop, akRight]
           TabOrder = 7
           Position.X = 456
           Position.Y = 8
-          Size.Width = 260
-          Size.Height = 24
-          Size.PlatformDefault = False
-        end
-        object ModelIconLabel: TLabel
-          Position.X = 330
-          Position.Y = 40
-          Size.Width = 120
-          Size.Height = 20
-          Size.PlatformDefault = False
-          Text = 'Icon'
-          TabOrder = 8
-        end
-        object ModelIconEdit: TEdit
-          Touch.InteractiveGestures = [LongTap, DoubleTap]
-          TabOrder = 9
-          Position.X = 456
-          Position.Y = 38
-          Size.Width = 260
+          Size.Width = 456
           Size.Height = 24
           Size.PlatformDefault = False
         end
         object ModelKeyLabel: TLabel
           Position.X = 330
+          Position.Y = 40
+          Size.Width = 124
+          Size.Height = 20
+          Size.PlatformDefault = False
+          Text = 'Own key (optional)'
+          TabOrder = 8
+        end
+        object ModelKeyEdit: TEdit
+          Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Anchors = [akLeft, akTop, akRight]
+          TabOrder = 9
+          Password = True
+          Position.X = 456
+          Position.Y = 38
+          Size.Width = 456
+          Size.Height = 24
+          Size.PlatformDefault = False
+          Hint =
+            'The key of this model only: for a service of its own. Empty = th' +
+            'e key of the provider below'
+          ShowHint = True
+        end
+        object ProviderKeyLabel: TLabel
+          Position.X = 330
           Position.Y = 70
           Size.Width = 124
           Size.Height = 20
           Size.PlatformDefault = False
-          Text = 'Key (clear, optional)'
+          Text = 'Provider key'
           TabOrder = 10
         end
-        object ModelKeyEdit: TEdit
+        object ProviderKeyEdit: TEdit
           Touch.InteractiveGestures = [LongTap, DoubleTap]
+          Anchors = [akLeft, akTop, akRight]
           TabOrder = 11
           Password = True
           Position.X = 456
           Position.Y = 68
-          Size.Width = 260
+          Size.Width = 376
           Size.Height = 24
           Size.PlatformDefault = False
+          Hint =
+            'The API key of the provider (the same as on the Settings page), ' +
+            'for every model on it with no key of its own'
+          ShowHint = True
+        end
+        object ProviderKeySetButton: TButton
+          Anchors = [akTop, akRight]
+          Position.X = 838
+          Position.Y = 67
+          Size.Width = 74
+          Size.Height = 26
+          Size.PlatformDefault = False
+          TabOrder = 12
+          Text = 'Set'
+          OnClick = ProviderKeySetButtonClick
         end
         object ModelAddButton: TButton
           Position.X = 80
@@ -1526,7 +1550,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
           Size.Width = 110
           Size.Height = 26
           Size.PlatformDefault = False
-          TabOrder = 12
+          TabOrder = 13
           Text = 'Add'
           OnClick = ModelAddButtonClick
         end
@@ -1536,7 +1560,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
           Size.Width = 120
           Size.Height = 26
           Size.PlatformDefault = False
-          TabOrder = 13
+          TabOrder = 14
           Text = 'Update selected'
           OnClick = ModelUpdateButtonClick
         end
@@ -1546,7 +1570,7 @@ object FmxHelpChatConfigEditor: TFmxHelpChatConfigEditor
           Size.Width = 120
           Size.Height = 26
           Size.PlatformDefault = False
-          TabOrder = 14
+          TabOrder = 15
           Text = 'Delete selected'
           OnClick = ModelDeleteButtonClick
         end

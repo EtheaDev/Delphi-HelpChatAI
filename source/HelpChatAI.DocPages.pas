@@ -245,6 +245,7 @@ var
   LPath, LSegment: string;
   LSegments: TArray<string>;
   LCount, P: Integer;
+  LChar: Char;
 begin
   LPath := Trim(APath);
   P := LPath.IndexOfAny(['?', '#']);
@@ -254,6 +255,12 @@ begin
   // A scheme or a drive ("http:", "C:") is never a page of the folder.
   if (LPath = '') or LPath.Contains(':') or LPath.StartsWith('//') then
     Exit('');
+  // Nor is a name with a control character: the file system stops reading a
+  // name at a #0, so "notes.txt"#0".md" passed the ".md only" rule and
+  // opened notes.txt.
+  for LChar in LPath do
+    if LChar < ' ' then
+      Exit('');
   SetLength(LSegments, 0);
   LCount := 0;
   for LSegment in LPath.Split(['/']) do

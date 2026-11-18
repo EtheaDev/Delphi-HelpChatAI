@@ -85,6 +85,7 @@
         <DCCReference Include="..\source\HelpChatAI.Tests.Runner.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.SearchTerms.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Log.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.Regressions.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Claude.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.OpenAI.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Gemini.pas"/>

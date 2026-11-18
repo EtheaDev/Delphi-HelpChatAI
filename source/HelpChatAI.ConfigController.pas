@@ -180,6 +180,10 @@ type
     Provider: string;
     Model: string;
     BaseUrl: string;
+    /// <summary>The icon the file names, read only: the editors do not show
+    /// it (empty = deduced from model, endpoint and provider, which is what
+    /// a catalogue almost always wants), and <c>SetModels</c> leaves the one
+    /// of an entry already in the file as it is.</summary>
     Icon: string;
     /// <summary>The clear key of this model, when it has one of its own.</summary>
     ApiKey: string;
@@ -378,6 +382,24 @@ type
     /// <summary>The names of the models the profile offers; nil when it names
     /// none (the catalogue of the root applies).</summary>
     function ProfileModelNames: TArray<string>;
+    /// <summary>True when the assistant has no model to answer with: no
+    /// model in any of the files nor in the component, and no provider
+    /// but <c>stub</c>. The views then open on the Models page, the first
+    /// thing to fill in. Asked of the whole configuration, not of the file
+    /// being edited: an application file that sets a language, with the
+    /// models in the shared one or in the form file, lacks nothing. False
+    /// when the configuration does not load (the status line says why).</summary>
+    function NeedsModel: Boolean;
+    /// <summary>The path of the key of the section of AProvider
+    /// (<c>Claude.ApiKey</c> for <c>claude</c>), what the Models page lets
+    /// the user write without looking for it among the settings; '' for a
+    /// provider with no key (<c>docsearch</c>) or that the editor does not
+    /// know.</summary>
+    class function ProviderKeyPath(const AProvider: string): string; static;
+    /// <summary>The providers a model of the catalogue may name. Not
+    /// <c>stub</c>: it answers the same sentence to every question, the
+    /// default of a component just dropped, never a model to offer.</summary>
+    class function ModelProviders: TArray<string>; static;
     /// <summary>Writes the models the profile offers as a list of names of the
     /// catalogue; an empty list removes the key, and the catalogue of the root
     /// applies again. A model the profile defined inline (an object, not a
@@ -513,7 +535,7 @@ const
     (Path: 'IdentityRule'; Caption: 'Opening sentence'; Kind: cvkMemo;
       Pages: [ccpPrompt]; Hint: '%0:s the name of the assistant; empty = the librarys'),
     (Path: 'NowRule'; Caption: 'Date and time'; Kind: cvkMemo;
-      Pages: [ccpPrompt]; Hint: '%s now; it goes with the question (claude), not in the system prompt; empty = the librarys'),
+      Pages: [ccpPrompt]; Hint: '%s now; it goes with the question (claude, openai, gemini), not in the system prompt; empty = the librarys'),
     (Path: 'LanguageRule'; Caption: 'Language of the reply'; Kind: cvkMemo;
       Pages: [ccpPrompt]; Hint: '%0:s the language of the chat; empty = the librarys'),
     (Path: 'DocLanguageRule'; Caption: 'Manual in another language'; Kind: cvkMemo;
@@ -1030,6 +1052,7 @@ var
   LPass: TPass;
   LDocs: TArray<TJSONObject>;
   LValue: TJSONValue;
+  LText: string;
   I: Integer;
 
   function Matches(const ADoc: TJSONObject): Boolean;
@@ -1071,9 +1094,9 @@ begin
     begin
       LValue := nil;
       try
-        if TFile.Exists(AFiles[I].FileName) then
-          LValue := TJSONObject.ParseJSONValue(TFile.ReadAllText(AFiles[I].FileName,
-            TEncoding.UTF8));
+        LText := THelpChatSettings.ReadConfigText(AFiles[I].FileName);
+        if LText <> '' then
+          LValue := TJSONObject.ParseJSONValue(LText);
       except
         LValue := nil; // unreadable: Reload says so when it is opened
       end;
@@ -1098,15 +1121,30 @@ end;
 procedure THelpChatConfigController.Reload;
 var
   LValue: TJSONValue;
+  LText: string;
 begin
   FreeAndNil(FDoc);
   FLastError := '';
   FLoadError := '';
-  if (Length(FFiles) > 0) and TFile.Exists(FFiles[FTargetIndex].FileName) then
+  // A missing or empty file is a configuration not written yet: an empty
+  // document, which Save creates. Only a file with something in it that is
+  // not JSON is protected from being saved over.
+  LText := '';
+  if Length(FFiles) > 0 then
+    try
+      LText := THelpChatSettings.ReadConfigText(FFiles[FTargetIndex].FileName);
+    except
+      on E: Exception do
+      begin
+        FLoadError := 'The file cannot be read (nothing will be saved over it): ' +
+          FFiles[FTargetIndex].FileName + ' - ' + E.Message;
+        FLastError := FLoadError;
+      end;
+    end;
+  if LText <> '' then
   begin
     try
-      LValue := TJSONObject.ParseJSONValue(
-        TFile.ReadAllText(FFiles[FTargetIndex].FileName, TEncoding.UTF8));
+      LValue := TJSONObject.ParseJSONValue(LText);
     except
       LValue := nil;
     end;
@@ -1286,12 +1324,20 @@ function THelpChatConfigController.TextToValue(const APath, AText: string): TJSO
 var
   LArray: TJSONArray;
   LItem: string;
+  LNumber: Integer;
 begin
   case KindOf(APath) of
     cvkBoolean:
       Result := TJSONBool.Create(SameText(Trim(AText), 'true') or (Trim(AText) = '1'));
     cvkNumber:
-      Result := TJSONNumber.Create(StrToIntDef(Trim(AText), 0));
+      begin
+        // Never a 0 for what is not a number: an emptied box wrote
+        // "MaxTokens": 0 into the file.
+        if not TryStrToInt(Trim(AText), LNumber) then
+          raise EHelpChatConfigError.CreateFmt('%s: "%s" is not a whole number',
+            [APath, Trim(AText)]);
+        Result := TJSONNumber.Create(LNumber);
+      end;
     cvkList, cvkLanguages, cvkSet:
       begin
         LArray := TJSONArray.Create;
@@ -1328,7 +1374,11 @@ var
   LValue: TJSONValue;
   I: Integer;
   LFound: Boolean;
+  LNew: TJSONValue;
 begin
+  // First, because it raises for a text the setting cannot be: before a
+  // section is created for it.
+  LNew := TextToValue(APath, AText);
   LObject := ScopeObject(AScope, True);
   LParts := APath.Split(['.']);
   // Down to the section, creating it when missing.
@@ -1349,12 +1399,12 @@ begin
   for LPair in LObject do
     if SameText(LPair.JsonString.Value, LParts[High(LParts)]) then
     begin
-      LPair.JsonValue := TextToValue(APath, AText);
+      LPair.JsonValue := LNew;
       LFound := True;
       Break;
     end;
   if not LFound then
-    LObject.AddPair(LParts[High(LParts)], TextToValue(APath, AText));
+    LObject.AddPair(LParts[High(LParts)], LNew);
   FModified := True;
 end;
 
@@ -2099,8 +2149,8 @@ begin
         Put('BaseUrl', LModel.BaseUrl);
       if ValueToText(FindValue(LObject, 'ApiKey')) <> LModel.ApiKey then
         Put('ApiKey', LModel.ApiKey);
-      if ValueToText(FindValue(LObject, 'Icon')) <> LModel.Icon then
-        Put('Icon', LModel.Icon);
+      // Icon is not touched: the editors do not show it, and one written by
+      // hand in the file stays.
     end;
     LArray.AddElement(LObject);
   end;
@@ -2131,6 +2181,45 @@ begin
         Result := Result + [LItem.Value]
       else if LItem is TJSONObject then
         Result := Result + [ValueToText(FindValue(TJSONObject(LItem), 'Name'))];
+end;
+
+function THelpChatConfigController.NeedsModel: Boolean;
+var
+  LSettings: THelpChatSettings;
+  LProvider: string;
+begin
+  Result := False;
+  try
+    LSettings := LayeredSettings;
+    try
+      LProvider := Trim(LSettings.ConfiguredProvider);
+      Result := (LSettings.Models.Count = 0) and
+        ((LProvider = '') or SameText(LProvider, HELPCHAT_DEF_PROVIDER));
+    finally
+      LSettings.Free;
+    end;
+  except
+    // A file that does not load is another problem, with its own message.
+  end;
+end;
+
+class function THelpChatConfigController.ProviderKeyPath(const AProvider: string): string;
+var
+  LItem: TCatalogueItem;
+begin
+  Result := '';
+  if Trim(AProvider) = '' then
+    Exit;
+  // The section is named after its provider: whatever the catalogue lists
+  // as <Provider>.ApiKey, a new section included.
+  for LItem in CATALOGUE_ITEMS do
+    if SameText(LItem.Path, Trim(AProvider) + '.ApiKey') then
+      Exit(LItem.Path);
+end;
+
+class function THelpChatConfigController.ModelProviders: TArray<string>;
+begin
+  Result := ['claude', 'openai', 'gemini', 'docsearch'];
 end;
 
 function THelpChatConfigController.ProfileModelChoices: TArray<string>;

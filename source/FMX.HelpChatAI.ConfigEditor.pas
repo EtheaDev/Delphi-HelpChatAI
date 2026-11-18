@@ -184,10 +184,11 @@ type
     ModelModelEdit: TEdit;
     ModelUrlLabel: TLabel;
     ModelUrlEdit: TEdit;
-    ModelIconLabel: TLabel;
-    ModelIconEdit: TEdit;
     ModelKeyLabel: TLabel;
     ModelKeyEdit: TEdit;
+    ProviderKeyLabel: TLabel;
+    ProviderKeyEdit: TEdit;
+    ProviderKeySetButton: TButton;
     ModelAddButton: TButton;
     ModelUpdateButton: TButton;
     ModelDeleteButton: TButton;
@@ -221,6 +222,8 @@ type
     procedure RemoveComponentButtonClick(Sender: TObject);
     procedure ModelsGridSelChanged(Sender: TObject);
     procedure ModelAddButtonClick(Sender: TObject);
+    procedure ModelProviderComboChange(Sender: TObject);
+    procedure ProviderKeySetButtonClick(Sender: TObject);
     procedure ModelUpdateButtonClick(Sender: TObject);
     procedure ModelDeleteButtonClick(Sender: TObject);
     procedure ProfileModelsButtonClick(Sender: TObject);
@@ -286,6 +289,17 @@ type
     /// <summary>Fills the grid of the catalogue and the list of what the
     /// profile offers. A key shows as "set", never as its value.</summary>
     procedure RefreshModels;
+    /// <summary>The row of the key of the provider chosen in the Models
+    /// page: its caption, and whether this file has one.</summary>
+    procedure RefreshProviderKey;
+    /// <summary>Writes a key typed in the row of the provider's key and not
+    /// confirmed with Set, and empties the box: Add, Save, closing and a
+    /// change of file take it as Set does - it used to be dropped without a
+    /// word. True when there was one.</summary>
+    function CommitProviderKey: Boolean;
+    /// <summary>The Models page, when the configuration has no model at all
+    /// (<c>NeedsModel</c>): it is the first thing a new one needs.</summary>
+    procedure ShowModelsWhenNone;
     /// <summary>Shows the selected setting in the edit area: the value the
     /// file has where the user would write it - the profile first, then the
     /// root - in the memo, or in the password box for a secret, and which
@@ -356,7 +370,9 @@ uses
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
   Winapi.ShellAPI,
+  System.Win.Registry,
   {$ENDIF}
+  ToolsAPI,
   FMX.DialogService.Sync,
   FMX.Text,
   FMX.ImgList,
@@ -366,11 +382,97 @@ uses
   FMX.HelpChatAI.DesignPreview;
 
 var
-  // Where the editor was when it was closed, for as long as the IDE runs:
-  // the bounds of the normal window, whether it was maximized, and the page.
+  // Where the editor was when it was closed: the bounds of the normal
+  // window, whether it was maximized, and the page. Kept here while the IDE
+  // runs, and in the registry of the IDE (LoadPlacement, StorePlacement), so
+  // that a restart or a package loaded again does not forget it.
   GSavedBounds: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
   GSavedWindowState: TWindowState = TWindowState.wsNormal;
   GSavedTabIndex: Integer = -1;
+
+const
+  // Under the key of the Delphi that runs: each version keeps its own.
+  PLACEMENT_KEY = '\HelpChatAI\ConfigEditorFmx';
+
+var
+  GPlacementLoaded: Boolean = False;
+
+function PlacementKey: string;
+var
+  LServices: IOTAServices;
+begin
+  Result := '';
+  if Supports(BorlandIDEServices, IOTAServices, LServices) then
+    Result := LServices.GetBaseRegistryKey + PLACEMENT_KEY;
+end;
+
+procedure LoadPlacement;
+var
+  LReg: TRegistry;
+  LKey: string;
+begin
+  // Once per IDE session, the first time the editor opens: from then on the
+  // variables are what counts. Never an error: an editor that does not open
+  // because of where it was last time would be worse than one that forgot.
+  if GPlacementLoaded then
+    Exit;
+  GPlacementLoaded := True;
+  LKey := PlacementKey;
+  if LKey = '' then
+    Exit;
+  try
+    LReg := TRegistry.Create(KEY_READ);
+    try
+      LReg.RootKey := HKEY_CURRENT_USER;
+      if not LReg.OpenKeyReadOnly(LKey) then
+        Exit;
+      if LReg.ValueExists('Width') and LReg.ValueExists('Height') and
+         LReg.ValueExists('Left') and LReg.ValueExists('Top') and
+         (LReg.ReadInteger('Width') > 0) and (LReg.ReadInteger('Height') > 0) then
+        GSavedBounds := TRect.Create(TPoint.Create(LReg.ReadInteger('Left'),
+          LReg.ReadInteger('Top')), LReg.ReadInteger('Width'), LReg.ReadInteger('Height'));
+      if LReg.ValueExists('Maximized') and LReg.ReadBool('Maximized') then
+        GSavedWindowState := TWindowState.wsMaximized;
+      if LReg.ValueExists('Page') then
+        GSavedTabIndex := LReg.ReadInteger('Page');
+    finally
+      LReg.Free;
+    end;
+  except
+    // Left as it was: the editor opens where its form file says.
+  end;
+end;
+
+procedure StorePlacement;
+var
+  LReg: TRegistry;
+  LKey: string;
+begin
+  LKey := PlacementKey;
+  if LKey = '' then
+    Exit;
+  try
+    LReg := TRegistry.Create(KEY_WRITE);
+    try
+      LReg.RootKey := HKEY_CURRENT_USER;
+      if not LReg.OpenKey(LKey, True) then
+        Exit;
+      if GSavedBounds.Width > 0 then
+      begin
+        LReg.WriteInteger('Left', GSavedBounds.Left);
+        LReg.WriteInteger('Top', GSavedBounds.Top);
+        LReg.WriteInteger('Width', GSavedBounds.Width);
+        LReg.WriteInteger('Height', GSavedBounds.Height);
+      end;
+      LReg.WriteBool('Maximized', GSavedWindowState = TWindowState.wsMaximized);
+      LReg.WriteInteger('Page', GSavedTabIndex);
+    finally
+      LReg.Free;
+    end;
+  except
+    // Remembered for this session only.
+  end;
+end;
 
 procedure SaveEditorPlacement(const AEditor: TFmxHelpChatConfigEditor);
 begin
@@ -382,15 +484,39 @@ begin
   else
     GSavedWindowState := TWindowState.wsNormal;
   GSavedTabIndex := AEditor.TabControl.TabIndex;
+  StorePlacement;
+end;
+
+/// <summary>True when the middle of the title bar of a window with these
+/// bounds - what it is dragged back with - is on a display that is there.</summary>
+function OnADisplay(const ABounds: TRect): Boolean;
+var
+  LGrip: TPointF;
+  I: Integer;
+begin
+  Result := False;
+  LGrip := TPointF.Create(ABounds.Left + ABounds.Width / 2, ABounds.Top + 12);
+  for I := 0 to Screen.DisplayCount - 1 do
+    if Screen.Displays[I].WorkArea.Contains(LGrip) then
+      Exit(True);
 end;
 
 procedure RestoreEditorPlacement(const AEditor: TFmxHelpChatConfigEditor);
 begin
+  LoadPlacement;
   if GSavedBounds.Width > 0 then
-  begin
-    AEditor.Position := TFormPosition.Designed;
-    AEditor.Bounds := GSavedBounds;
-  end;
+    if OnADisplay(GSavedBounds) then
+    begin
+      AEditor.Position := TFormPosition.Designed;
+      AEditor.Bounds := GSavedBounds;
+    end
+    else
+    begin
+      // The monitor it was on is gone, and the registry remembers across
+      // restarts: the size, in the middle of the screen as the form file says.
+      AEditor.Width := GSavedBounds.Width;
+      AEditor.Height := GSavedBounds.Height;
+    end;
   if GSavedWindowState = TWindowState.wsMaximized then
     AEditor.WindowState := TWindowState.wsMaximized;
 end;
@@ -417,16 +543,18 @@ begin
     LForm.TestButton.Enabled := Assigned(AOnTest);
     // The page it was left on, Appearance the first time; then the grid goes
     // where that page wants it.
+    // Through the handler of a change of tab, which leaves the grid alone on
+    // a tab that shows no settings (Models, Profiles): put there, it covered
+    // the controls of that tab.
+    LoadPlacement;
     if (GSavedTabIndex >= 0) and (GSavedTabIndex < LForm.TabControl.TabCount) then
       LForm.TabControl.TabIndex := GSavedTabIndex
     else
       LForm.TabControl.ActiveTab := LForm.AppearanceTab;
-    if LForm.TabControl.ActiveTab = LForm.AppearanceTab then
-      LForm.GridLayout.Parent := LForm.AppearanceLeftLayout
-    else
-      LForm.GridLayout.Parent := LForm.TabControl.ActiveTab;
+    LForm.TabControlChange(LForm.TabControl);
     RestoreEditorPlacement(LForm);
     LForm.RefreshAll;
+    LForm.ShowModelsWhenNone;
     LForm.RefreshIcons;
     LForm.ShowModal;
     SaveEditorPlacement(LForm);
@@ -454,6 +582,8 @@ begin
 end;
 
 procedure TFmxHelpChatConfigEditor.FormCreate(Sender: TObject);
+var
+  LProvider: string;
 begin
   ValueChecks.OnChange := ValueChecksChange;
   ValueChecks.ShowHint := True;
@@ -466,9 +596,11 @@ begin
     'This file, profile'], [170, 170, 230, 210, 140, 140]);
   SettingsGrid.DefaultDrawing := False;
   SettingsGrid.OnDrawColumnCell := SettingsGridDrawColumnCell;
-  AddColumns(ModelsGrid, ['Name', 'Provider', 'Model', 'Endpoint', 'Icon', 'Key'],
-    [140, 80, 140, 170, 60, 40]);
-  ModelProviderCombo.Items.CommaText := 'claude,openai,gemini,docsearch,stub';
+  AddColumns(ModelsGrid, ['Name', 'Provider', 'Model', 'Endpoint', 'Key'],
+    [140, 80, 140, 170, 40]);
+  ModelProviderCombo.Items.Clear;
+  for LProvider in THelpChatConfigController.ModelProviders do
+    ModelProviderCombo.Items.Add(LProvider);
 end;
 
 procedure TFmxHelpChatConfigEditor.FormDestroy(Sender: TObject);
@@ -486,6 +618,7 @@ end;
 function TFmxHelpChatConfigEditor.SaveFirst: Boolean;
 begin
   Result := True;
+  CommitProviderKey;
   if not FController.Modified then
     Exit;
   case Ask('Save the changes to ' + FController.Files[FController.TargetIndex].FileName + '?',
@@ -830,16 +963,20 @@ begin
   // Setting the target reloads: changes the user chose not to save are gone.
   FController.TargetIndex := FileCombo.ItemIndex;
   RefreshFile;
+  ShowModelsWhenNone;
 end;
 
 procedure TFmxHelpChatConfigEditor.ReloadButtonClick(Sender: TObject);
 begin
+  // Reload drops what was not saved, a key typed and not set included.
+  ProviderKeyEdit.Text := '';
   FController.Reload;
   RefreshFile;
 end;
 
 procedure TFmxHelpChatConfigEditor.SaveButtonClick(Sender: TObject);
 begin
+  CommitProviderKey;
   if FController.Save then
     RefreshFile
   else
@@ -984,11 +1121,10 @@ begin
       ModelsGrid.Cells[1, I] := FModels[I].Provider;
       ModelsGrid.Cells[2, I] := FModels[I].Model;
       ModelsGrid.Cells[3, I] := FModels[I].BaseUrl;
-      ModelsGrid.Cells[4, I] := FModels[I].Icon;
       if FModels[I].ApiKey <> '' then
-        ModelsGrid.Cells[5, I] := 'set'
+        ModelsGrid.Cells[4, I] := 'set'
       else
-        ModelsGrid.Cells[5, I] := '';
+        ModelsGrid.Cells[4, I] := '';
     end;
   finally
     ModelsGrid.EndUpdate;
@@ -1012,6 +1148,75 @@ begin
       ' (none checked = all)'
   else
     ProfileModelsLabel.Text := 'Choose a profile to say which models it offers';
+  RefreshProviderKey;
+end;
+
+procedure TFmxHelpChatConfigEditor.ShowModelsWhenNone;
+begin
+  if FController.NeedsModel then
+    TabControl.ActiveTab := ModelsTab;
+end;
+
+function TFmxHelpChatConfigEditor.CommitProviderKey: Boolean;
+var
+  LPath: string;
+begin
+  // For the provider the boxes show now: a key pasted before the right
+  // provider was picked goes where the user ended up, not where it started.
+  LPath := THelpChatConfigController.ProviderKeyPath(Trim(ModelProviderCombo.Text));
+  Result := (LPath <> '') and (Trim(ProviderKeyEdit.Text) <> '');
+  if not Result then
+    Exit;
+  // At the root, where the Settings page writes it: taking it away is
+  // done there.
+  FController.SetValue(LPath, ccsRoot, Trim(ProviderKeyEdit.Text));
+  ProviderKeyEdit.Text := '';
+end;
+
+procedure TFmxHelpChatConfigEditor.RefreshProviderKey;
+var
+  LProvider, LPath, LText: string;
+begin
+  LProvider := Trim(ModelProviderCombo.Text);
+  LPath := THelpChatConfigController.ProviderKeyPath(LProvider);
+  // What is being typed stays, and follows the provider: every refresh of
+  // the page used to empty the box, so Add lost the key typed before it.
+  ProviderKeyEdit.Enabled := LPath <> '';
+  ProviderKeySetButton.Enabled := LPath <> '';
+  if LPath = '' then
+  begin
+    ProviderKeyEdit.Text := '';
+    ProviderKeyLabel.Text := 'Provider key';
+    if LProvider = '' then
+      ProviderKeyEdit.TextPrompt := 'Choose a provider'
+    else
+      ProviderKeyEdit.TextPrompt := 'No key for ' + LProvider;
+    Exit;
+  end;
+  // The key of the section, as the Settings page has it: every model on
+  // this provider with no key of its own uses it.
+  ProviderKeyLabel.Text := LPath.Split(['.'])[0] + ' API key';
+  if FController.GetValue(LPath, ccsRoot, LText) and (LText <> '') then
+    // Short enough to be read whole in the box: the last four characters
+    // only, never the length (MaskSecret is for the list).
+    ProviderKeyEdit.TextPrompt := 'Set in this file (****' + Copy(LText, Length(LText) - 3, 4) +
+      '): type a new one to replace it'
+  else
+    ProviderKeyEdit.TextPrompt := 'Not in this file: type it, then Set';
+end;
+
+procedure TFmxHelpChatConfigEditor.ModelProviderComboChange(Sender: TObject);
+begin
+  RefreshProviderKey;
+end;
+
+procedure TFmxHelpChatConfigEditor.ProviderKeySetButtonClick(Sender: TObject);
+begin
+  if CommitProviderKey then
+  begin
+    RefreshEntries;
+    RefreshProviderKey;
+  end;
 end;
 
 procedure TFmxHelpChatConfigEditor.ModelsGridSelChanged(Sender: TObject);
@@ -1025,8 +1230,8 @@ begin
   ModelProviderCombo.Text := LModel.Provider;
   ModelModelEdit.Text := LModel.Model;
   ModelUrlEdit.Text := LModel.BaseUrl;
-  ModelIconEdit.Text := LModel.Icon;
   ModelKeyEdit.Text := LModel.ApiKey;
+  RefreshProviderKey;
 end;
 
 function TFmxHelpChatConfigEditor.ModelFromEdits: THelpChatConfigModel;
@@ -1036,7 +1241,6 @@ begin
   Result.Provider := Trim(ModelProviderCombo.Text);
   Result.Model := Trim(ModelModelEdit.Text);
   Result.BaseUrl := Trim(ModelUrlEdit.Text);
-  Result.Icon := Trim(ModelIconEdit.Text);
   Result.ApiKey := Trim(ModelKeyEdit.Text);
 end;
 
@@ -1044,6 +1248,7 @@ procedure TFmxHelpChatConfigEditor.ModelAddButtonClick(Sender: TObject);
 begin
   if Trim(ModelNameEdit.Text) = '' then
     Exit;
+  CommitProviderKey;
   FController.SetModels(FModels + [ModelFromEdits]);
   RefreshModels;
   RefreshEntries;
@@ -1059,6 +1264,7 @@ begin
   LModels[ModelsGrid.Selected] := ModelFromEdits;
   // Found again by the name it was read with: a rename keeps the encrypted key.
   LModels[ModelsGrid.Selected].Original := FModels[ModelsGrid.Selected].Original;
+  CommitProviderKey;
   FController.SetModels(LModels);
   RefreshModels;
   RefreshEntries;

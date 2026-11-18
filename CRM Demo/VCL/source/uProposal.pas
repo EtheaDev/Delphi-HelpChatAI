@@ -1,4 +1,4 @@
-unit uProposal;
+﻿unit uProposal;
 
 interface
 

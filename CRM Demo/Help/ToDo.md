@@ -7,7 +7,7 @@ the source, not from guessing.
 
 | Where | What |
 | - | - |
-| [The assistant](Assistant.md) | Four actions only: open a screen, add an account, create a lead, prepare a proposal. It cannot move a lead between columns, change an account, save a proposal or delete anything |
+| [The assistant](Assistant.md) | Four actions of its own - open a screen, add an account, create a lead, prepare a proposal - plus what it can do on the window in front: fill fields, press a button, find a record, change page. It never saves, and it cannot move a lead between columns or delete anything |
 | [Lead detail](Lead-Detail.md) | The **Call** and **Email** buttons next to the phone number and the address have no action behind them |
 | [Calendar](Calendar.md) | The month view is not bound to anything: no lead date is marked on it, selecting a day filters nothing, appointments cannot be added |
 | [Sales](Sales.md) | Every proposal is called `New Proposal` — the draft window never asks for a name — which makes the search box on this page nearly useless |

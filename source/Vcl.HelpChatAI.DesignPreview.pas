@@ -662,6 +662,13 @@ begin
     // changes. A property copied by hand here was a property forgotten the
     // day it was added (the icon was).
     LClone.Assign(AChat);
+    // The files the component names are read next to the executable, which
+    // here is bds.exe: the copy gets them as the application would find
+    // them, in the folder of the project.
+    LClone.PanelStyleSheet := HelpChatFileInFolder(LClone.PanelStyleSheet, LBaseFolder);
+    LClone.PdfStyleSheet := HelpChatFileInFolder(LClone.PdfStyleSheet, LBaseFolder);
+    LClone.PdfHeaderFile := HelpChatFileInFolder(LClone.PdfHeaderFile, LBaseFolder);
+    LClone.PdfFooterFile := HelpChatFileInFolder(LClone.PdfFooterFile, LBaseFolder);
     // The settings the application would read in the folder of the project,
     // assigned, not shared: the copy keeps settings of its own. Assign has
     // already put the Profile on the copy, which these settings then take.

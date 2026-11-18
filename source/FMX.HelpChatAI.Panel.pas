@@ -61,8 +61,7 @@ type
   ///  not moved between forms, which is why <c>TFmxHelpChatAI</c> creates a
   ///  new panel for a new container instead of reparenting this one. Unlike
   ///  the VCL twin it has no web-message bridge (nothing like
-  ///  <c>OnCloseRequested</c>), does not follow a style and has no
-  ///  <c>FocusInput</c>: the owner asks the page (<c>window.hcFocus</c>).
+  ///  <c>OnCloseRequested</c>) and does not follow a style.
   /// </summary>
   TFmxHelpChatAIPanel = class(TLayout)
   strict private
@@ -118,6 +117,11 @@ type
     /// reload of the page but not the panel. No result comes back: FMX gives
     /// none, which is why the page answers its host through the server.</summary>
     procedure RunScript(const AScript: string);
+    /// <summary>Puts the caret in the question box: the native focus to the
+    /// browser first, then <c>window.hcFocus</c> in the page. Focusing inside
+    /// the page is not enough when the panel opens: without the native focus
+    /// the keys keep going to the form the user came from.</summary>
+    procedure FocusInput;
     /// <summary>Opens a URL in the default browser of the platform. Only
     /// http, https and mailto: anything else is dropped without a word. The
     /// macOS, iOS and Android branches compile but were never run.</summary>
@@ -254,6 +258,18 @@ begin
   FUrl := AUrl;
   FPageReady := False;
   FBrowser.Navigate(FUrl);
+end;
+
+procedure TFmxHelpChatAIPanel.FocusInput;
+begin
+  if Assigned(FBrowser) and FBrowser.CanFocus and FBrowser.ParentedVisible then
+    try
+      FBrowser.SetFocus;
+    except
+      // A browser that cannot take the focus yet (its form is not shown):
+      // the page still gets its own.
+    end;
+  RunScript('window.hcFocus && window.hcFocus();');
 end;
 
 procedure TFmxHelpChatAIPanel.RunScript(const AScript: string);

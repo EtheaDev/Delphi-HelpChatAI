@@ -243,16 +243,49 @@
     delete polling[id];
     pollingCount--;
     if (pollingCount <= 0) { pollingCount = 0; setBusy(false); focusInput(); }
-    if (timing.start && !timing.done) timing.done = Date.now();
+    if (timing.start && !timing.done) { timing.done = Date.now(); touchState(); }
+  }
+  // The server refuses the session of this page (a remote one expired it, or
+  // was restarted): the host is asked, once, to load the page again with a
+  // new session. Only a host channel can hear it; with none the page says so.
+  var reloadAsked = false;
+  function sessionLost() {
+    if (reloadAsked) return;
+    reloadAsked = true;
+    uiCommand('reload');
+  }
+  // A reply that will not arrive stops looking like one that is coming: the
+  // dots would stay for ever.
+  function failPending(id) {
+    var el = findMsg(id);
+    if (!el || !el.hasAttribute('data-pending')) return;
+    el.removeAttribute('data-pending');
+    el.setAttribute('data-error', '1');
+    el.classList.add('hc-chat-msg-error');
+    var bubble = el.querySelector('.hc-chat-bubble');
+    if (bubble && bubble.querySelector('.hc-chat-typing')) bubble.textContent = HC.labels.sendError;
+    else showSystem(HC.labels.sendError);
   }
   function poll(id) {
     if (polling[id] === undefined) return;
-    if (++polling[id] > (HC.maxPolls || 900)) { stopPoll(id); return; }
+    if (++polling[id] > (HC.maxPolls || 900)) {
+      // Waited long enough: the reply is cancelled, not left running unseen.
+      var cancelHeaders = {}; cancelHeaders[TOKEN_HEADER] = HC.token;
+      fetch(api('/api/cancel/' + encodeURIComponent(id)),
+        { method: 'POST', headers: cancelHeaders }).catch(function () {});
+      failPending(id);
+      stopPoll(id);
+      return;
+    }
     var headers = {}; headers[TOKEN_HEADER] = HC.token;
     fetch(api('/api/poll/' + encodeURIComponent(id)), { headers: headers, cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (r) {
+        if (r.status === 403) sessionLost();
+        return r.ok ? r.text() : null;
+      })
       .then(function (html) {
         var el = findMsg(id);
+        if (html === null) { failPending(id); stopPoll(id); return; }
         if (!el || !html) { stopPoll(id); return; }
         el.outerHTML = html;               // the old node is gone: re-read it
         decorateAnswers();
@@ -323,11 +356,25 @@
     if (e.detail.elt !== form) return;
     var text = (e.detail.parameters.message || '').trim();
     if (!text) { e.preventDefault(); return; }
+    // A file is still going up: the question waits for it, in its box, and
+    // leaves by itself when the upload is over - sent now, it would be
+    // answered without the document.
+    if (text.charAt(0) !== '/' && uploading()) {
+      e.preventDefault();
+      sendHeld = true;
+      return;
+    }
     // A slash command is not a question: it never reaches the model.
     if (text.charAt(0) === '/') {
       e.preventDefault();
-      input.value = '';
-      autosize();
+      // A word that is no command - a path, a typo - is said to be unknown
+      // and stays in its box: emptied, a question that began with a path
+      // was lost.
+      var word = /^\/(\S+)/.exec(text);
+      if (!commands.length || (word && commandByName(word[1].toLowerCase()))) {
+        input.value = '';
+        autosize();
+      }
       runCommand(text);
       return;
     }
@@ -342,6 +389,7 @@
     questionPos = -1;
     questionDraft = '';
     autosize();
+    touchState();
   });
   document.body.addEventListener('htmx:afterSwap', function (e) {
     if (e.detail.target !== body) return;
@@ -358,7 +406,10 @@
     if (!fromForm(e)) seedQuestions();
     focusInput();          // every command ends with the caret back in the box
   });
-  document.body.addEventListener('htmx:responseError', function () { showSystem(HC.labels.sendError); });
+  document.body.addEventListener('htmx:responseError', function (e) {
+    if (e.detail.xhr && e.detail.xhr.status === 403) sessionLost();
+    showSystem(HC.labels.sendError);
+  });
   document.body.addEventListener('htmx:sendError', function () { showSystem(HC.labels.sendError); });
 
   // ---- documentation view ------------------------------------------------------
@@ -383,6 +434,7 @@
     body.hidden = on;
     footer.hidden = on;
     if (!on) { docBody.innerHTML = ''; docPage = ''; docHistory = []; scrollBottom(); focusInput(); }
+    touchState();
   }
   function scrollToHash(hash) {
     var target = null;
@@ -404,7 +456,7 @@
         else if (mode === 'link' && docPage) docHistory.push(docPage);
         if (html === null) {
           docBody.innerHTML = '<p class="hc-chat-doc-missing">' +
-            escapeHtml(String(HC.labels.docNotFound || '%s').replace('%s', page)) + '</p>';
+            escapeHtml(fmt(HC.labels.docNotFound, page)) + '</p>';
           docTitle.textContent = page;
           docPage = '';
         } else {
@@ -518,11 +570,13 @@
     else voiceShow(String(text || ''));
     questionPos = -1;
   };
-  input.addEventListener('input', function () { questionPos = -1; autosize(); });
+  input.addEventListener('input', function () { questionPos = -1; autosize(); touchState(); });
   input.addEventListener('keydown', function (e) {
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') browseQuestions(e);
     else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-    else if (e.key === 'Escape') { e.preventDefault(); closePanel(); }
+    // Escape is the document's (below): handled here too, the panel was
+    // asked to close twice, and with the documentation view open it closed
+    // instead of going back to the chat.
   });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
@@ -590,11 +644,22 @@
   }
   // The bytes go up as the whole body: no multipart to build here and none to
   // decode on the other side. The name rides in the query string.
+  // The question that was sent while a file was going up (see configRequest).
+  var sendHeld = false;
+  function uploading() {
+    for (var i = 0; i < attachments.length; i++) if (attachments[i].busy) return true;
+    return false;
+  }
+  function uploadSettled() {
+    if (!sendHeld || uploading()) return;
+    sendHeld = false;
+    submit();
+  }
   function upload(file) {
     if (!HC.attach || !file) return;
     var maxKB = HC.attachMaxKB || 0;
     if (maxKB > 0 && file.size > maxKB * 1024) {
-      showSystem(String(HC.attachTooLarge || '%s').replace('%s', file.name));
+      showSystem(fmt(HC.attachTooLarge, file.name));
       return;
     }
     var local = 'up' + (++attachSeq);
@@ -607,16 +672,20 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         dropAttachment(local);
-        if (!data) { showSystem(HC.labels.attachFailed); renderAttachments(); return; }
+        // A file that did not make it: the question that was waiting for it
+        // stays in its box, for the user to decide.
+        if (!data) { sendHeld = false; showSystem(HC.labels.attachFailed); renderAttachments(); return; }
         // The server refused it (a type no model reads, a limit): its sentence
         // is already localized and says what to do about it.
-        if (data.error) { showSystem(data.error); renderAttachments(); return; }
+        if (data.error) { sendHeld = false; showSystem(data.error); renderAttachments(); return; }
         attachments.push({ id: data.id, name: data.name, ext: data.ext, sizeText: data.sizeText });
         renderAttachments();
         focusInput();
+        uploadSettled();
       })
       .catch(function () {
         dropAttachment(local);
+        sendHeld = false;
         renderAttachments();
         showSystem(HC.labels.attachFailed);
       });
@@ -873,7 +942,7 @@
   // "Available actions (/actions):" - what the answer is an answer to.
   function headingHtml(name, args) {
     var cmd = commandByName(name);
-    var title = cmd ? String(cmd.title || '').replace('%s', args || '') : '';
+    var title = cmd ? String(cmd.title || '').replace('%s', function () { return args || ''; }) : '';
     return '<p class="hc-chat-cmd-title"><b>' + escapeHtml(title + ' (/' + name + '):') + '</b></p>';
   }
   function showSystemHtml(html) {
@@ -881,15 +950,12 @@
     // An answer taller than the panel is read from its heading, not from its end.
     if (div.offsetHeight > body.clientHeight) div.scrollIntoView({ block: 'start' }); else scrollBottom();
   }
-  function loadCommands() {
-    var headers = {}; headers[TOKEN_HEADER] = HC.token;
-    fetch(api('/api/commands'), { headers: headers, cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { if (data && data.length !== undefined) commands = data; })
-      .catch(function () {});
-  }
   function fmtSecs(ms) { return (ms / 1000).toFixed(1) + ' s'; }
-  function fmt(template, value) { return String(template || '%s').replace('%s', value); }
+  // The value goes in as it is: given as a string, "$&" or "$'" in it - a
+  // file called a$&b.pdf - would be read as a pattern of the replacement.
+  function fmt(template, value) {
+    return String(template || '%s').replace('%s', function () { return String(value); });
+  }
   function findAgent(name) {
     var n = String(name || '').trim().toLowerCase(), i, a;
     if (!n) return null;
@@ -1031,7 +1097,7 @@
       })
       .catch(function () { showSystem(HC.labels.sendError); });
   }
-  window.hcRefreshCommands = loadCommands;
+  window.hcRefreshCommands = function () { loadCommandsNow(); };
   // The commands arrive with the first fetch: one the host asked for before
   // that waits for them instead of being called unknown.
   var commandsReady = null;
@@ -1114,6 +1180,7 @@
   window.hcAsk = function (text, send) {
     input.value = text || '';
     autosize();
+    touchState();
     if (send) submit(); else focusInput();
   };
   // A line of system text in the conversation (the host reports a failure).
@@ -1170,6 +1237,47 @@
     });
   };
   window.hcRefresh = function () { htmx.ajax('GET', api('/api/history'), { target: '#hc-body', swap: 'innerHTML' }); };
+
+  // ---- what a reload must not lose ---------------------------------------------
+  // The page is loaded again when the language changes, and when a VCL style
+  // change recreates the window of the chat: the conversation, the questions
+  // and the attachments come back from the server, and what only the page
+  // knew - the question being written, the documentation page that was open
+  // and the way back from it, the timing of the last answer - from here. It
+  // is kept under the secret of the session, so a page of another run of the
+  // application finds nothing of the one before.
+  var STATE_KEY = 'hc-state';
+  var stateTimer = 0;
+  function stateStore() { try { return window.localStorage; } catch (ex) { return null; } }
+  function saveState() {
+    var store = stateStore();
+    if (!store) return;
+    try {
+      store.setItem(STATE_KEY, JSON.stringify({ token: HC.token, draft: input.value,
+        doc: docPage, docHistory: docHistory, timing: timing }));
+    } catch (ex) { /* no room, or not allowed: nothing is remembered */ }
+  }
+  function touchState() {
+    if (stateTimer) clearTimeout(stateTimer);
+    stateTimer = setTimeout(function () { stateTimer = 0; saveState(); }, 300);
+  }
+  function restoreState() {
+    var store = stateStore(), state = null;
+    if (!store) return;
+    try { state = JSON.parse(store.getItem(STATE_KEY) || 'null'); } catch (ex) { state = null; }
+    if (!state || state.token !== HC.token) {
+      try { store.removeItem(STATE_KEY); } catch (ex) { /* as above */ }
+      return;
+    }
+    if (state.draft && !input.value) input.value = String(state.draft);
+    if (state.timing && state.timing.done) timing = state.timing;
+    if (state.doc && HC.docs) {
+      docHistory = Array.isArray(state.docHistory) ? state.docHistory : [];
+      openDoc(String(state.doc), '', 'back');
+    }
+  }
+  window.addEventListener('pagehide', saveState);
+  restoreState();
 
   autosize();
   focusInput();

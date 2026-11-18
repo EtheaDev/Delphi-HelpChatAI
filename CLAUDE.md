@@ -222,10 +222,21 @@ the edit on every version, not on the one that happens to be open.
   profile the handler does not accept, or any without a handler, gets the default engine:
   a client must never make the server create engines by naming profiles. The session carries
   its engine (`THelpChatServerSession.Engine`, nil = the server's), so every endpoint asks
-  `EngineOf(ASession)`, never `Engine` - which is the default assistant's. The same key on two
+  `EngineOf(ASession)`, never `Engine` - which is the default assistant's. An anonymous conversation
+  (`s:<session id>`) is never written to disk; `HelpChatKeyToFileName` adds 24 hex digits
+  of SHA-256 to the name of a key it had to cut, the 32-bit hash being few for ids a
+  client chooses. The same key on two
   engines is two conversations: `KeyInUse` compares both, and the file of a profile's
   conversation carries the profile in its name. New endpoint = `HandleApi` in the base, and `HELPCHAT_API_*` in
   `HelpChatAI.Panel` where the contract lives.
+- **The remote server decides a few things before it asks who is there.** Indy reads the
+  whole body of a request before `HandleCommand` runs, so the base refuses from the headers
+  (`OnHeadersAvailable`/`OnHeadersBlocked`, 413): a body over `MaxBodyBytes(AUri)` -
+  `HELPCHAT_SERVER_MAX_BODY_BYTES`, or `Attachments.MaxSizeKB` plus a margin for
+  `/api/attach` - and one that declares no length. `MaxConnections` (256 on the remote
+  server). `ErrorTextFor` is what a 500 says: the message of the exception on the local
+  server, a generic sentence on the remote one, which logs the rest. A key or a token is
+  compared with `HelpChatSameSecret`, never with `=`.
 - **A destructor never calls a virtual method.** `THelpChatHttpServerBase.Destroy` calls the
   non-virtual `StopListening`, not `Stop`: a descendant's `Stop` would run after its own
   destructor freed the fields it uses (this cost an access violation once).
@@ -263,7 +274,9 @@ the edit on every version, not on the one that happens to be open.
   that rule changed nothing, because "answer ONLY from the excerpts" wins; with it the
   capable models answered 3-5 more of 12 questions the manual does not cover, inventing no
   more. Order: field, rules, rule, `Instructions`. The conversation, state and window files carry the profile in their name
-  (`ProfileFileName`), the default assistant keeping today's. The keys of 1.6 (`Assistants`,
+  (`ProfileFileName`), the default assistant keeping today's; letters and digits of any
+  alphabet stay in the name (ASCII only, two Cyrillic profiles shared one file), and a
+  relative `ConversationFile` is resolved against the executable, like `DocIndexFile`. The keys of 1.6 (`Assistants`,
   `Assistant`, `<Provider>.SystemPrompt`) raise `EHelpChatConfigError` instead of being ignored:
   a drop-down empty for no visible reason is worse than an error that names the new key.
 - **A model is a name over a provider, and the list lives in the engine.**
@@ -321,8 +334,10 @@ the edit on every version, not on the one that happens to be open.
   a request, a dialog of the component, the page) - and sets `HelpChatDefaultLanguage`, which
   is what every `hclAuto` of the process resolves to; `Start` sets it from `ResolveLanguage`.
   The choice goes to `helpchatai-state.json` with the assistant (`SaveState` writes both, so
-  one never loses the other), **only once the user made one** (`FChosenLanguage`): a state
-  file must not freeze a language nobody picked. The page asks `GET /api/languages` (code,
+  one never loses the other), **only once the user made one** (`FChosenLanguage`,
+  `FChosenModel`): a state file must not freeze a language - or a model - nobody picked.
+  Writing the model in use froze the one the start had fallen back to, the first time the
+  user picked a language. The page asks `GET /api/languages` (code,
   native name, English name, the flag as inline SVG from `HelpChatFlagSvg`), posts
   `/api/language/select` and **reloads itself**, because its labels are written into it at
   render time; the local server then raises the UI command `language` (`HELPCHAT_UI_LANGUAGE`)
@@ -386,6 +401,8 @@ the edit on every version, not on the one that happens to be open.
   with the member in `HELPCHAT_COMMANDS_PAGE`; nothing else reads the list by name.
   `/run` goes through `IHelpChatActionInvoker.Invoke` like the model does, confirmation
   included, so an HTTP thread waits while the main thread runs the handler.
+  A remote session starts without `check` as well: it prints the folders, the files and the
+  missing keys of the machine the engine runs on, which there is the server.
   **Every answer starts with its heading** - "Available actions (/actions):" -
   (`HelpChatCommandHeading`, a title per command in `HelpChatAI.Messages`), in the engine and
   in the page alike. **Whatever the user can do in the panel, code can do on the component**:
@@ -428,6 +445,21 @@ the edit on every version, not on the one that happens to be open.
   differs from the one loaded. On the server a session that ends is **retired, not freed**
   (`Retire`/`PurgeRetired`, `HELPCHAT_REMOTE_RETIRE_SECONDS`): a request that found it a
   moment earlier is using it outside the lock.
+- **A page that is refused asks to be loaded again.** A 403 to a question or to the poll
+  of a reply is a session the server no longer has: `panel.js` posts the UI command
+  `reload` (`HELPCHAT_UI_RELOAD`, once per page) through the host channel, the remote
+  transport forgets when it last heard from the server (`ChannelCommand`) and the component
+  asks `GetPanelUrl` again (`ReloadPanel`), loading the page only when the URL changed -
+  the select endpoints answer 403 too, on purpose, and must not start a loop. A session
+  that ended is marked (`THelpChatServerSession.Ended`: `/api/send` answers 403), and what
+  a request still left in memory after the last session of a conversation is cleared when
+  that user comes back, before the file is read.
+- **What only the page knows survives its reload in `localStorage`.** The question being
+  written, the open documentation page with its history and the timing of `/stats`
+  (`saveState`/`restoreState` in `panel.js`, one key, `hc-state`): written a moment after
+  each change and on `pagehide` - a window recreated by a style change fires nothing -
+  and read back only when the token stored with them is the page's, so another run of the
+  application finds nothing. Not `sessionStorage`: a recreated window is a new browser.
 - **The panel is one self-contained page.** Edit `resources/*`, run `Tools\BuildResources.cmd`
   (brcc32 -> `source/HelpChatAI.Panel.res`), rebuild. The API contract (paths, token header,
   HTML fragments, `data-pending`) is in `HelpChatAI.Panel` and `panel.js`; the server tests
@@ -491,7 +523,8 @@ the edit on every version, not on the one that happens to be open.
   `OpenWithQuestion` debounces the same question within 1.5 s. Do not hook `Application.OnHelp`.
 - **F1 belongs to the application, so it has one owner per process.** Several assistants may be
   active at once, each on its own form (`ResolveHostForm`: `HostForm`, else the form that owns
-  the component - through a frame -, else the main form). The process-wide half lives in a
+  the component - through a frame -, else the main form; a `HostForm` that was destroyed
+  leaves the assistant with none, `FHostGone`, until another is assigned). The process-wide half lives in a
   coordinator in the implementation of each component unit (`TVclHelpChatCoordinator`,
   `TFmxHelpChatCoordinator`), created by the first active assistant and freed with the last:
   **one** `TApplicationEvents` and **one** help viewer (implementing `IHelpChatHelpTarget`), and
@@ -627,7 +660,13 @@ the edit on every version, not on the one that happens to be open.
   before showing the own window, makes the active modal form its `PopupParent` (and
   re-enables it); with no modal form the owner goes back to the host. Changing `PopupParent`
   recreates the window and reloads the page, so it is done only when the owner really
-  changes. **And it must be undone before the modal form dies**: Windows destroys the
+  changes. **`OnModalEnd` fires only when the last modal form closes**, so a dialog opened by
+  another dialog took the chat with it: `TVclHelpChatHideWatch` listens to the window
+  procedure of the modal owner and tells when it stops showing - which is how `ShowModal`
+  ends, whoever frees the form and however soon - and `ModalOwnerHidden` hands the window to
+  the modal form still up, else to the host. The watch is let go from inside its own call
+  (the depth counter of the bubble hook, for the same reason).
+  **And it must be undone before the modal form dies**: Windows destroys the
   windows a window owns together with it, so without `AppModalEnd` the chat disappears with
   the form the user just closed. That handler cannot ask `fsModal`, because `ShowModal`
   clears it one line before calling `Application.ModalFinished` — it asks whether the owner
@@ -665,6 +704,13 @@ the edit on every version, not on the one that happens to be open.
   the folder and end in .md, the Markdown goes through `HelpChatMarkdownToSafeHtml`, images of
   the folder are inlined as data: URIs (no token-less route, CSP unchanged). The engine keeps
   `DocPages` until its destructor (a request may be running while it stops).
+- **The URL of a page is its path as a link carries it.** The index builder writes it with
+  `HelpChatEncodeUrlPath` (`HelpChatAI.Types`): a space, a parenthesis, a bracket, `%`, `#`,
+  `?` become `%XX`, letters of any alphabet stay, so an index of plain names is byte for byte
+  what it was. Written as it is, "Price list.md" ended the target of the Markdown link at
+  its space. `panel.js` decodes before `GET /api/doc`, and `HelpChatSourcesLine` compares
+  the decoded file name (`HelpChatDecodeUrlPath`: a `+` stays a plus) with what the reply
+  names. The `id` and `sourceFile` of the index stay the plain path.
 - **Nothing blocks on the model.** `THelpChatEngine.Send` returns at once with a pending assistant
   message; `THelpChatRunner` workers fill it. Never call a provider on the caller's thread.
 - **Streaming goes through the store.** Providers call the token callback; the runner appends to
@@ -681,6 +727,31 @@ the edit on every version, not on the one that happens to be open.
   meanwhile, and `Language` is written as `ResolveLanguage` - left as `hclAuto`, every
   message of a provider resolved against `HelpChatDefaultLanguage`, which is per process
   while engines are per profile.
+- **A key goes to the address it was configured for, and nowhere else.** `THTTPClient`
+  follows a redirect by itself and repeats the headers of the request at the new address:
+  the three providers and the remote transport set `HandleRedirects := False`, and a 3xx
+  is an error like a 4xx (`StatusCode >= 300`). The test is a pair of Indy servers
+  (`TFakeService` in `Tests.Regressions`: `OnParseAuthentication` must say it handles
+  `Bearer`, or Indy answers 401 by itself and the handler is never called).
+- **A refusal is repeated only for what the service said about the request, and it is
+  remembered per model.** `IsSystemRoleRefusal` (claude) wants "system", "role" and the
+  refusal, and never an error that arrived inside a stream (`EHelpChatClaudeStreamError`);
+  `RefusesEncryptedReasoning` (openai, the Responses API: a model that does not reason
+  refuses `include: reasoning.encrypted_content`, `LearnsNoEncryptedReasoning` repeats the
+  round without it); `RefusesReasoningEffort` is the only error the request of the search
+  terms is repeated for.
+- **A JSON value from a service is asked what it is, never cast.** `GetValue('x') as
+  TJSONArray` is nil only for a missing key: for a `null` or a string it raises, and
+  compatible servers send both (`"tool_calls": null` on every chunk, `{"error": "model not
+  found"}`). `HelpChatJsonObject`, `HelpChatJsonArray` and `HelpChatJsonErrorText`
+  (`HelpChatAI.Provider.Sse`) are what the providers use. For the same reason a call whose
+  arguments are not one whole JSON object - cut at the token limit - is not run
+  (`HelpChatActionArgsAreWhole` in `THelpChatProviderBase.InvokeAction`), and a `null`
+  argument is a parameter left out.
+- **A history that was cut still opens with a question.** `THelpChatStore.GetHistory` drops
+  the answers left in front after the cut: with the default limit of 50 the 26th question
+  made a conversation that started with the assistant, which Anthropic refuses - every later
+  question failed until the conversation was cleared.
 - **Model output is untrusted.** Render only through `HelpChatMarkdownToSafeHtml` (safe mode +
   `HelpChatSanitizeUrls`, then `HelpChatAutoLinkUrls` for bare URLs the model writes as text).
   The dialect is **mdGFM**, not CommonMark: models answer with tables, strikethrough and task
@@ -773,6 +844,9 @@ the edit on every version, not on the one that happens to be open.
   a `function_call` arrives whole in `response.output_item.done`). Chat Completions keeps
   the other path: a refusal that asks for `reasoning_effort: 'none'` repeats the round with
   it (`AsksForNoReasoning`), never decided from the model name.
+- **An action with no parameters is declared to Gemini without `parameters`.** An OBJECT
+  schema with empty `properties` is what that API has refused; `BuildToolsJson` leaves the
+  member out. Checked against the real service, with Claude and the Responses API.
 - **Gemini agrees with nobody.** `contents` instead of messages, `parts` inside a turn, the
   assistant called `model`, `systemInstruction` apart, limits under `generationConfig`, the
   key in `x-goog-api-key`. `?alt=sse` is not optional: without it the endpoint answers with
@@ -841,7 +915,16 @@ the edit on every version, not on the one that happens to be open.
   application, per-user of the project's executable - never of bds.exe - or the one
   `ConfigFileName` names), one edited at a time in a `TJSONObject` so that a file written by
   hand keeps its other keys in their order (a value is replaced in place, `TJSONPair.JsonValue`),
-  the root or the profile, the catalogue of models (an `ApiKeyEncrypted` already there is kept),
+  the root or the profile, the catalogue of models (an `ApiKeyEncrypted` already there is kept, and so is an `Icon`
+  written by hand: the views show none, the icon is deduced; `stub` is not offered,
+  `ModelProviders`; with no model to answer with the views open on that page, `NeedsModel` -
+  asked of the whole configuration, files and component, and of the provider too: asked of
+  the file being edited it sent the editor to an empty Models page at every opening whenever
+  the models were in the shared file or in the form file; that page also writes the key of
+  the provider's section, `ProviderKeyPath`, and a key typed there and not confirmed with
+  Set is written by Add, Save, closing and a change of file, `CommitProviderKey` in the
+  views, for the provider the boxes show at that moment; a missing or empty
+  file is a new one, `THelpChatSettings.ReadConfigText`, at run time too),
   opened first on the file the configuration comes from (`ConfiguringFile`: the last file read
   that defines the profile, else that sets a value other than a key, else that holds a key, else
   the application's - always the application's opened an empty file while the shared one held
@@ -872,7 +955,9 @@ the edit on every version, not on the one that happens to be open.
   `ThemeProperties.ApplyTheme`; the theme font by hand on 10.4 only), the way the editors of
   SVGIconImageList do - which is also where the FireMonkey twin would take its light and dark
   style books from, if it is to follow the IDE as well. Secrets: the clear node only,
-  masked, never into the DFM (`SetComponentValue` refuses). `HelpChatAI.Tests.ConfigController`
+  masked, never into the DFM (`SetComponentValue` refuses). A number that is not one -
+  an emptied box included - raises `EHelpChatConfigError` in `TextToValue`, before a section
+  is created for it: it used to be written as 0, and the views send the text as typed. `HelpChatAI.Tests.ConfigController`
   tests the rules without a view; the forms were checked by loading them in a harness.
 - **What the Object Inspector shows is a design decision.** `HostForm` is public, not
   published: at design time the form of another unit is not a component of this one, so the
@@ -984,7 +1069,13 @@ the edit on every version, not on the one that happens to be open.
   nobody rescaled) while the font of a new form is already at the DPI of the screen; the VCL
   scales a form it loads, at creation and on every move. Stock icons come from
   `LoadIconWithScaleDown`, because `LoadImage` with a size hands back the icon of the system
-  DPI for a system icon. No is the default button, and the dialog closes as No after
+  DPI for a system icon. `Prepare` lays the request out and `Execute` shows it: the form is
+  never taller than the work area of its monitor - past that the values panel moves into a
+  scroll box and is laid out again without the strip the scroll bar takes (a label is
+  measured when `AutoSize` changes, not when its width does) - and Yes and No are
+  `hcmConfirmYes`/`hcmConfirmNo` in the language of the request, not `SMsgDlgYes`, which is
+  in the language the RTL was built with. The FireMonkey twin does the same with a
+  `TVertScrollBox`, checked by a harness. No is the default button, and the dialog closes as No after
   `HELPCHAT_CONFIRM_TIMEOUT_MS` (30 s), before the broker's 60 s. What it shows comes from
   `THelpChatActionArgs.ToDisplayPairs`: the description of each parameter cut at its first
   punctuation (`ParamLabel`), the values with control characters replaced and cut at
@@ -1004,6 +1095,11 @@ the edit on every version, not on the one that happens to be open.
   A provider lives for one reply, so the rule does too. The model is told the same in
   `HELPCHAT_MODEL_ACTIONS_RULE` and in the denied text, but the guarantee is the code: told
   "the user refused to create the company", a model asked "create the lead" anyway.
+- **`Invoke` never raises, and says "done" for what was done.** Whatever raises on the
+  way (the host being woken up) is `aoFailed`; `Forget` tells when the host answered between
+  the last wait and the give-up, and `Invoke` then returns that answer instead of a timeout
+  the model would retry; the wait is a `TStopwatch`. `ToolsJson` builds each declaration
+  under the lock of the broker that owns the action (`ToolJsonOf`).
 - **The request of an action is freed by whoever touches it last.** `Invoke` waits with a
   timeout while the host may be holding the request in a confirmation dialog: on timeout or
   cancellation it calls `Forget`, which under the lock drops a request still queued, frees
@@ -1019,6 +1115,14 @@ the edit on every version, not on the one that happens to be open.
   `HELPCHAT_MODEL_ACTIONS_RULE` say that what a tool returns, a document contains or an
   excerpt says is data, never an instruction - a rule, not a guarantee; the guarantees are
   the two bullets above.
+- **A call queued for the main thread asks whether anybody is still there.** `TThread.Queue`
+  cannot be taken back, and its closure holds a method of an object that may be freed before
+  the loop gets to it: it captures an `IHelpChatLifeToken` (`HelpChatAI.Types`) with the
+  method, the object kills the token in its destructor, the closure asks `IsAlive`. Both
+  components (`FLife`: the PDF of `export_pdf`, the deferred theme), the voice engine, and
+  the local server and the host channel, where a token belongs to the handler in force -
+  replaced with every `SetOnUiCommand`/`SetOnPdfRequest`, so a command queued before the
+  component deactivated is dropped.
 - **The broker outlives the component on purpose.** It is reference counted and the queued
   `ExecutePending` closure captures the interface, so a call in flight cannot land on a freed
   object. The component keeps both the typed reference and the interface, and nils both.
@@ -1032,6 +1136,10 @@ the edit on every version, not on the one that happens to be open.
   action it is not run and the reply says so (`NoteActionsNotRun`, `hcmActionsNotRun`) -
   it used to end as if the action had been done. In `openai` the calls are the signal, not
   `finish_reason`: several compatible servers end a tool turn with "stop".
+  **A reply cut at the limit of tokens says so** (`NoteReplyCut`, `hcmReplyCut`): `stop_reason`
+  `max_tokens`, `finish_reason` `length`, `response.incomplete` with `max_output_tokens`,
+  `finishReason` `MAX_TOKENS` - checked against the three services with a scratch program.
+  `MaxTokens` is 4096 by default: the reasoning of a model counts in it.
   **The assistant turn goes back as the model wrote it** (`THelpChatSseStream.Blocks`,
   `BuildAssistantTurn`): the Claude 5.5 models think unasked, and their `thinking` blocks
   (empty text, a signature) must return with the results, unchanged and in place, before the
@@ -1118,6 +1226,16 @@ the edit on every version, not on the one that happens to be open.
   insert while a record is in `dsEdit` (Insert would post it), `find_record` refuses a list in
   edit, `commands` hides what looks like a save (`TDataSetPost`, nbPost, ModalResult OK, the
   save words, `OnCommand` decides) and the navigator buttons that move while editing.
+  **Reading never moves a data set that is being edited**: `First`, `Locate` and - in
+  FireDAC - even `Lookup` leave edit mode first, which posts. So a lookup table in edit is
+  neither scanned nor looked up (`ScanLookup`, `LookupDisplay`), and `find_record` refuses
+  while a detail of the list is being edited (`EditingDetailOf`).
+  `commands` leaves out what moves while editing whatever it is made of: the buttons of a
+  navigator, a button with `TDataSetFirst/Prior/Next/Last/Insert/Refresh`
+  (`ActionMovesWhileEditing`; with no `DataSource` on the action, any data set of the screen
+  in edit is enough), and in FireMonkey the buttons of a `TBindNavigator` - told by their
+  `Index`, read through extended RTTI, never by a hint the RTL translates - and the bind
+  navigator actions (`NavigationWhileEditing`).
   `fill_form`, `cancel_edit`, `press_command` confirm, with `THelpChatAction.OnDisplay` giving
   the dialog a readable summary and values (localized `hcmSkill*`); `press_command` clicks
   with `TThread.ForceQueue`, after the action answered, so a modal window does not keep the
@@ -1229,6 +1347,10 @@ the edit on every version, not on the one that happens to be open.
   with every question. The file-type glyphs are inline SVG in `panel.js` (Material Design
   Icons, Apache 2.0, generic glyphs and no brand logo): the panel is one self-contained
   page, so they cannot be PNGs in a `.res`.
+- **The printable document loads no image from outside.** `THelpChatPrintableDoc.Render`
+  writes `img-src data:` as its policy: the panel has a CSP, the document had none, and an
+  image the model named on another site was fetched when the PDF was made. So a
+  `PdfStyleSheet` cannot name an image by URL either.
 - **A PDF is written by the client, never by the engine.** The engine builds a
   `THelpChatPrintableDoc` (`HelpChatAI.Html`: title, subtitle, language, body HTML) out of an
   answer, a conversation or a documentation page and hands it over - `POST /api/pdf`,
@@ -1239,6 +1361,13 @@ the edit on every version, not on the one that happens to be open.
   environment of the panel is borrowed so that no second browser process starts. **A remote
   engine answers 501**, not 404: the document would be built where there is no screen to
   save it from, and the page says so instead of doing nothing.
+- **An export dispatches the messages of the thread, but not the user's.** `Wait` takes
+  the callbacks of the runtime from the queue and leaves the keyboard, the mouse, `WM_CLOSE`
+  and `WM_SYSCOMMAND` there (`PeekNoInput`, ranges asked in turn): dispatched from inside
+  the export they closed the form, and freed the component, under `PdfRequest`. The page is
+  another process, so a second click on its PDF button still arrives: `FPdfBusy` drops it.
+  The handlers are `THcHandler` and are detached in `CloseController` - the runtime may
+  call one after a timeout, when the exporter is gone.
 - **The paper is not the stylesheet's to decide.** With no print settings the runtime prints
   Letter and ignores `@page { size }`; and a margin written in CSS **wins over** the print
   settings - `@page { margin: 0 }` in our own `print.css` cost every margin of every sheet
@@ -1365,8 +1494,11 @@ the edit on every version, not on the one that happens to be open.
   here)"; `ChoiceCaptions` (the name and its actions) and `ChoiceHints` (the description) are
   what a view shows, and a view writes the choice, never its caption. The hint of
   `AllowedActions` lists the actions the skills add. The editors remember page, bounds and
-  maximized state in unit variables for the IDE session, the way StyledComponents' editor
-  does.
+  maximized state in unit variables, read once from and written back to the registry of the
+  running IDE (`<BaseRegistryKey>\HelpChatAI\ConfigEditorVcl` / `...Fmx`, apart because
+  the FMX bounds are not VCL pixels): kept in memory only, a restart or a package loaded
+  again forgot them. Restoring a placement never raises, and never puts the window on a
+  monitor that is gone (`MakeFullyVisible` in the VCL, `OnADisplay` in FireMonkey).
 - **Defaults live once** in `HelpChatAI.Settings` constants (`HELPCHAT_DEF_*`). Settings also
   load/save as JSON (`helpchatai.json`: app file next to the exe, then per-user file in
   `%APPDATA%\<Exe>`); a new property must be added to `Assign`, `LoadFromJSON`, `SaveToJSON`

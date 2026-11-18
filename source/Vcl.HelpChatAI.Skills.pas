@@ -87,9 +87,12 @@ type
   /// <summary>One field of the form, with the control behind it.</summary>
   THelpChatVclField = class(THelpChatDataField)
   public
+    /// <summary>The control of the field.</summary>
     Control: TControl;
     /// <summary>The radio buttons of a group, which are one field.</summary>
     Controls: TArray<TControl>;
+    /// <summary>The adapter that accepted the control: what reads and writes
+    /// it.</summary>
     Adapter: THelpChatVclFieldAdapterClass;
     /// <summary>The caption the control carries itself.</summary>
     OwnCaption: string;
@@ -105,6 +108,7 @@ type
   /// <summary>One button the skills may press.</summary>
   THelpChatVclCommand = class(THelpChatSkillCommand)
   public
+    /// <summary>The control that is pressed.</summary>
     Control: TControl;
     /// <summary>For a button of a <c>TDBNavigator</c>: its
     /// <c>TNavigateBtn</c>, else -1.</summary>
@@ -139,8 +143,12 @@ type
     /// value (<c>HelpChatSkillsHideFieldValues</c>, the same for every
     /// framework). A password is never read anyway.</summary>
     property HideFieldValues: Boolean read GetHideFieldValues write SetHideFieldValues;
+    /// <summary>Which control the skills work on, when it is not the form
+    /// the user is on.</summary>
     property OnGetTarget: THelpChatVclTargetEvent read FOnGetTarget write FOnGetTarget;
+    /// <summary>Corrects or hides a field before the model hears of it.</summary>
     property OnDescribeField: THelpChatVclFieldEvent read FOnDescribeField write FOnDescribeField;
+    /// <summary>Decides which buttons the assistant may press.</summary>
     property OnCommand: THelpChatVclCommandEvent read FOnCommand write FOnCommand;
   end;
 
@@ -150,6 +158,7 @@ function HelpChatVclSkills: THelpChatVclSkillOptions;
 /// <summary>Teaches the skills a kind of control. Asked before the ones
 /// registered earlier and the built-in ones.</summary>
 procedure RegisterHelpChatVclFieldAdapter(const AAdapter: THelpChatVclFieldAdapterClass);
+/// <summary>Takes an adapter of the application away again.</summary>
 procedure UnregisterHelpChatVclFieldAdapter(const AAdapter: THelpChatVclFieldAdapterClass);
 
 /// <summary>The form the user is working on: the active form, unless it is
@@ -167,22 +176,45 @@ function HelpChatVclTarget(const AHost: TComponent): TWinControl;
 /// <summary>The fields of a control, in tab order. The caller frees the list.</summary>
 function HelpChatVclCollectFields(const ARoot: TWinControl;
   const ASender: TObject = nil): TObjectList<THelpChatVclField>;
+/// <summary><c>describe_form</c>: the fields with their kind, state and -
+/// unless <c>AHideValues</c> - value, and the state of their data sets.</summary>
 function HelpChatVclDescribeForm(const ARoot: TWinControl; const AHideValues: Boolean;
   const ASender: TObject = nil): string;
+/// <summary><c>fill_form</c>: writes the values of a JSON object into the
+/// fields it names, putting the data set in edit or insert as <c>AMode</c>
+/// says. Never posts. <c>ASnapshot</c> receives what the fields held before,
+/// for <c>cancel_edit</c>. Raises when nothing can be written.</summary>
 function HelpChatVclFillForm(const ARoot: TWinControl; const AValues: TJSONObject;
   const AMode: THelpChatFillMode; const AHideValues: Boolean;
   const ASnapshot: TDictionary<string, string> = nil; const ASender: TObject = nil): string;
+/// <summary><c>cancel_edit</c>: cancels the data sets being edited and puts
+/// back what <c>ASnapshot</c> remembers of the plain controls.</summary>
 function HelpChatVclCancelEdit(const ARoot: TWinControl;
   const ASnapshot: TDictionary<string, string> = nil; const ASender: TObject = nil): string;
+/// <summary><c>find_choice</c>: the values of a choice or lookup field that
+/// match <c>AText</c>, for a list too long to be described whole.</summary>
 function HelpChatVclFindChoice(const ARoot: TWinControl; const AFieldId, AText: string;
   const ASender: TObject = nil): string;
+/// <summary><c>list_commands</c>: the buttons the assistant may press,
+/// the saves left out.</summary>
 function HelpChatVclListCommands(const ARoot: TWinControl; const ASender: TObject = nil): string;
+/// <summary><c>press_command</c>: clicks the button of that id or caption;
+/// with <c>AQueued</c> after the action answered, so that a modal window it
+/// opens does not keep the model waiting.</summary>
 function HelpChatVclPressCommand(const ARoot: TWinControl; const ACommand: string;
   const AQueued: Boolean; const ASender: TObject = nil): string;
+/// <summary><c>count_records</c>: how many records a list holds, and its
+/// filter; every list when <c>AList</c> is empty.</summary>
 function HelpChatVclCountRecords(const ARoot: TWinControl; const AList: string): string;
+/// <summary><c>find_record</c>: moves a list to the first record matching
+/// <c>AText</c> and answers with it. Refused while the list, or a detail of
+/// it, is being edited: moving would save.</summary>
 function HelpChatVclFindRecord(const ARoot: TWinControl; const AText, AField, AList: string;
   const AHideValues: Boolean): string;
+/// <summary><c>list_pages</c>: the pages of the form and which is shown.</summary>
 function HelpChatVclPagesText(const ARoot: TWinControl): string;
+/// <summary><c>show_page</c>: shows the page of that name or caption, as a
+/// click on its tab would.</summary>
 function HelpChatVclShowPage(const ARoot: TWinControl; const APage: string): string;
 
 implementation
@@ -444,8 +476,9 @@ procedure THelpChatVclField.Focus;
 var
   LForm: TCustomForm;
 begin
-  // Without stealing the focus from the chat: the active control of the
-  // form, which it gets back when the user returns to it.
+  // The active control of the form, which it gets back when the user
+  // returns to it: the chat in its own window keeps the focus. A chat that
+  // is a control of this same form does lose it.
   if (Control is TWinControl) and TWinControl(Control).CanFocus then
   begin
     LForm := GetParentForm(Control);
@@ -538,6 +571,11 @@ var
   LCheck: TDBCheckBox;
 begin
   LControl := AField.Control;
+  // A TDBEdit that hides what is typed: this adapter is asked before the
+  // plain edit one, which is where a password was recognised - so a
+  // data-aware one was read to the model in clear.
+  if LControl is TCustomEdit then
+    AField.Secret := TCustomEditAccess(LControl).PasswordChar <> #0;
   AField.DataSource := TDataSource(PropObj(LControl, 'DataSource'));
   AField.AutoEdit := AField.DataSource.AutoEdit;
   HelpChatDescribeDataField(AField,
@@ -1346,6 +1384,62 @@ begin
     end;
 end;
 
+// True when some data-aware control under ARoot shows a data set that is
+// being edited.
+function AnyDataSetEditing(const ARoot: TWinControl): Boolean;
+var
+  I: Integer;
+  LSource: TObject;
+begin
+  Result := False;
+  for I := 0 to ARoot.ControlCount - 1 do
+  begin
+    LSource := PropObj(ARoot.Controls[I], 'DataSource');
+    if (LSource is TDataSource) and HelpChatIsEditing(TDataSource(LSource).DataSet) then
+      Exit(True);
+    if (ARoot.Controls[I] is TWinControl) and AnyDataSetEditing(TWinControl(ARoot.Controls[I])) then
+      Exit(True);
+  end;
+end;
+
+// A standard data set action that moves to another record, inserts one or
+// reloads (TDataSetFirst, Prior, Next, Last, Insert, Refresh) while the data
+// set it works on is being edited: pressing it posts the record, which is
+// saving. The navigator buttons are left out for the same reason. An action
+// with no DataSource of its own works on the data set of the focused
+// control, which nobody can know now: any data set of the screen being
+// edited is enough to leave it out.
+function ActionMovesWhileEditing(const AAction: TBasicAction; const ARoot: TWinControl): Boolean;
+const
+  MOVING: array[0..5] of string = ('TDataSetFirst', 'TDataSetPrior', 'TDataSetNext',
+    'TDataSetLast', 'TDataSetInsert', 'TDataSetRefresh');
+var
+  LClass: TClass;
+  LName: string;
+  LMoves: Boolean;
+  LSource: TObject;
+begin
+  Result := False;
+  if AAction = nil then
+    Exit;
+  LMoves := False;
+  LClass := AAction.ClassType;
+  while Assigned(LClass) and not LMoves do
+  begin
+    for LName in MOVING do
+      if SameText(LClass.ClassName, LName) then
+        LMoves := True;
+    LClass := LClass.ClassParent;
+  end;
+  if not LMoves then
+    Exit;
+  LSource := PropObj(AAction, 'DataSource');
+  if LSource is TDataSource then
+    Result := HelpChatIsEditing(TDataSource(LSource).DataSet)
+  else
+    Result := AnyDataSetEditing(ARoot);
+end;
+
 procedure CollectCommandControls(const AParent: TWinControl; const ARoot: TWinControl;
   const AList: THelpChatSkillCommandList; const ASender: TObject);
 var
@@ -1395,11 +1489,15 @@ begin
     if (LControl is TCustomButton) or (LControl is TSpeedButton) or
       ((LControl is TToolButton) and not (TToolButton(LControl).Style in [tbsSeparator, tbsDivider])) then
     begin
+      LAction := TControlAccess(LControl).Action;
+      // Moving or inserting while a record is edited posts it: not offered,
+      // like the buttons of a navigator.
+      if ActionMovesWhileEditing(LAction, ARoot) then
+        Continue;
       LCommand := THelpChatVclCommand.Create;
       LCommand.Control := LControl;
       LCommand.NavigatorButton := -1;
       LCommand.Caption := HelpChatCleanCaption(ControlCaption(LControl));
-      LAction := TControlAccess(LControl).Action;
       if (LCommand.Caption = '') and (LControl.Hint <> '') then
         LCommand.Caption := HelpChatCleanCaption(GetShortHint(LControl.Hint));
       if (LCommand.Caption = '') and (LAction is TCustomAction) then

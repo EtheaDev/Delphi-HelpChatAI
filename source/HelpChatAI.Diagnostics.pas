@@ -181,6 +181,15 @@ function HelpChatSettingsForFolder(const ASource: THelpChatSettings;
 procedure HelpChatUsePreviewConversation(const ASettings: THelpChatSettings;
   const AExeFile: string);
 
+/// <summary>A file a component names (<c>PanelStyleSheet</c>, the PDF
+/// stylesheet and bands) as the application built in <c>ABaseFolder</c>
+/// would read it: a relative name is resolved against that folder. At run
+/// time such a name is read next to the executable, which inside the IDE is
+/// bds.exe - so a design-time preview gives its copy of the component the
+/// names this returns. An empty name, a rooted one and an empty folder are
+/// returned as they are.</summary>
+function HelpChatFileInFolder(const AFileName, ABaseFolder: string): string;
+
 implementation
 
 uses
@@ -196,6 +205,14 @@ resourcestring
   // Not localized on purpose: see the unit summary.
   SHelpChatKindWarning = 'Warning';
   SHelpChatKindError = 'Error';
+
+function HelpChatFileInFolder(const AFileName, ABaseFolder: string): string;
+begin
+  Result := AFileName;
+  if (Trim(Result) = '') or (ABaseFolder = '') or TPath.IsPathRooted(Trim(Result)) then
+    Exit;
+  Result := TPath.Combine(ABaseFolder, Trim(Result));
+end;
 
 procedure HelpChatUsePreviewConversation(const ASettings: THelpChatSettings;
   const AExeFile: string);

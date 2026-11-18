@@ -60,7 +60,8 @@ interface
 uses
   System.SysUtils,
   System.Classes,
-  Winapi.Windows;
+  Winapi.Windows,
+  HelpChatAI.Types;
 
 type
   /// <summary>
@@ -104,6 +105,9 @@ type
     FOnText: THelpChatVoiceTextEvent;
     FOnState: THelpChatVoiceStateEvent;
     FOnError: THelpChatVoiceErrorEvent;
+    /// <summary>What the queued events ask before calling a handler:
+    /// killed by the destructor.</summary>
+    FLife: IHelpChatLifeToken;
   strict protected
     /// <summary>Raises OnText on the main thread. Callable from any thread;
     /// an empty text is dropped. The handler is the one assigned at the
@@ -126,9 +130,12 @@ type
     /// called by the destructor, when the events are already detached.</summary>
     procedure DoStop; virtual; abstract;
   public
+    /// <summary>Creates the token the queued events ask: here and not in a
+    /// constructor, which every engine declares its own way.</summary>
+    procedure AfterConstruction; override;
     /// <summary>Detaches the events, then stops a session still running.
     /// Calls already queued for the main thread captured their handler
-    /// before this and still run after it.</summary>
+    /// before this: they find the engine gone and do nothing.</summary>
     destructor Destroy; override;
     /// <summary>True when this way of listening can be used here and now.
     /// May take a moment the first time (the recognizer asks its own thread
@@ -727,8 +734,16 @@ end;
 
 { THelpChatVoiceInput }
 
+procedure THelpChatVoiceInput.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  FLife := THelpChatLifeToken.Create;
+end;
+
 destructor THelpChatVoiceInput.Destroy;
 begin
+  if Assigned(FLife) then
+    FLife.Kill;
   FOnText := nil;
   FOnState := nil;
   FOnError := nil;
@@ -750,15 +765,20 @@ procedure THelpChatVoiceInput.DoText(const AText: string; const AFinal: Boolean)
 var
   LHandler: THelpChatVoiceTextEvent;
   LText: string;
+  LLife: IHelpChatLifeToken;
 begin
   LHandler := FOnText;
   if not Assigned(LHandler) or (AText = '') then
     Exit;
   LText := AText;
+  LLife := FLife;
   TThread.Queue(nil,
     procedure
     begin
-      if Assigned(LHandler) then
+      // The engine - and the component its handlers belong to - may be gone
+      // by the time the message loop gets here: the recognizer answers on
+      // its own threads, and keeps answering while it is being stopped.
+      if LLife.IsAlive and Assigned(LHandler) then
         LHandler(Self, LText, AFinal);
     end);
 end;
@@ -766,6 +786,7 @@ end;
 procedure THelpChatVoiceInput.DoState(const AListening: Boolean);
 var
   LHandler: THelpChatVoiceStateEvent;
+  LLife: IHelpChatLifeToken;
 begin
   if FListening = AListening then
     Exit;
@@ -773,10 +794,11 @@ begin
   LHandler := FOnState;
   if not Assigned(LHandler) then
     Exit;
+  LLife := FLife;
   TThread.Queue(nil,
     procedure
     begin
-      if Assigned(LHandler) then
+      if LLife.IsAlive and Assigned(LHandler) then
         LHandler(Self, AListening);
     end);
 end;
@@ -785,15 +807,17 @@ procedure THelpChatVoiceInput.DoError(const AMessage: string);
 var
   LHandler: THelpChatVoiceErrorEvent;
   LText: string;
+  LLife: IHelpChatLifeToken;
 begin
   LHandler := FOnError;
   if not Assigned(LHandler) then
     Exit;
   LText := AMessage;
+  LLife := FLife;
   TThread.Queue(nil,
     procedure
     begin
-      if Assigned(LHandler) then
+      if LLife.IsAlive and Assigned(LHandler) then
         LHandler(Self, LText);
     end);
 end;

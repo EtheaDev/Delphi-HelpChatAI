@@ -27,7 +27,7 @@ help system, so the `HelpKeyword` you already wrote keeps working.
 
 ## Documentation
 
-The [Project Site](https://ethea.it/docs/helpchatai/) has **thirty-five pages of documentation**,
+The [Project Site](https://ethea.it/docs/helpchatai/) has **thirty-seven pages of documentation**,
 from an empty form to a working chat in the [Quick Start](https://ethea.it/docs/helpchatai/Quick-Start)
 to a step-by-step [anatomy of a conversation](https://ethea.it/docs/helpchatai/In-Depth-Conversation).
 They cover the VCL and FireMonkey components and their component editor, the providers and the
@@ -79,7 +79,7 @@ the encrypted one.
 | `docsearch` | the documentation index, no key | no | no |
 | `claude` | `ANTHROPIC_API_KEY` | yes | yes |
 | `openai` | `OPENAI_API_KEY`, nothing for a local model | yes | yes |
-| `gemini` | `GEMINI_API_KEY` | yes | yes |
+| `gemini` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | yes | yes |
 
 `openai` is wider than its name: Chat Completions is the API that Azure OpenAI, Groq,
 OpenRouter, Mistral, DeepSeek, Ollama and LM Studio also speak, so `BaseUrl` and `Model` are
@@ -199,7 +199,7 @@ To do it by hand instead:
 - open the group project of your version under `packages/` — `Delphi13`,
 `Delphi12`, `Delphi11` or `Delphi10.4` 
 - build it and install `dclHelpChatAIVcl` (and
-`dclHelpChatAIFmx`, then add `source` and `Ext/MarkdownProcessor/source` to the library path.
+`dclHelpChatAIFmx`, from Delphi 12), then add `source` and `Ext/MarkdownProcessor/source` to the library path.
 
 `packages/BuildAllPackages.ps1` builds them from a command line, every installed version or
 the ones named with `-DelphiVersion D13,D12`; `BuildAllPackagesD13.ps1` (and D12, D11, D10.4)
@@ -271,7 +271,7 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 Win64: twenty-four builds, and the FireMonkey ones are reported `N/A` below Delphi 12 rather
 than failed.
 
-`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **527 tests** that runs without
+`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **612 tests** that runs without
 network: store, worker pool, cancellation, index scoring and the areas of a manual, Markdown
 safety, profiles and the configuration editor's controller, several assistants on real forms
 and the engine they share, the skills on real forms over an in-memory data set, the SSE parsing and
@@ -285,6 +285,19 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+18 Nov 2026: ver. 2.0.0
+- A review of the whole library before 2.0, with no new features: the defects it found are fixed, and the suite grew to 612 tests
+- Security: a key is never sent to another address than its own (no HTTP redirect is followed); a saved PDF loads no image from outside; the remote server refuses an oversized request before asking for the key
+- Models: a reply cut at the limit of tokens says so, and `MaxTokens` is 4096 by default (it was 1024); a long conversation no longer fails from the 26th question on; the refusals of compatible servers and of the OpenAI models that do not reason are handled
+- Skills and actions: reading a screen never saves or moves a record being edited, and a field shown as a password is neither searched nor reported; a call whose arguments were cut is not run; the confirmation fits the screen, with *Yes* and *No* in the language of the chat
+- Panel: a question waits for the file still going up; a reply that will not arrive shows an error; a reload keeps the question being written and the open documentation page
+- Remote server: a panel left open loads again on a new session; the console server saves the conversations when its window is closed
+- VCL and FireMonkey: the chat window opened from a dialog of a dialog, a `HostForm` that is destroyed, the PDF export, the design-time preview and the floating bubble; FireMonkey keeps `ImageIndex` and `ImageName` in step and has a file dialog for `ConfigFileName`
+- Configuration editor: it opens on the Models page while no model is configured, and that page takes the API key of the provider too; no *Icon* field (deduced, one written by hand stays) and no `stub` among the providers; it remembers its size, position and page across restarts of the IDE; an empty configuration file is a new one - Save creates it, and at run time it is no error
+- Changes in behaviour: a picture attached may not exceed 3.6 MB; a remote session no longer runs `/check`, and an anonymous conversation is not written to disk; a relative `ConversationFile` is resolved against the executable; the configuration editor refuses a text that is not a whole number
+- Files that change name, so that their conversation starts empty once: those of a profile written in a non-Latin alphabet, and on a remote server those of a user id longer than about 58 characters
+- The index builder encodes spaces and parentheses in the link of a page (`Price%20list.md`): rebuild an index that has such file names
 
 17 Nov 2026: ver. 1.13.0
 - The question is translated for the search: with a `DocLanguage` different from the chat, the model in use turns it into search terms in the language of the manual (`TranslateSearch`, on by default; `SearchTermsPrompt`) - the right page among the 3 for 20 Italian questions of 21, against 12
@@ -333,7 +346,7 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 13 Nov 2026: ver. 1.8.0
 - `OnModelChanged` on both components: the user switched model in the panel (the badge, or `/use`), or code did with `SelectModel`. The local server raises the UI command `model` (`HELPCHAT_UI_MODEL`) for it, the way it raises `language`
 - `RunSettings` is public on both components: the settings in force, with the model the user picked applied - what to read to know which model, provider and key the assistant is using now
-- The panel offers only the models that could answer: a model of the list whose provider reports something missing (`claude` and `gemini` with no key, `openai` with neither a key nor an endpoint of its own, `docsearch` with no index) is left out, except the one in use; at start the engine never picks such a model while another can answer. `HelpChatModelIsConfigured` is the test, `Models` on the components and the engine apply it, `SelectModel` still accepts any model of the list, and the page asks for the list again when it gets the focus
+- The panel offers only the models that could answer: a model of the list whose provider reports something missing (`claude` and `gemini` with no key, `openai` with no key unless its endpoint is on this machine or a private network, `docsearch` with no index) is left out, except the one in use; at start the engine never picks such a model while another can answer. `HelpChatModelIsConfigured` is the test, `Models` on the components and the engine apply it, `SelectModel` still accepts any model of the list, and the page asks for the list again when it gets the focus
 - `openai` wants a key for every endpoint on the internet, not only for api.openai.com: only a server on this machine or on a private network (`HelpChatIsLocalEndpoint`) is spared, so a model on Groq or OpenRouter without its key is reported by the configuration check and not offered in the panel
 - The `github` icon, for a model of the catalogue that names it
 - New default models, the best for in-app help in the benchmark (`Test\LLMBench`): `claude-haiku-5-5` (was `claude-haiku-4-5`) and `gemini-3.5-flash-lite` (was `gemini-3.8-flash`, four times slower and no more accurate); `gpt-6-luna` stays. A configuration that names its model is not affected

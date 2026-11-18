@@ -63,6 +63,7 @@ type
     [Test] procedure Bands_Templates_ComeFromTheResources;
     [Test] procedure Exporter_WritesARealPdf;
     [Test] procedure Exporter_WritesARealPdfWithBands;
+    [Test] procedure Exporter_LeavesTheInputOfTheUserForLater;
   end;
 
 implementation
@@ -73,6 +74,9 @@ uses
   System.JSON,
 {$IFDEF MSWINDOWS}
   Winapi.ActiveX,
+  Winapi.Windows,
+  Winapi.Messages,
+  Vcl.Forms,
 {$ENDIF}
   HelpChatAI.Types,
   HelpChatAI.Html,
@@ -467,6 +471,51 @@ begin
     if TFile.Exists(LFileName) then
       TFile.Delete(LFileName);
   end;
+end;
+
+procedure TPdfTests.Exporter_LeavesTheInputOfTheUserForLater;
+{$IFDEF MSWINDOWS}
+var
+  LForm: TForm;
+  LExporter: THelpChatPdfExporter;
+  LFileName, LError: string;
+{$ENDIF}
+begin
+  if not THelpChatPdfExporter.IsAvailable then
+  begin
+    Assert.Pass('no WebView2 runtime on this machine: nothing to print with');
+    Exit;
+  end;
+{$IFDEF MSWINDOWS}
+  // The export dispatches the messages of the thread while it waits for the
+  // browser. A window closed meanwhile - with the component that was saving
+  // the PDF on it - was closed under the method that was waiting.
+  CoInitializeEx(nil, COINIT_APARTMENTTHREADED);
+  LFileName := TPath.Combine(TPath.GetTempPath,
+    'helpchatai-input-' + TGuid.NewGuid.ToString.Trim(['{', '}']) + '.pdf');
+  LForm := TForm.CreateNew(nil);
+  LExporter := THelpChatPdfExporter.Create;
+  try
+    LForm.Position := poDesigned;
+    LForm.SetBounds(-3000, 100, 300, 200);
+    LForm.Show;
+    Application.ProcessMessages;
+    PostMessage(LForm.Handle, WM_CLOSE, 0, 0);
+    PostMessage(LForm.Handle, WM_KEYDOWN, VK_ESCAPE, 0);
+    Assert.IsTrue(LExporter.ExportHtml(
+      HelpChatMarkdownDocument('Test', '# Test'#10#10'One paragraph.',
+        'body{font-family:sans-serif}').Render,
+      LFileName, THelpChatPdfPage.A4, LError), 'export failed: ' + LError);
+    Assert.IsTrue(LForm.Visible, 'the window was not closed inside the export');
+    Application.ProcessMessages;
+    Assert.IsFalse(LForm.Visible, 'and it is closed once the export is over');
+  finally
+    LExporter.Free;
+    LForm.Free;
+    if TFile.Exists(LFileName) then
+      TFile.Delete(LFileName);
+  end;
+{$ENDIF}
 end;
 
 initialization

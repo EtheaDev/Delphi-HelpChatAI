@@ -127,6 +127,7 @@ type
     FUsage: THelpChatTokenUsage;
     FItems: TJSONArray;
     FToolCalls: TList<THelpChatToolCall>;
+    FCutAtLimit: Boolean;
     function GetToolCalls: TArray<THelpChatToolCall>;
     function GetItemsJson: string;
   strict protected
@@ -143,6 +144,9 @@ type
     /// input split into what the automatic prompt cache of the service read
     /// (<c>input_tokens_details.cached_tokens</c>) and the rest.</summary>
     property Usage: THelpChatTokenUsage read FUsage;
+    /// <summary>The round ended as <c>response.incomplete</c> because it
+    /// reached <c>max_output_tokens</c>: the text is not whole.</summary>
+    property CutAtLimit: Boolean read FCutAtLimit;
   end;
 
   /// <summary>
@@ -172,6 +176,10 @@ type
     /// <summary>The reply through the Responses API: the same loop of rounds
     /// as Chat Completions, the output items of a round and the results of
     /// its actions sent back with the next.</summary>
+    /// <summary>True, once per model, when AError says the model has no
+    /// encrypted reasoning: the model is remembered and the caller repeats
+    /// its request, whose body no longer asks for it.</summary>
+    function LearnsNoEncryptedReasoning(const AError: string): Boolean;
     function GenerateResponses(const AHistory: TArray<THelpChatMessage>;
       const ASystem, ATools, AQuestionContext: string; const AMaxRounds: Integer;
       const AOnToken: THelpChatTokenProc; const ACancel: IHelpChatCancelToken): string;
@@ -293,6 +301,22 @@ type
     /// gateway may refuse the parameter, so it is sent only to whoever asked
     /// for it. Public for tests.</summary>
     class function AsksForNoReasoning(const AError: string): Boolean; static;
+    /// <summary>True when AError is about the reasoning effort itself - a
+    /// model or a server that does not know the parameter, or refuses the
+    /// value: the only refusal the request of the search terms is repeated
+    /// for, without the effort. A wrong key or a rate limit used to cost a
+    /// second failing request before every reply. Public for tests.</summary>
+    class function RefusesReasoningEffort(const AError: string): Boolean; static;
+    /// <summary>True when AError is the Responses API saying that the model
+    /// has no encrypted reasoning to give ("Encrypted content is not
+    /// supported with this model"): a model that does not reason. The round
+    /// is then repeated without <c>include</c>, and the model remembered
+    /// (<see cref="RefusesEncryptedReasoning" />). Public for tests.</summary>
+    class function AsksForNoEncryptedReasoning(const AError: string): Boolean; static;
+    /// <summary>True when the service told this provider, earlier in the
+    /// process, that <c>AModel</c> has no encrypted reasoning: the body of a
+    /// Responses request then carries no <c>include</c>.</summary>
+    class function RefusesEncryptedReasoning(const AModel: string): Boolean; static;
     /// <summary>The content of a user message that carries attachments: a
     /// <c>file</c> part per PDF (the only binary Chat Completions reads), an
     /// <c>image_url</c> part with a data URI per picture, and the text last,
@@ -405,7 +429,7 @@ begin
   end;
   LName := '';
   LArgs := '';
-  LFunction := ADelta.GetValue('function') as TJSONObject;
+  LFunction := HelpChatJsonObject(ADelta, 'function');
   if LFunction <> nil then
   begin
     LName := LFunction.GetValue<string>('name', '');
@@ -443,10 +467,12 @@ begin
     Exit;
   try
     // An error can arrive as a payload of its own, before any choice.
-    LErr := LRoot.GetValue('error') as TJSONObject;
-    if LErr <> nil then
+    LErr := HelpChatJsonObject(LRoot, 'error');
+    if (LErr <> nil) or (LRoot.GetValue('error') is TJSONString) then
     begin
-      FError := LErr.GetValue<string>('message', '');
+      // An object with a message, or - several local servers - the message
+      // itself as a string.
+      FError := HelpChatJsonErrorText(LRoot);
       if FError = '' then
         FError := HelpChatMsg(hcmProviderError);
       Exit;
@@ -465,12 +491,12 @@ begin
       FUsage.OutputTokens := LRoot.GetValue<Integer>('usage.completion_tokens', 0);
     end;
 
-    LChoices := LRoot.GetValue('choices') as TJSONArray;
+    LChoices := HelpChatJsonArray(LRoot, 'choices');
     if (LChoices = nil) or (LChoices.Count = 0) then
       Exit;
-    LChoice := LChoices.Items[0] as TJSONObject;
-    if LChoice = nil then
+    if not (LChoices.Items[0] is TJSONObject) then
       Exit;
+    LChoice := TJSONObject(LChoices.Items[0]);
 
     // Null on every chunk but the last of the choice; the usage record that
     // may follow has no choice at all and never gets here.
@@ -478,12 +504,12 @@ begin
     if LFinish <> '' then
       FFinishReason := LFinish;
 
-    LDelta := LChoice.GetValue('delta') as TJSONObject;
+    LDelta := HelpChatJsonObject(LChoice, 'delta');
     if LDelta = nil then
       Exit;
     EmitToken(LDelta.GetValue<string>('content', ''));
 
-    LToolDeltas := LDelta.GetValue('tool_calls') as TJSONArray;
+    LToolDeltas := HelpChatJsonArray(LDelta, 'tool_calls');
     if LToolDeltas <> nil then
       for LItem in LToolDeltas do
         if LItem is TJSONObject then
@@ -559,6 +585,9 @@ begin
         FUsage.CacheReadTokens - FUsage.CacheWriteTokens;
       FUsage.OutputTokens := LRoot.GetValue<Integer>('response.usage.output_tokens', 0);
     end
+    else if LType = 'response.incomplete' then
+      FCutAtLimit := LRoot.GetValue<string>('response.incomplete_details.reason', '') =
+        'max_output_tokens'
     else if LType = 'response.failed' then
     begin
       LValue := LRoot.FindValue('response.error.message');
@@ -765,9 +794,14 @@ begin
     // the way the other providers work, and the encrypted reasoning is what
     // lets a reasoning model pick up where it left after an action.
     LRoot.AddPair('store', TJSONBool.Create(False));
-    LInclude := TJSONArray.Create;
-    LInclude.Add('reasoning.encrypted_content');
-    LRoot.AddPair('include', LInclude);
+    // A model that does not reason refuses the request for it: told once,
+    // it is not asked again.
+    if not RefusesEncryptedReasoning(ASettings.ResolveModel) then
+    begin
+      LInclude := TJSONArray.Create;
+      LInclude.Add('reasoning.encrypted_content');
+      LRoot.AddPair('include', LInclude);
+    end;
 
     LInput := TJSONArray.Create;
     LRoot.AddPair('input', LInput);
@@ -1063,6 +1097,57 @@ begin
   Result := LError.Contains('reasoning_effort') and LError.Contains('''none''');
 end;
 
+class function THelpChatOpenAIProvider.RefusesReasoningEffort(const AError: string): Boolean;
+var
+  LError: string;
+begin
+  // "reasoning_effort", "reasoning.effort", "does not support thinking".
+  LError := AError.ToLower;
+  Result := LError.Contains('reasoning') or LError.Contains('effort') or
+    LError.Contains('think');
+end;
+
+class function THelpChatOpenAIProvider.AsksForNoEncryptedReasoning(
+  const AError: string): Boolean;
+var
+  LError: string;
+begin
+  LError := AError.ToLower;
+  Result := LError.Contains('encrypted content') or LError.Contains('encrypted_content');
+end;
+
+var
+  // The models that have no encrypted reasoning to give, remembered for the
+  // whole process: asking each of them once is enough.
+  GPlainModels: TStringList;
+
+class function THelpChatOpenAIProvider.RefusesEncryptedReasoning(const AModel: string): Boolean;
+begin
+  TMonitor.Enter(GPlainModels);
+  try
+    Result := GPlainModels.IndexOf(AModel) >= 0;
+  finally
+    TMonitor.Exit(GPlainModels);
+  end;
+end;
+
+function THelpChatOpenAIProvider.LearnsNoEncryptedReasoning(const AError: string): Boolean;
+var
+  LModel: string;
+begin
+  LModel := Settings.OpenAI.ResolveModel;
+  Result := AsksForNoEncryptedReasoning(AError) and not RefusesEncryptedReasoning(LModel);
+  if not Result then
+    Exit;
+  TMonitor.Enter(GPlainModels);
+  try
+    GPlainModels.Add(LModel);
+  finally
+    TMonitor.Exit(GPlainModels);
+  end;
+  LogRetry('repeated without the encrypted reasoning, the model has none', AError);
+end;
+
 class function THelpChatOpenAIProvider.BuildAssistantToolMessage(const AText: string;
   const ACalls: TArray<THelpChatToolCall>): string;
 var
@@ -1149,7 +1234,6 @@ class function THelpChatOpenAIProvider.ExtractApiError(const ARaw: string;
   const AStatus: Integer; const AStatusText: string; const ASettings: THelpChatSettings): string;
 var
   LValue: TJSONValue;
-  LErr: TJSONObject;
   LLang: THelpChatLanguage;
 begin
   Result := '';
@@ -1164,9 +1248,7 @@ begin
       try
         if LValue is TJSONObject then
         begin
-          LErr := TJSONObject(LValue).GetValue('error') as TJSONObject;
-          if LErr <> nil then
-            Result := LErr.GetValue<string>('message', '');
+          Result := HelpChatJsonErrorText(TJSONObject(LValue));
         end;
       finally
         LValue.Free;
@@ -1200,6 +1282,9 @@ begin
     LClient.ConnectionTimeout := Settings.OpenAI.ConnectTimeoutMs;
     LClient.ResponseTimeout := Settings.OpenAI.ResponseTimeoutMs;
     LClient.OnReceiveData := LWatcher.OnReceiveData;
+    // No redirect is followed: the client would repeat the headers - the
+    // key among them - at whatever address the answer names.
+    LClient.HandleRedirects := False;
 
     LKey := Settings.OpenAI.ResolveApiKey;
     LHeaders := [
@@ -1231,7 +1316,8 @@ begin
       TThread.GetTickCount - LStart, AStream.Raw);
     CheckCancelled(ACancel);
 
-    if LResponse.StatusCode >= 400 then
+    // A redirect is an error too: it was not followed.
+    if LResponse.StatusCode >= 300 then
       raise EHelpChatError.Create(ExtractApiError(AStream.Raw, LResponse.StatusCode,
         LResponse.StatusText, Settings));
     if AStream.Error <> '' then
@@ -1284,6 +1370,7 @@ function THelpChatOpenAIProvider.CompleteText(const ASystem, AUser: string;
 var
   LResponses: THelpChatOpenAIResponsesStream;
   LStream: THelpChatOpenAIStream;
+  LEffort: string;
 begin
   Result := '';
   if (Settings.OpenAI.ResolveApiKey = '') and
@@ -1293,21 +1380,30 @@ begin
   begin
     // No reasoning for a line of terms (gpt-6-luna took two seconds with
     // it); a model that refuses the effort gets the request without it.
-    LResponses := THelpChatOpenAIResponsesStream.Create(nil);
+    // Asked again only for what the service said about the request itself:
+    // any other error (a key, a rate limit) is the answer.
+    LEffort := 'none';
+    LResponses := nil;
     try
-      try
-        Post(BuildCompletionBody(ASystem, AUser, Settings.OpenAI, 'none'),
-          ResponsesUrl(Settings.OpenAI), LResponses, ACancel);
-      except
-        on E: EHelpChatError do
-        begin
-          if E is EHelpChatCancelled then
-            raise;
-          LogRetry('search terms asked again without the reasoning effort', E.Message);
-          FreeAndNil(LResponses);
-          LResponses := THelpChatOpenAIResponsesStream.Create(nil);
-          Post(BuildCompletionBody(ASystem, AUser, Settings.OpenAI, ''),
+      while LResponses = nil do
+      begin
+        LResponses := THelpChatOpenAIResponsesStream.Create(nil);
+        try
+          Post(BuildCompletionBody(ASystem, AUser, Settings.OpenAI, LEffort),
             ResponsesUrl(Settings.OpenAI), LResponses, ACancel);
+        except
+          on E: EHelpChatError do
+          begin
+            FreeAndNil(LResponses);
+            if E is EHelpChatCancelled then
+              raise;
+            if LearnsNoEncryptedReasoning(E.Message) then
+              Continue;
+            if (LEffort = '') or not RefusesReasoningEffort(E.Message) then
+              raise;
+            LogRetry('search terms asked again without the reasoning effort', E.Message);
+            LEffort := '';
+          end;
         end;
       end;
       ReportTokenUsage(LResponses.Usage);
@@ -1322,7 +1418,7 @@ begin
   except
     on E: EHelpChatError do
     begin
-      if E is EHelpChatCancelled then
+      if (E is EHelpChatCancelled) or not RefusesReasoningEffort(E.Message) then
         raise;
       // A server or a model that does not know the effort: as a reply asks.
       LogRetry('search terms asked again without the reasoning effort', E.Message);
@@ -1353,14 +1449,33 @@ begin
     begin
       LStream := THelpChatOpenAIResponsesStream.Create(AOnToken);
       try
-        Post(BuildResponsesBody(AHistory, ASystem, Settings.OpenAI, ATools,
-          '[' + LExtra.ToString + ']', Attachments, Settings.Language, AQuestionContext),
-          ResponsesUrl(Settings.OpenAI), LStream, ACancel);
+        try
+          Post(BuildResponsesBody(AHistory, ASystem, Settings.OpenAI, ATools,
+            '[' + LExtra.ToString + ']', Attachments, Settings.Language, AQuestionContext),
+            ResponsesUrl(Settings.OpenAI), LStream, ACancel);
+        except
+          // A model that does not reason: the same round once more, without
+          // asking for the reasoning. A refused request streamed nothing.
+          on E: EHelpChatError do
+          begin
+            if (E is EHelpChatCancelled) or not LearnsNoEncryptedReasoning(E.Message) then
+              raise;
+            FreeAndNil(LStream);
+            LStream := THelpChatOpenAIResponsesStream.Create(AOnToken);
+            Post(BuildResponsesBody(AHistory, ASystem, Settings.OpenAI, ATools,
+              '[' + LExtra.ToString + ']', Attachments, Settings.Language, AQuestionContext),
+              ResponsesUrl(Settings.OpenAI), LStream, ACancel);
+          end;
+        end;
         ReportTokenUsage(LStream.Usage);
         LText.Append(LStream.Text);
         LCalls := LStream.ToolCalls;
         if (Length(LCalls) = 0) or (ATools = '') then
+        begin
+          if LStream.CutAtLimit then
+            NoteReplyCut(LText, AOnToken);
           Break;
+        end;
         if LRound = AMaxRounds then
         begin
           NoteActionsNotRun(LText, AOnToken);
@@ -1478,7 +1593,11 @@ begin
         // this API (Ollama, LM Studio, some gateways) end a turn that asks
         // for a tool with "stop".
         if (Length(LCalls) = 0) or (LTools = '') then
+        begin
+          if LStream.FinishReason = 'length' then
+            NoteReplyCut(LText, AOnToken);
           Break;
+        end;
         // The last round ends here as well, with the actions it asked for
         // not run, and the reply says so.
         if LRound = LMaxRounds then
@@ -1516,9 +1635,11 @@ begin
 end;
 
 initialization
+  GPlainModels := TStringList.Create;
   THelpChatProviderRegistry.RegisterProvider(HELPCHAT_PROVIDER_OPENAI, THelpChatOpenAIProvider);
 
 finalization
   THelpChatProviderRegistry.UnregisterProvider(HELPCHAT_PROVIDER_OPENAI);
+  GPlainModels.Free;
 
 end.

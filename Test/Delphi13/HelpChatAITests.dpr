@@ -41,6 +41,7 @@ uses
   HelpChatAI.Tests.Runner in '..\source\HelpChatAI.Tests.Runner.pas',
   HelpChatAI.Tests.SearchTerms in '..\source\HelpChatAI.Tests.SearchTerms.pas',
   HelpChatAI.Tests.Log in '..\source\HelpChatAI.Tests.Log.pas',
+  HelpChatAI.Tests.Regressions in '..\source\HelpChatAI.Tests.Regressions.pas',
   HelpChatAI.Tests.Claude in '..\source\HelpChatAI.Tests.Claude.pas',
   HelpChatAI.Tests.OpenAI in '..\source\HelpChatAI.Tests.OpenAI.pas',
   HelpChatAI.Tests.Gemini in '..\source\HelpChatAI.Tests.Gemini.pas',

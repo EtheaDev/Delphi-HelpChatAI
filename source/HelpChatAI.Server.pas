@@ -73,6 +73,7 @@ uses
   IdHTTPServer,
   IdCustomHTTPServer,
   IdContext,
+  IdHeaderList,
   HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Theme,
@@ -92,6 +93,18 @@ const
   HELPCHAT_SERVER_PORT_MIN = 20000;
   HELPCHAT_SERVER_PORT_SPAN = 20000;
   HELPCHAT_SERVER_PORT_ATTEMPTS = 40;
+  /// <summary>The largest body of a request that is not an attachment: a
+  /// question, the context of a screen, a theme with the stylesheet of the
+  /// application. A larger one is refused with 413 from its headers, before
+  /// a byte of it is read - and before anybody is asked who they are.</summary>
+  HELPCHAT_SERVER_MAX_BODY_BYTES = 1024 * 1024;
+  /// <summary>What a request that carries an attachment may be larger than
+  /// <c>Settings.Attachments.MaxSizeKB</c> by.</summary>
+  HELPCHAT_SERVER_ATTACH_MARGIN_BYTES = 64 * 1024;
+  /// <summary>The largest body of an attachment, in KB, when neither
+  /// <c>MaxSizeKB</c> nor <c>MaxTotalKB</c> sets a limit: what a service
+  /// takes in one request. A server always has one.</summary>
+  HELPCHAT_SERVER_ATTACH_NOLIMIT_KB = 32 * 1024;
 
 type
   /// <summary>
@@ -119,8 +132,16 @@ type
     FLastAccess: TDateTime;
     FEngine: THelpChatEngine;
     FProfile: string;
+    FEnded: Boolean;
     function GetLastAccess: TDateTime;
   public
+    /// <summary>The session was closed or expired. It stays alive for the
+    /// requests that found it a moment earlier, and those must not write
+    /// into its conversation any more: it was saved and taken out of
+    /// memory.</summary>
+    procedure MarkEnded;
+    /// <summary>True once <see cref="MarkEnded" /> was called.</summary>
+    property Ended: Boolean read FEnded;
     /// <summary><c>AEngine</c> is the engine of the profile this session
     /// talks to, not owned; nil = the engine of the server. Both are fixed
     /// for the life of the session, so they need no lock.</summary>
@@ -208,8 +229,18 @@ type
     FBoundPort: Integer;
     FPollIntervalMs: Integer;
     FMaxPolls: Integer;
+    FMaxConnections: Integer;
     procedure HandleCommand(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo;
       AResponseInfo: TIdHTTPResponseInfo);
+    /// <summary>The headers of a request, before its body is read: a body
+    /// longer than <c>MaxBodyBytes</c>, or one with no declared length, stops
+    /// here.</summary>
+    procedure HeadersAvailable(AContext: TIdContext; const AUri: string;
+      AHeaders: TIdHeaderList; var VContinueProcessing: Boolean);
+    /// <summary>What a request stopped by <c>HeadersAvailable</c> is
+    /// answered: 413.</summary>
+    procedure HeadersBlocked(AContext: TIdContext; AHeaders: TIdHeaderList;
+      var VResponseNo: Integer; var VResponseText, VContentText: string);
     procedure HandleApi(const ADocument: string; const ASession: THelpChatServerSession;
       ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
     /// <summary>The entries of a command: name and outcome (llInfo), the
@@ -267,6 +298,14 @@ type
     /// <summary>True when there is a host in this process that can print a
     /// document and ask the user where to put it.</summary>
     function HasPdfHost: Boolean; virtual;
+    /// <summary>The longest body the request for <c>AUri</c> may have:
+    /// <c>HELPCHAT_SERVER_MAX_BODY_BYTES</c>, or the size of an attachment
+    /// plus a margin for the endpoint that takes one.</summary>
+    function MaxBodyBytes(const AUri: string): Int64; virtual;
+    /// <summary>What a client is told when a request raised: the message of
+    /// the exception here, where the client is the application itself. A
+    /// server that answers strangers overrides it.</summary>
+    function ErrorTextFor(const AError: Exception): string; virtual;
     /// <summary>Whether a client may switch the model in use: when the
     /// engine offers more than one, and the server is this user's own.</summary>
     function CanSelectModel(const AEngine: THelpChatEngine): Boolean; virtual;
@@ -287,6 +326,9 @@ type
     function LanguageListJson(const AEngine: THelpChatEngine): string;
     /// <summary>The Indy listener; nil while stopped.</summary>
     property Server: TIdHTTPServer read FServer;
+    /// <summary>The connections served at once; 0 = no limit. Read at
+    /// Start.</summary>
+    property MaxConnections: Integer read FMaxConnections write FMaxConnections;
   public
     /// <summary>The engine is started on Start if needed; owned when AOwnsEngine.</summary>
     constructor Create(const AEngine: THelpChatEngine; const AOwnsEngine: Boolean = False); virtual;
@@ -343,6 +385,10 @@ type
     FActions: IHelpChatActionInvoker;
     FOnUiCommand: THelpChatUiCommandEvent;
     FOnPdfRequest: THelpChatPdfRequestEvent;
+    /// <summary>One per handler in force: a call queued for a handler that
+    /// was replaced or taken away since - the component deactivated, or is
+    /// gone - finds its token dead and does nothing.</summary>
+    FUiLife, FPdfLife: IHelpChatLifeToken;
   strict protected
     function SessionByToken(const AToken: string): THelpChatServerSession; override;
     function HostMayRunAnyCommand: Boolean; override;
@@ -382,6 +428,11 @@ type
 
 /// <summary>Binds AServer to AIP:APort, or scans a range from a random start
 /// when APort is 0. Returns the bound port, 0 when nothing could be bound.</summary>
+/// <summary>True when the two secrets are the same, in a time that does not
+/// depend on where they first differ: what a server compares a key or a
+/// token a client sent with. An empty one never matches.</summary>
+function HelpChatSameSecret(const AGiven, AExpected: string): Boolean;
+
 function HelpChatBindServer(const AServer: TIdHTTPServer; const AIP: string;
   const APort: Integer): Integer;
 
@@ -396,6 +447,24 @@ uses
   HelpChatAI.Icons,
   IdSocketHandle,
   IdGlobal;
+
+function HelpChatSameSecret(const AGiven, AExpected: string): Boolean;
+var
+  I, LDiff: Integer;
+begin
+  if (AGiven = '') or (AExpected = '') then
+    Exit(False);
+  // Every character is looked at, whatever the first ones say: a comparison
+  // that stops at the first difference tells, by how long it took, how much
+  // of a guess was right.
+  LDiff := Length(AGiven) xor Length(AExpected);
+  for I := 1 to Length(AExpected) do
+    if I <= Length(AGiven) then
+      LDiff := LDiff or (Ord(AGiven[I]) xor Ord(AExpected[I]))
+    else
+      LDiff := LDiff or 1;
+  Result := LDiff = 0;
+end;
 
 function HelpChatBindServer(const AServer: TIdHTTPServer; const AIP: string;
   const APort: Integer): Integer;
@@ -439,9 +508,12 @@ end;
 constructor THelpChatServerSession.Create(const AId, AToken, AUserId, AConversationKey: string;
   const AEngine: THelpChatEngine; const AProfile: string);
 begin
-  // Everything but prompt and run until a component says otherwise:
-  // a remote client has no actions here to run.
-  FEnabledCommands := HELPCHAT_DEF_COMMANDS - [hccRun];
+  // What a session of a remote server starts with (the local server gives
+  // its one session the commands of the component): not run - a remote
+  // client has no actions here - and not check, which prints the folders,
+  // the files and the missing keys of the machine the server runs on to
+  // whoever holds a session.
+  FEnabledCommands := HELPCHAT_DEF_COMMANDS - [hccRun, hccCheck];
   inherited Create;
   FLock := TCriticalSection.Create;
   FId := AId;
@@ -458,6 +530,11 @@ destructor THelpChatServerSession.Destroy;
 begin
   FLock.Free;
   inherited;
+end;
+
+procedure THelpChatServerSession.MarkEnded;
+begin
+  FEnded := True;
 end;
 
 procedure THelpChatServerSession.Touch;
@@ -645,6 +722,10 @@ begin
   FServer.ParseParams := False; // the body is decoded by hand, UTF-8 safe
   FServer.OnCommandGet := HandleCommand;
   FServer.OnCommandOther := HandleCommand;
+  FServer.OnHeadersAvailable := HeadersAvailable;
+  FServer.OnHeadersBlocked := HeadersBlocked;
+  if FMaxConnections > 0 then
+    FServer.MaxConnections := FMaxConnections;
 
   FBoundPort := HelpChatBindServer(FServer, FBindIP, FPort);
   if FBoundPort = 0 then
@@ -659,6 +740,65 @@ end;
 procedure THelpChatHttpServerBase.Stop;
 begin
   StopListening;
+end;
+
+function THelpChatHttpServerBase.MaxBodyBytes(const AUri: string): Int64;
+var
+  LPath: string;
+  P: Integer;
+  LMaxKB: Int64;
+begin
+  LPath := AUri;
+  P := LPath.IndexOf('?');
+  if P >= 0 then
+    LPath := LPath.Substring(0, P);
+  if SameText(LPath, HELPCHAT_API_ATTACH) and Assigned(FEngine) then
+  begin
+    // MaxSizeKB 0 is "no limit" for the engine, not for a server: the body
+    // may then be as large as a whole conversation, or as a request of a
+    // service at most.
+    LMaxKB := FEngine.Settings.Attachments.MaxSizeKB;
+    if LMaxKB <= 0 then
+      LMaxKB := FEngine.Settings.Attachments.MaxTotalKB;
+    if LMaxKB <= 0 then
+      LMaxKB := HELPCHAT_SERVER_ATTACH_NOLIMIT_KB;
+    Result := LMaxKB * 1024 + HELPCHAT_SERVER_ATTACH_MARGIN_BYTES;
+  end
+  else
+    Result := HELPCHAT_SERVER_MAX_BODY_BYTES;
+end;
+
+function THelpChatHttpServerBase.ErrorTextFor(const AError: Exception): string;
+begin
+  Result := AError.Message;
+end;
+
+procedure THelpChatHttpServerBase.HeadersAvailable(AContext: TIdContext; const AUri: string;
+  AHeaders: TIdHeaderList; var VContinueProcessing: Boolean);
+var
+  LLength: Int64;
+begin
+  // Indy reads the whole body into memory before the request reaches
+  // HandleCommand - before the key or the token is looked at. The length
+  // the client declares is the only thing known here, so a body that
+  // declares none (chunked) is refused too: the page and the transports of
+  // the library always declare it.
+  if AHeaders.Values['Transfer-Encoding'] <> '' then
+  begin
+    VContinueProcessing := False;
+    Exit;
+  end;
+  LLength := StrToInt64Def(Trim(AHeaders.Values['Content-Length']), 0);
+  if (LLength < 0) or (LLength > MaxBodyBytes(AUri)) then
+    VContinueProcessing := False;
+end;
+
+procedure THelpChatHttpServerBase.HeadersBlocked(AContext: TIdContext; AHeaders: TIdHeaderList;
+  var VResponseNo: Integer; var VResponseText, VContentText: string);
+begin
+  VResponseNo := 413;
+  VResponseText := 'Payload Too Large';
+  VContentText := '';
 end;
 
 procedure THelpChatHttpServerBase.StopListening;
@@ -893,7 +1033,7 @@ begin
     on E: Exception do
     begin
       AResponseInfo.ResponseNo := 500;
-      WriteHtml(AResponseInfo, HelpChatTextToHtml(E.Message));
+      WriteHtml(AResponseInfo, HelpChatTextToHtml(ErrorTextFor(E)));
     end;
   end;
 end;
@@ -1009,6 +1149,15 @@ begin
 
   else if (ADocument = HELPCHAT_API_SEND) and LIsPost then
   begin
+    // The session ended while this request was on its way: its conversation
+    // was saved and released, and a question added now would stay in memory
+    // with nobody to release it - and be taken for the conversation the next
+    // time this user comes back.
+    if ASession.Ended then
+    begin
+      WriteStatus(AResponseInfo, 403);
+      Exit;
+    end;
     LMessage := FormField(LBody, HELPCHAT_FIELD_MESSAGE);
     // The screen context is the native one; a client may still send its own
     // fields, which win when present.
@@ -1318,6 +1467,12 @@ destructor THelpChatLocalServer.Destroy;
 begin
   // Not Stop, which is virtual: see THelpChatHttpServerBase.Destroy.
   StopListening;
+  // Whatever is still queued for the host stays in the queue of the main
+  // thread after this server: it must find nobody.
+  if Assigned(FUiLife) then
+    FUiLife.Kill;
+  if Assigned(FPdfLife) then
+    FPdfLife.Kill;
   FreeAndNil(FSession);
   FreeAndNil(FLock);
   inherited;
@@ -1350,7 +1505,7 @@ end;
 
 function THelpChatLocalServer.SessionByToken(const AToken: string): THelpChatServerSession;
 begin
-  if Assigned(FSession) and (AToken <> '') and (AToken = FSession.Token) then
+  if Assigned(FSession) and HelpChatSameSecret(AToken, FSession.Token) then
     Result := FSession
   else
     Result := nil;
@@ -1511,6 +1666,9 @@ procedure THelpChatLocalServer.SetOnPdfRequest(const AHandler: THelpChatPdfReque
 begin
   FLock.Enter;
   try
+    if Assigned(FPdfLife) then
+      FPdfLife.Kill;
+    FPdfLife := THelpChatLifeToken.Create;
     FOnPdfRequest := AHandler;
   finally
     FLock.Leave;
@@ -1521,6 +1679,9 @@ procedure THelpChatLocalServer.SetOnUiCommand(const AHandler: THelpChatUiCommand
 begin
   FLock.Enter;
   try
+    if Assigned(FUiLife) then
+      FUiLife.Kill;
+    FUiLife := THelpChatLifeToken.Create;
     FOnUiCommand := AHandler;
   finally
     FLock.Leave;
@@ -1541,11 +1702,13 @@ function THelpChatLocalServer.HandlePdfRequest(
   const ASession: THelpChatServerSession; const AKind, AId: string): Boolean;
 var
   LHandler: THelpChatPdfRequestEvent;
+  LLife: IHelpChatLifeToken;
   LDoc: THelpChatPrintableDoc;
 begin
   FLock.Enter;
   try
     LHandler := FOnPdfRequest;
+    LLife := FPdfLife;
   finally
     FLock.Leave;
   end;
@@ -1558,7 +1721,8 @@ begin
   TThread.Queue(nil,
     procedure
     begin
-      LHandler(LDoc);
+      if (LLife = nil) or LLife.IsAlive then
+        LHandler(LDoc);
     end);
 end;
 
@@ -1566,12 +1730,14 @@ function THelpChatLocalServer.HandleUiCommand(const ASession: THelpChatServerSes
   const ACommand: string): Boolean;
 var
   LHandler: THelpChatUiCommandEvent;
+  LLife: IHelpChatLifeToken;
 begin
   // The host is in this process: the command is handed to the UI layer on the
   // main thread and the request returns at once.
   FLock.Enter;
   try
     LHandler := FOnUiCommand;
+    LLife := FUiLife;
   finally
     FLock.Leave;
   end;
@@ -1580,7 +1746,8 @@ begin
     TThread.Queue(nil,
       procedure
       begin
-        LHandler(ACommand);
+        if (LLife = nil) or LLife.IsAlive then
+          LHandler(ACommand);
       end);
 end;
 

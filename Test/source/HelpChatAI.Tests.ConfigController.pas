@@ -90,6 +90,12 @@ type
     [Test]
     procedure MalformedFile_IsReported_AndNeverOverwritten;
     [Test]
+    procedure EmptyOrMissingFile_IsANewOne_AndSaveCreatesIt;
+    [Test]
+    procedure ModelsPage_ProvidersKeysAndWhetherTheFileNamesModels;
+    [Test]
+    procedure Models_TheIconOfTheFile_StaysWhenTheEditorSaves;
+    [Test]
     procedure FirstFile_IsTheOneTheConfigurationComesFrom;
     [Test]
     procedure Entries_ComponentByName_ThenTheProviders;
@@ -422,7 +428,7 @@ begin
   LController := NewController('');
   try
     LController.ComponentAssistantName := 'Bob';
-    LController.SetComponentValue('Claude.MaxTokens', '4096');
+    LController.SetComponentValue('Claude.MaxTokens', '8192'); // not the default
     Assert.IsTrue(EntryOf(LController.Entries, 'DocIndexFile').InComponent);
     Assert.IsTrue(EntryOf(LController.Entries, 'Claude.MaxTokens').InComponent);
     Assert.IsTrue(EntryOf(LController.Entries, 'AssistantName').InComponent);
@@ -592,6 +598,131 @@ begin
   finally
     LController.Free;
   end;
+end;
+
+procedure TConfigControllerTests.Models_TheIconOfTheFile_StaysWhenTheEditorSaves;
+var
+  LController: THelpChatConfigController;
+  LModels: TArray<THelpChatConfigModel>;
+  LSaved: string;
+begin
+  TFile.WriteAllText(FFile, '{"Models": [{"Name": "Support", "Provider": "openai", ' +
+    '"Model": "acme-support-v2", "Icon": "llama"}]}', TEncoding.UTF8);
+  LController := NewController('');
+  try
+    LModels := LController.Models;
+    Assert.AreEqual('llama', LModels[0].Icon, 'read from the file');
+    // What a view sends back: it shows no icon, so it sends none.
+    LModels[0].Icon := '';
+    LModels[0].Model := 'acme-support-v3';
+    LController.SetModels(LModels);
+    Assert.IsTrue(LController.Save, LController.LastError);
+  finally
+    LController.Free;
+  end;
+  LSaved := TFile.ReadAllText(FFile, TEncoding.UTF8);
+  Assert.Contains(LSaved, 'acme-support-v3');
+  Assert.Contains(LSaved, '"llama"', 'the icon written by hand stays');
+end;
+
+procedure TConfigControllerTests.ModelsPage_ProvidersKeysAndWhetherTheFileNamesModels;
+var
+  LController: THelpChatConfigController;
+  LProvider: string;
+begin
+  // The key the Models page writes is the one the Settings page shows.
+  Assert.AreEqual('Claude.ApiKey', THelpChatConfigController.ProviderKeyPath('claude'));
+  Assert.AreEqual('OpenAI.ApiKey', THelpChatConfigController.ProviderKeyPath(' openai '));
+  Assert.AreEqual('Gemini.ApiKey', THelpChatConfigController.ProviderKeyPath('Gemini'));
+  Assert.AreEqual('', THelpChatConfigController.ProviderKeyPath('docsearch'));
+  Assert.AreEqual('', THelpChatConfigController.ProviderKeyPath(''));
+  // stub answers one sentence to everything: not a model to offer.
+  for LProvider in THelpChatConfigController.ModelProviders do
+    Assert.AreNotEqual('stub', LProvider);
+  // Nothing to answer with: the views open on the Models page.
+  TFile.WriteAllText(FFile, '{"Language": "it"}', TEncoding.UTF8);
+  LController := NewController('');
+  try
+    Assert.IsTrue(LController.NeedsModel, 'no model, and the provider is stub');
+    // A provider is the one implicit model: nothing is missing.
+    LController.SetValue('Provider', ccsRoot, 'claude');
+    Assert.IsFalse(LController.NeedsModel, 'a provider with no catalogue');
+  finally
+    LController.Free;
+  end;
+  // The models are somewhere else - the form file here, as in the CRM demo,
+  // or another file: the file being edited naming none lacks nothing. It
+  // used to send the editor to an empty Models page at every opening.
+  with FComponent.Models.Add do
+  begin
+    Name := 'Claude';
+    Provider := 'claude';
+  end;
+  LController := NewController('');
+  try
+    Assert.IsFalse(LController.NeedsModel, 'the catalogue of the component');
+  finally
+    LController.Free;
+  end;
+  FComponent.Models.Clear;
+  TFile.WriteAllText(FFile, '{"Models": [{"Name": "Claude", "Provider": "claude"}]}',
+    TEncoding.UTF8);
+  LController := NewController('');
+  try
+    Assert.IsFalse(LController.NeedsModel, 'a catalogue');
+    LController.SetValue(THelpChatConfigController.ProviderKeyPath('claude'), ccsRoot,
+      'sk-test-1234');
+    Assert.IsTrue(LController.Save, LController.LastError);
+  finally
+    LController.Free;
+  end;
+  Assert.Contains(TFile.ReadAllText(FFile, TEncoding.UTF8), '"Claude"');
+  Assert.Contains(TFile.ReadAllText(FFile, TEncoding.UTF8), '"ApiKey"');
+end;
+
+procedure TConfigControllerTests.EmptyOrMissingFile_IsANewOne_AndSaveCreatesIt;
+var
+  LController: THelpChatConfigController;
+  LSettings: THelpChatSettings;
+  LMissing, LText: string;
+  LContent: string;
+begin
+  // Empty, blanks only, a byte order mark only: a configuration nobody wrote
+  // yet, not a malformed one.
+  for LContent in TArray<string>.Create('', '   '#13#10, #$FEFF) do
+  begin
+    TFile.WriteAllText(FFile, LContent, TEncoding.UTF8);
+    LController := NewController('');
+    try
+      Assert.AreEqual('', LController.LoadError, 'an empty file is not an error');
+      LController.SetValue('Language', ccsRoot, 'de');
+      Assert.IsTrue(LController.Save, LController.LastError);
+    finally
+      LController.Free;
+    end;
+    LText := TFile.ReadAllText(FFile, TEncoding.UTF8);
+    Assert.Contains(LText, '"Language"', 'Save wrote the file');
+    // The runtime reads it the same way: no file, no error.
+    TFile.WriteAllText(FFile, LContent, TEncoding.UTF8);
+    LSettings := THelpChatSettings.Create;
+    try
+      Assert.IsFalse(LSettings.LoadFromFile(FFile), 'nothing to load');
+    finally
+      LSettings.Free;
+    end;
+  end;
+  // A file that is not there yet, in a folder that is not there either.
+  LMissing := TPath.Combine(TPath.Combine(FFolder, 'new-folder'), 'new.json');
+  LController := THelpChatConfigController.Create(FComponent, '',
+    TPath.Combine(FFolder, 'App.exe'), LMissing);
+  try
+    Assert.AreEqual('', LController.LoadError);
+    LController.SetValue('Language', ccsRoot, 'fr');
+    Assert.IsTrue(LController.Save, LController.LastError);
+  finally
+    LController.Free;
+  end;
+  Assert.IsTrue(TFile.Exists(LMissing), 'Save creates the file and its folder');
 end;
 
 procedure TConfigControllerTests.MalformedFile_IsReported_AndNeverOverwritten;

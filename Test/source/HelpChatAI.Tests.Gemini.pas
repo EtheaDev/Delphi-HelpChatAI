@@ -216,6 +216,9 @@ begin
     Assert.AreEqual('open_screen', (LDeclarations.Items[0] as TJSONObject).GetValue<string>('name'));
     Assert.AreEqual('string', (LDeclarations.Items[0] as TJSONObject)
       .GetValue<string>('parameters.properties.name.type'));
+    // An action with no parameters carries no "parameters" at all: an OBJECT
+    // schema with empty properties is what this API has refused.
+    Assert.IsNull((LDeclarations.Items[1] as TJSONObject).GetValue('parameters'));
   finally
     LArray.Free;
   end;

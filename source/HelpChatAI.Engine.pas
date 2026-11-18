@@ -112,6 +112,11 @@ type
     /// start); empty while the configuration decides, so that a state file
     /// never freezes a language nobody picked.</summary>
     FChosenLanguage: string;
+    /// <summary>The model the user chose (now or at a past start); empty
+    /// while the configuration decides. Without it the state file froze the
+    /// model in use the first time the user picked a language: a model the
+    /// start fell back to, or the one the configuration named that day.</summary>
+    FChosenModel: string;
     FOnMessageChanged: THelpChatMessageEvent;
     /// <summary>The store changed (on the thread that changed it): persists
     /// the conversation once a message is complete - not at every streamed
@@ -559,11 +564,25 @@ begin
   if AKey <> FConversationKey then
     Exit;
   // Persist on every completed change, not on every streamed token.
-  if FSettings.PersistConversation and Assigned(FStore) then
-    if (AMessageId = '') or (FStore.TryGetMessage(AKey, AMessageId, LMessage) and not LMessage.Pending) then
-      FStore.SaveToFile(AKey, FSettings.ResolveConversationFile);
+  // Neither a file that cannot be written nor a handler that raises may
+  // leave this method: it runs on the worker that is answering, inside the
+  // call that completes or fails the reply, and an exception there ended
+  // the worker thread - after PoolSize of them every question stayed pending.
+  try
+    if FSettings.PersistConversation and Assigned(FStore) then
+      if (AMessageId = '') or (FStore.TryGetMessage(AKey, AMessageId, LMessage) and not LMessage.Pending) then
+        FStore.SaveToFile(AKey, FSettings.ResolveConversationFile);
+  except
+    on E: Exception do
+      FSettings.Log(llInfo, lsWarning, lcConversation, 'Conversation not saved: ' + E.Message);
+  end;
   if Assigned(FOnMessageChanged) then
-    FOnMessageChanged(Self, AMessageId);
+    try
+      FOnMessageChanged(Self, AMessageId);
+    except
+      on E: Exception do
+        FSettings.Log(llInfo, lsError, lcEngine, 'OnMessageChanged raised: ' + E.Message);
+    end;
 end;
 
 function THelpChatEngine.Send(const AText: string): THelpChatSendResult;
@@ -609,9 +628,19 @@ begin
     LActions := FActions;
   // No provider name: the runner takes it from the snapshot of the settings
   // it makes, so name, endpoint and key are always of the same model.
-  FRunner.Submit(AKey, LAssistantId, '', AContext,
-    FSettings.HistoryMaxMessages, FSettings, LActions,
-    FAttachments.ItemsOf(AKey), AAssistantName);
+  try
+    FRunner.Submit(AKey, LAssistantId, '', AContext,
+      FSettings.HistoryMaxMessages, FSettings, LActions,
+      FAttachments.ItemsOf(AKey), AAssistantName);
+  except
+    on E: Exception do
+    begin
+      // The bubble is already there: left pending, the panel would poll it
+      // for as long as it allows. It says why instead.
+      FStore.FailAssistant(AKey, LAssistantId, E.Message);
+      FStore.TryGetMessage(AKey, LAssistantId, Result.AssistantMessage);
+    end;
+  end;
 end;
 
 function THelpChatEngine.TryGetMessage(const AId: string; out AMessage: THelpChatMessage): Boolean;
@@ -669,6 +698,7 @@ begin
   for LId in FStore.PendingIds(AKey) do
     FRunner.Cancel(LId);
   FStore.Clear(AKey);
+  FRunner.ForgetSearchTerms(AKey);
   // The attachments went with the conversation that is gone: keeping them
   // would send documents nobody can see any more with the next question.
   FAttachments.ClearKey(AKey);
@@ -740,8 +770,10 @@ begin
     Exit;
   LRoot := TJSONObject.Create;
   try
-    // Both choices of the user, always together: writing one must not lose the other.
-    LRoot.AddPair('Model', FSettings.ActiveModelName);
+    // Both choices of the user, always together: writing one must not lose
+    // the other - and only what the user chose, never what happens to be in use.
+    if FChosenModel <> '' then
+      LRoot.AddPair('Model', FChosenModel);
     if FChosenLanguage <> '' then
       LRoot.AddPair('Language', FChosenLanguage);
     try
@@ -767,8 +799,11 @@ begin
     LName := LoadState('Model');
   // The remembered one, if it is still in the list; else what the configuration names.
   if (LName <> '') and FSettings.ApplyModel(LName) then
+  begin
+    FChosenModel := FSettings.ActiveModelName;
     FSettings.Log(llDetail, lsInfo, lcEngine, 'Model at start: ' + LName +
-      ', the one the user picked last time')
+      ', the one the user picked last time');
+  end
   else
   begin
     FSettings.ApplyModel(FSettings.ActiveModelName);
@@ -807,8 +842,8 @@ begin
   for LInfo in LAll do
   begin
     // Offered only when it could answer: a model of the catalogue whose
-    // service has no key (or, for openai, neither a key nor an endpoint of
-    // its own) is not a choice, it is an error waiting for the first
+    // service has no key (for openai, no key unless the endpoint is on this
+    // machine or a private network) is not a choice, it is an error waiting for the first
     // question. The one in use stays, whatever it lacks: the panel must
     // show what is answering. The configuration check lists them all.
     if (FSettings.Models.Count > 0) and not LInfo.Active and
@@ -855,6 +890,7 @@ begin
     [LPrevious, FSettings.ActiveModelName]));
   if Assigned(FDocIndex) then
     FDocIndex.ExcerptMaxChars := FSettings.ActiveModel.GroundingMaxChars;
+  FChosenModel := FSettings.ActiveModelName;
   SaveState;
 end;
 

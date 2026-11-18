@@ -81,7 +81,11 @@ type
     /// <summary>The <c>docsearch</c> answer when no page scores: %s is the
     /// base URL of the documentation.</summary>
     hcmNoPageFound,
+    /// <summary>The docsearch provider: the label of the link to the page the
+    /// answer came from.</summary>
     hcmReadMore,
+    /// <summary>The docsearch provider: introduces the other pages that may
+    /// help.</summary>
     hcmSeeAlso,
     /// <summary>The <c>claude</c> provider without a key: %s twice, the
     /// folder of the shared configuration file and the folder of the
@@ -121,12 +125,21 @@ type
     hcmUiTitle,
     /// <summary>Caption of the chat window when the component gives none.</summary>
     hcmUiHelp,
+    /// <summary>Panel: the button that clears the conversation.</summary>
     hcmUiClear,
+    /// <summary>Panel: the label of a button that closes something.</summary>
     hcmUiClose,
+    /// <summary>Panel: what the empty question box says.</summary>
     hcmUiPlaceholder,
+    /// <summary>Panel: the button that sends the question.</summary>
     hcmUiSend,
+    /// <summary>Panel: the button that stops a reply while it is being
+    /// written.</summary>
     hcmUiStop,
+    /// <summary>Panel: the button that asks the last question again.</summary>
     hcmUiRetry,
+    /// <summary>Panel: a request of the page did not reach the server, or was
+    /// refused.</summary>
     hcmUiSendError,
     /// <summary>Button of the documentation view that returns to the chat.</summary>
     hcmUiBack,
@@ -139,7 +152,8 @@ type
     /// <summary>A documentation page that cannot be shown: %s is the page.</summary>
     hcmDocNotFound,
     /// <summary>Asked before the assistant runs an action that changes
-    /// something: %s is the action, %s its parameters.</summary>
+    /// something: %s is the action, %s its description, %s the block of the
+    /// values the model wrote.</summary>
     hcmActionConfirm,
     /// <summary>Label over the parameter values in that question: they were
     /// written by the model, and the user is told so.</summary>
@@ -166,38 +180,75 @@ type
     // The slash commands of the panel (HelpChatAI.Commands): one description
     // each, in the order of THelpChatCommand, then what their answers say.
     hcmCmdHelp,
+    /// <summary>Description of <c>/who</c>.</summary>
     hcmCmdWho,
+    /// <summary>Description of <c>/use</c>.</summary>
     hcmCmdUse,
+    /// <summary>Description of <c>/lang</c>.</summary>
     hcmCmdLang,
+    /// <summary>Description of <c>/retry</c>.</summary>
     hcmCmdRetry,
+    /// <summary>Description of <c>/search</c>.</summary>
     hcmCmdSearch,
+    /// <summary>Description of <c>/doc</c>.</summary>
     hcmCmdDoc,
+    /// <summary>Description of <c>/pages</c>.</summary>
     hcmCmdPages,
+    /// <summary>Description of <c>/context</c>.</summary>
     hcmCmdContext,
+    /// <summary>Description of <c>/actions</c>.</summary>
     hcmCmdActions,
+    /// <summary>Description of <c>/check</c>.</summary>
     hcmCmdCheck,
+    /// <summary>Description of <c>/stats</c>.</summary>
     hcmCmdStats,
+    /// <summary>Description of <c>/clear</c>.</summary>
     hcmCmdClear,
+    /// <summary>Description of <c>/pdf</c>.</summary>
     hcmCmdPdf,
+    /// <summary>Description of <c>/copy</c>.</summary>
     hcmCmdCopy,
+    /// <summary>Description of <c>/attach</c>.</summary>
     hcmCmdAttach,
+    /// <summary>Description of <c>/prompt</c>.</summary>
     hcmCmdPrompt,
+    /// <summary>Description of <c>/run</c>.</summary>
     hcmCmdRun,
     /// <summary>%s is the word typed after the slash.</summary>
     hcmCmdUnknown,
+    /// <summary>Answer of <c>/who</c>: the label of the provider.</summary>
     hcmCmdProvider,
+    /// <summary>Answer of <c>/who</c>: the label of the endpoint.</summary>
     hcmCmdEndpoint,
+    /// <summary>Answer of <c>/search</c> and <c>/pages</c> when no index is
+    /// loaded.</summary>
     hcmCmdNoIndex,
+    /// <summary>Answer of a command about the last question, when none was
+    /// asked yet.</summary>
     hcmCmdNoQuestion,
     /// <summary>%s is what was searched.</summary>
     hcmCmdNoResults,
+    /// <summary>Answer of <c>/prompt</c>: %s is the terms the model translated
+    /// the question into for the search.</summary>
     hcmCmdSearchTerms,
+    /// <summary>Answer of <c>/prompt</c>: heading of the part of the prompt
+    /// that does not change from one question to the next.</summary>
     hcmCmdPromptStable,
+    /// <summary>Answer of <c>/prompt</c>: heading of the part that goes with
+    /// the question (now, the screen, the excerpts).</summary>
     hcmCmdPromptContext,
+    /// <summary>Answer of <c>/prompt</c>: heading of the prompt of a provider
+    /// that does not split it.</summary>
     hcmCmdPromptWhole,
+    /// <summary>Answer of <c>/context</c> when the host sent no
+    /// screen.</summary>
     hcmCmdNoContext,
+    /// <summary>Answer of <c>/actions</c> when there is none.</summary>
     hcmCmdNoActions,
+    /// <summary>Answer of <c>/run</c> with no action named.</summary>
     hcmCmdRunUsage,
+    /// <summary>Answer of a command that needs the engine, when it is not
+    /// running here.</summary>
     hcmCmdNoEngine,
     /// <summary>/use or /retry named a model that is not in the list: %s is
     /// the name asked for.</summary>
@@ -206,23 +257,39 @@ type
     hcmCmdNoLanguage,
     /// <summary>%s twice: time to the first token, time to the end.</summary>
     hcmCmdStatsLine,
+    /// <summary>Answer of <c>/stats</c> before the first answer.</summary>
     hcmCmdNoStats,
+    /// <summary>Answer of <c>/doc</c> with no page named.</summary>
     hcmCmdDocUsage,
+    /// <summary>Answer of <c>/use</c> with no model named.</summary>
     hcmCmdUseUsage,
+    /// <summary>Answer of <c>/copy</c> when there is nothing to copy.</summary>
     hcmCmdNoAnswer,
     /// <summary>The first line of the answer of a command ("Available actions"):
     /// the page adds " (/name):" after it.</summary>
     hcmCmdTitleHelp,
+    /// <summary>Heading of the answer of <c>/who</c>.</summary>
     hcmCmdTitleWho,
+    /// <summary>Heading of the answer of <c>/use</c>.</summary>
     hcmCmdTitleUse,
+    /// <summary>Heading of the answer of <c>/lang</c>.</summary>
     hcmCmdTitleLang,
+    /// <summary>Heading of the answer of <c>/search</c>: %s is what was
+    /// searched.</summary>
     hcmCmdTitleSearch,
+    /// <summary>Heading of the answer of <c>/pages</c>.</summary>
     hcmCmdTitlePages,
+    /// <summary>Heading of the answer of <c>/context</c>.</summary>
     hcmCmdTitleContext,
+    /// <summary>Heading of the answer of <c>/actions</c>.</summary>
     hcmCmdTitleActions,
+    /// <summary>Heading of the answer of <c>/check</c>.</summary>
     hcmCmdTitleCheck,
+    /// <summary>Heading of the answer of <c>/stats</c>.</summary>
     hcmCmdTitleStats,
+    /// <summary>Heading of the answer of <c>/prompt</c>.</summary>
     hcmCmdTitlePrompt,
+    /// <summary>Heading of the answer of <c>/run</c>.</summary>
     hcmCmdTitleRun,
     /// <summary>A file of a type no model reads: %s is the extension,
     /// %s the list of the accepted ones.</summary>
@@ -311,7 +378,17 @@ type
     /// <summary>What the skill "records" does, for <c>/skills</c>.</summary>
     hcmSkillRecords,
     /// <summary>What the skill "pages" does, for <c>/skills</c>.</summary>
-    hcmSkillPages);
+    hcmSkillPages,
+    /// <summary>Added to a reply the service stopped at the limit of tokens
+    /// (<c>MaxTokens</c>): the user is told it is not whole, instead of being
+    /// left with a sentence that ends in the middle.</summary>
+    hcmReplyCut,
+    /// <summary>The button that allows an action, in the confirmation
+    /// dialog: in the language of the chat, not in the one the RTL was
+    /// built with.</summary>
+    hcmConfirmYes,
+    /// <summary>The button that refuses an action.</summary>
+    hcmConfirmNo);
 
 /// <summary>Returns the string <c>AId</c> in <c>ALanguage</c> (<c>hclAuto</c> =
 /// <see cref="HelpChatDefaultLanguage" />, resolved against the OS locale).
@@ -486,6 +563,10 @@ resourcestring
   SEnActionConfirmTitle = 'The assistant wants to run "%s"';
   SEnActionValuesFooter = 'The values above were written by the assistant, not by you: ' +
     'check them before allowing.';
+  SEnConfirmYes = 'Yes';
+  SEnConfirmNo = 'No';
+  SEnReplyCut =
+    '(The answer was cut: it reached the length limit of a reply. Ask to continue.)';
   SEnActionsNotRun =
     '(One more action was requested but not run: the limit of steps for one reply was reached. Ask again to continue.)';
   SEnUiAttach = 'Attach a document';
@@ -615,8 +696,8 @@ resourcestring
   SItCmdTitleContext = 'Contesto della schermata';
   SItCmdTitleActions = 'Azioni disponibili';
   SItCmdTitleCheck = 'Controllo della configurazione';
-  SItCmdTitleStats = 'Tempi dellultima risposta';
-  SItCmdTitlePrompt = 'Prompt di sistema dellultima domanda';
+  SItCmdTitleStats = 'Tempi dell''ultima risposta';
+  SItCmdTitlePrompt = 'Prompt di sistema dell''ultima domanda';
   SItCmdTitleRun = 'Azione eseguita';
   SItUiMic = 'Detta la domanda';
   SItVoiceConsentNeeded = 'La dettatura passa dal riconoscimento vocale online di Windows, che su questo computer non è abilitato.' + sLineBreak + sLineBreak + 'Verrà aperta la pagina delle impostazioni di Windows: attiva Riconoscimento vocale online, poi premi di nuovo il microfono.';
@@ -628,6 +709,10 @@ resourcestring
   SItActionConfirmTitle = 'L''assistente vuole eseguire "%s"';
   SItActionValuesFooter = 'I valori qui sopra li ha scritti l''assistente, non tu: ' +
     'controllali prima di consentire.';
+  SItConfirmYes = 'Sì';
+  SItConfirmNo = 'No';
+  SItReplyCut =
+    '(La risposta è stata interrotta: ha raggiunto il limite di lunghezza di una risposta. Chiedi di continuare.)';
   SItActionsNotRun =
     '(È stata richiesta un''altra azione ma non è stata eseguita: raggiunto il limite di passaggi per una risposta. Chiedi di nuovo per continuare.)';
   SItUiAttach = 'Allega un documento';
@@ -770,6 +855,10 @@ resourcestring
   SEsActionConfirmTitle = 'El asistente quiere ejecutar "%s"';
   SEsActionValuesFooter = 'Los valores anteriores los ha escrito el asistente, no tú: ' +
     'revísalos antes de permitirlo.';
+  SEsConfirmYes = 'Sí';
+  SEsConfirmNo = 'No';
+  SEsReplyCut =
+    '(La respuesta se cortó: alcanzó el límite de longitud de una respuesta. Pide que continúe.)';
   SEsActionsNotRun =
     '(Se pidió otra acción pero no se ejecutó: se alcanzó el límite de pasos de una respuesta. Vuelve a preguntar para continuar.)';
   SEsUiAttach = 'Adjuntar un documento';
@@ -803,16 +892,16 @@ resourcestring
   SEsPdfHandedOver = 'El documento está listo: el usuario está eligiendo dónde guardarlo.';
   SEsAttachedDocuments = 'Documentos que el usuario adjuntó a la pregunta';
   SEsAttachedTextFile = 'Contenido del archivo adjunto "%s"';
-  SEsSkillFill = 'El asistente quiere rellenar estos campos de "%s". No se guarda nada: usted revisa los valores y guarda.';
+  SEsSkillFill = 'El asistente quiere rellenar estos campos de "%s". No se guarda nada: tú revisas los valores y guardas.';
   SEsSkillPress = 'El asistente quiere pulsar "%0:s" en "%1:s".';
   SEsSkillCancel = 'El asistente quiere descartar los cambios no guardados en "%s".';
   SEsCmdSkills = 'Las habilidades del asistente: lo que sabe hacer en cualquier ventana';
   SEsCmdTitleSkills = 'Habilidades del asistente';
   SEsCmdNoSkills = 'Este asistente no tiene habilidades.';
   SEsCmdSkillUnknown = 'no disponible en esta aplicación';
-  SEsSkillForms = 'Describe la ventana que tiene delante y rellena sus campos, preguntando antes y sin guardar nunca.';
+  SEsSkillForms = 'Describe la ventana que tienes delante y rellena sus campos, preguntando antes y sin guardar nunca.';
   SEsSkillCommands = 'Enumera los botones de la ventana y pulsa uno, preguntando antes; nunca uno que guarde.';
-  SEsSkillRecords = 'Cuenta los registros de las listas de la ventana y se mueve al que usted nombre.';
+  SEsSkillRecords = 'Cuenta los registros de las listas de la ventana y se mueve al que tú nombres.';
   SEsSkillPages = 'Trae al frente una página (una pestaña) de la ventana.';
 
   // ---- French --------------------------------------------------------------
@@ -912,6 +1001,10 @@ resourcestring
   SFrActionConfirmTitle = 'L''assistant veut exécuter "%s"';
   SFrActionValuesFooter = 'Les valeurs ci-dessus ont été écrites par l''assistant, pas par vous : ' +
     'vérifiez-les avant d''autoriser.';
+  SFrConfirmYes = 'Oui';
+  SFrConfirmNo = 'Non';
+  SFrReplyCut =
+    '(La réponse a été coupée : elle a atteint la limite de longueur d''une réponse. Demandez de continuer.)';
   SFrActionsNotRun =
     '(Une autre action a été demandée mais n''a pas été exécutée : la limite d''étapes d''une réponse est atteinte. Redemandez pour continuer.)';
   SFrUiAttach = 'Joindre un document';
@@ -1054,6 +1147,10 @@ resourcestring
   SDeActionConfirmTitle = 'Der Assistent möchte "%s" ausführen';
   SDeActionValuesFooter = 'Die obigen Werte hat der Assistent geschrieben, nicht Sie: ' +
     'prüfen Sie sie, bevor Sie zustimmen.';
+  SDeConfirmYes = 'Ja';
+  SDeConfirmNo = 'Nein';
+  SDeReplyCut =
+    '(Die Antwort wurde abgeschnitten: Die Längengrenze einer Antwort ist erreicht. Bitten Sie um Fortsetzung.)';
   SDeActionsNotRun =
     '(Eine weitere Aktion wurde angefordert, aber nicht ausgeführt: Die Schrittgrenze einer Antwort ist erreicht. Fragen Sie erneut, um fortzufahren.)';
   SDeUiAttach = 'Dokument anhängen';
@@ -1196,6 +1293,10 @@ resourcestring
   SPtActionConfirmTitle = 'O assistente quer executar "%s"';
   SPtActionValuesFooter = 'Os valores acima foram escritos pelo assistente, não por si: ' +
     'verifique-os antes de permitir.';
+  SPtConfirmYes = 'Sim';
+  SPtConfirmNo = 'Não';
+  SPtReplyCut =
+    '(A resposta foi cortada: atingiu o limite de comprimento de uma resposta. Peça para continuar.)';
   SPtActionsNotRun =
     '(Foi pedida mais uma ação, mas não foi executada: foi atingido o limite de passos de uma resposta. Pergunte de novo para continuar.)';
   SPtUiAttach = 'Anexar um documento';
@@ -1449,6 +1550,9 @@ begin
     hcmSkillCommands: Result := SEnSkillCommands;
     hcmSkillRecords: Result := SEnSkillRecords;
     hcmSkillPages: Result := SEnSkillPages;
+    hcmReplyCut: Result := SEnReplyCut;
+    hcmConfirmYes: Result := SEnConfirmYes;
+    hcmConfirmNo: Result := SEnConfirmNo;
   else
     Result := '';
   end;
@@ -1587,6 +1691,9 @@ begin
     hcmSkillCommands: Result := SItSkillCommands;
     hcmSkillRecords: Result := SItSkillRecords;
     hcmSkillPages: Result := SItSkillPages;
+    hcmReplyCut: Result := SItReplyCut;
+    hcmConfirmYes: Result := SItConfirmYes;
+    hcmConfirmNo: Result := SItConfirmNo;
   else
     Result := '';
   end;
@@ -1725,6 +1832,9 @@ begin
     hcmSkillCommands: Result := SEsSkillCommands;
     hcmSkillRecords: Result := SEsSkillRecords;
     hcmSkillPages: Result := SEsSkillPages;
+    hcmReplyCut: Result := SEsReplyCut;
+    hcmConfirmYes: Result := SEsConfirmYes;
+    hcmConfirmNo: Result := SEsConfirmNo;
   else
     Result := '';
   end;
@@ -1863,6 +1973,9 @@ begin
     hcmSkillCommands: Result := SFrSkillCommands;
     hcmSkillRecords: Result := SFrSkillRecords;
     hcmSkillPages: Result := SFrSkillPages;
+    hcmReplyCut: Result := SFrReplyCut;
+    hcmConfirmYes: Result := SFrConfirmYes;
+    hcmConfirmNo: Result := SFrConfirmNo;
   else
     Result := '';
   end;
@@ -2001,6 +2114,9 @@ begin
     hcmSkillCommands: Result := SDeSkillCommands;
     hcmSkillRecords: Result := SDeSkillRecords;
     hcmSkillPages: Result := SDeSkillPages;
+    hcmReplyCut: Result := SDeReplyCut;
+    hcmConfirmYes: Result := SDeConfirmYes;
+    hcmConfirmNo: Result := SDeConfirmNo;
   else
     Result := '';
   end;
@@ -2139,6 +2255,9 @@ begin
     hcmSkillCommands: Result := SPtSkillCommands;
     hcmSkillRecords: Result := SPtSkillRecords;
     hcmSkillPages: Result := SPtSkillPages;
+    hcmReplyCut: Result := SPtReplyCut;
+    hcmConfirmYes: Result := SPtConfirmYes;
+    hcmConfirmNo: Result := SPtConfirmNo;
   else
     Result := '';
   end;

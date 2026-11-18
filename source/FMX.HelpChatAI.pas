@@ -257,6 +257,15 @@ type
     FOnGetTheme: TFmxHelpChatThemeEvent;
     FActions: THelpChatActionBroker;
     FActionsRef: IHelpChatActionInvoker; // owns the broker (it is reference counted)
+    /// <summary>Killed by the destructor: what a call queued for the main
+    /// thread asks before touching this component.</summary>
+    FLife: IHelpChatLifeToken;
+    /// <summary>True from the moment the form given in <c>HostForm</c> is
+    /// destroyed until another one is given: the assistant then has no form.
+    /// It must not move to the form that owns it, or to the main one.</summary>
+    FHostGone: Boolean;
+    /// <summary>True while a PDF is being saved: one at a time.</summary>
+    FPdfBusy: Boolean;
     FActionsEnabled: Boolean;
     FUseSharedActions: Boolean;
     FSkills: THelpChatSkillSet;
@@ -319,6 +328,12 @@ type
     procedure HostHandleMessage(const Sender: TObject; const M: TMessage);
     procedure SetImages(const Value: TCustomImageList);
     procedure SetImageIndex(const Value: TImageIndex);
+    /// <summary>The name of the image at that index: of the built-in icons
+    /// with no image list, else the source the first layer of that
+    /// destination draws. Empty when there is none.</summary>
+    function ImageNameOfIndex(const AIndex: Integer): string;
+    /// <summary>The index of the image of that name, -1 when none has it.</summary>
+    function ImageIndexOfName(const AName: string): Integer;
     procedure SetImageName(const Value: string);
     /// <summary>Loads the icon into the bubble (the "?" shows when there is
     /// none) and, through <c>ApplyAssistant</c>, into the header of the
@@ -394,6 +409,14 @@ type
     /// prints it with <c>THelpChatPdfExporter</c>. The paper and the bands
     /// are read from the settings of the engine.</summary>
     procedure PdfRequest(const ADoc: THelpChatPrintableDoc);
+    /// <summary>What <c>PdfRequest</c> does once it knows no other document
+    /// is being saved.</summary>
+    procedure SavePdfDocument(const ADoc: THelpChatPrintableDoc);
+    /// <summary>The page said the server refuses its session (the UI command
+    /// <c>reload</c>): the transport is asked for the URL of the panel again
+    /// - which opens a new session when the old one is gone - and the page
+    /// is loaded again when that URL is another one.</summary>
+    procedure ReloadPanel;
     /// <summary>Adds the <c>export_pdf</c> action to the broker when
     /// <c>Pdf.Enabled</c> and <c>Pdf.Action</c> are on; the deactivation
     /// removes it. Its handler answers the model at once and opens the save
@@ -1327,6 +1350,7 @@ begin
   FSettings := THelpChatSettings.Create;
   FActions := THelpChatActionBroker.Create;
   FActionsRef := FActions; // reference counted from here on
+  FLife := THelpChatLifeToken.Create;
   FActions.OnPending := ActionsPending;
   FActions.OnConfirm := ActionConfirm;
   FActions.OnExecuted := ActionExecuted;
@@ -1349,6 +1373,7 @@ end;
 
 destructor TFmxHelpChatAI.Destroy;
 begin
+  FLife.Kill;
   Active := False;
   if FHandleDestroyId >= 0 then
     TMessageManager.DefaultManager.Unsubscribe(TBeforeDestroyFormHandle, FHandleDestroyId);
@@ -1382,7 +1407,13 @@ begin
   if Operation = opRemove then
   begin
     if AComponent = FHostForm then
+    begin
+      // The form given in code is gone, and the assistant with it: without
+      // this the next idle turn put its bubble on the main form, and F1
+      // there was answered by the assistant of a form that no longer exists.
       FHostForm := nil;
+      FHostGone := True;
+    end;
     if AComponent = FHookedForm then
     begin
       // The hook of the form goes with the form: only leave its list.
@@ -1513,8 +1544,9 @@ end;
 
 procedure TFmxHelpChatAI.SetHostForm(const Value: TCommonCustomForm);
 begin
-  if Value = FHostForm then
+  if (Value = FHostForm) and not FHostGone then
     Exit;
+  FHostGone := False;
   // The notification asked of the old form is left there: it is not
   // counted, and Container or the hooked form may be the same object.
   DestroyBubble;
@@ -1718,7 +1750,7 @@ var
   LOwner: TComponent;
 begin
   Result := FHostForm;
-  if Assigned(Result) then
+  if Assigned(Result) or FHostGone then
     Exit;
   // The form the component was dropped on, through a frame if need be: an
   // assistant on an order form lives on the order form, not on the main one.
@@ -1827,8 +1859,12 @@ begin
   if FBubbleStayOnTop and (Application.MainForm = nil) then
     Exit;
 {$IFDEF MSWINDOWS}
+  // One floating bubble per form: the second assistant of the main form
+  // that asks for one gets the bubble inside the form - it used to get none,
+  // and nothing said why.
   LFloat := FBubbleStayOnTop and (LHost = Application.MainForm) and
-    (LHost.Handle <> nil) and not (csDesigning in ComponentState);
+    (LHost.Handle <> nil) and not (csDesigning in ComponentState) and
+    not TFmxHelpChatBubbleForm.HostHasBubble(LHost);
 {$ELSE}
   LFloat := False;
 {$ENDIF}
@@ -2033,11 +2069,55 @@ begin
   ApplyBubbleIcon;
 end;
 
+function TFmxHelpChatAI.ImageNameOfIndex(const AIndex: Integer): string;
+begin
+  Result := '';
+  if AIndex < 0 then
+    Exit;
+  if not Assigned(FImages) then
+  begin
+    if AIndex < Length(HelpChatAssistantIconNames) then
+      Result := HelpChatAssistantIconNames[AIndex];
+  end
+  // In a FireMonkey image list the index is of the Destination collection
+  // and a name is of the Source one: the name of an index is the source its
+  // first layer draws.
+  else if (AIndex < FImages.Destination.Count) and
+          (FImages.Destination[AIndex].Layers.Count > 0) then
+    Result := FImages.Destination[AIndex].Layers[0].Name;
+end;
+
+function TFmxHelpChatAI.ImageIndexOfName(const AName: string): Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  if AName = '' then
+    Exit;
+  if not Assigned(FImages) then
+  begin
+    for I := 0 to High(HelpChatAssistantIconNames) do
+      if SameText(HelpChatAssistantIconNames[I], AName) then
+        Exit(I);
+  end
+  else
+    for I := 0 to FImages.Destination.Count - 1 do
+      if (FImages.Destination[I].Layers.Count > 0) and
+         SameText(FImages.Destination[I].Layers[0].Name, AName) then
+        Exit(I);
+end;
+
 procedure TFmxHelpChatAI.SetImageIndex(const Value: TImageIndex);
 begin
   if FImageIndex = Value then
     Exit;
   FImageIndex := Value;
+  // The two are kept in step, as in the VCL: the one set last decides. Left
+  // alone, a name set earlier went on winning over the index just chosen -
+  // the icon picked in the configuration editor never showed. Not while the
+  // form file is read: it wrote both, and the list may come after them.
+  if not (csLoading in ComponentState) then
+    FImageName := ImageNameOfIndex(Value);
   ApplyBubbleIcon;
 end;
 
@@ -2046,6 +2126,8 @@ begin
   if FImageName = Value then
     Exit;
   FImageName := Value;
+  if not (csLoading in ComponentState) then
+    FImageIndex := ImageIndexOfName(Value);
   ApplyBubbleIcon;
 end;
 
@@ -2446,10 +2528,28 @@ var
   LArea: TRectF;
   LSaved, LHostBounds: TRect;
   LLeft, LTop, LWidth, LHeight: Integer;
+  LUseSaved: Boolean;
 begin
-  LArea := Screen.WorkAreaRect;
-  // Where the user left it, if that spot is still on the screen.
-  if LoadPanelBounds(LSaved) and LArea.IntersectsWith(TRectF.Create(LSaved)) then
+  // The work area of the display the window goes on - where it was left,
+  // else where the host form is. Screen.WorkAreaRect is the primary display
+  // alone: with it a window left on a second monitor, or the chat of a form
+  // that is there, always came back to the first.
+  LHost := ResolveHostForm;
+  LUseSaved := LoadPanelBounds(LSaved);
+  if LUseSaved then
+  begin
+    LArea := Screen.DisplayFromRect(TRectF.Create(LSaved)).Workarea;
+    // Where the user left it, if that spot is still on a screen.
+    LUseSaved := LArea.IntersectsWith(TRectF.Create(LSaved));
+  end;
+  if not LUseSaved then
+  begin
+    if Assigned(LHost) then
+      LArea := Screen.DisplayFromForm(LHost).Workarea
+    else
+      LArea := Screen.WorkAreaRect;
+  end;
+  if LUseSaved then
   begin
     LLeft := LSaved.Left;
     LTop := LSaved.Top;
@@ -2461,7 +2561,6 @@ begin
     // Default: bottom-right corner of the host form.
     LWidth := FPanelWidth;
     LHeight := FPanelHeight;
-    LHost := ResolveHostForm;
     if Assigned(LHost) then
     begin
       LHostBounds := LHost.Bounds;
@@ -2550,7 +2649,9 @@ begin
   LRequest.Asker := Self;
   LRequest.Language := ActiveLanguage;
   LRequest.ActionName := AName;
-  LRequest.Action := FActions.Find(AName);
+  // Resolve, not Find: a shared action is not one of this broker's own, and
+  // without it the question showed neither its description nor its labels.
+  LRequest.Action := FActions.Resolve(AName);
   LRequest.Args := AArgs;
   LRequest.Caption := ResolvedAssistantName;
   LRequest.Title := HelpChatMsgFmt(hcmActionConfirmTitle, [AName], LRequest.Language);
@@ -2583,6 +2684,7 @@ begin
     procedure(const AArgs: THelpChatActionArgs; var AResult: string)
     var
       LDoc: THelpChatPrintableDoc;
+      LLife: IHelpChatLifeToken;
     begin
       LDoc := HelpChatMarkdownDocument(AArgs.AsString('title'),
         AArgs.AsString('markdown'), '');
@@ -2590,16 +2692,63 @@ begin
       // An action handler must return at once - a worker is waiting for it -
       // and a save dialog waits for a human. So the model is answered now and
       // the dialog opens next time round the message loop.
+      LLife := FLife;
       TThread.ForceQueue(nil,
         procedure
         begin
-          PdfRequest(LDoc);
+          // The form may have been closed - and this component freed -
+          // between the answer to the model and this turn of the loop.
+          if LLife.IsAlive then
+            PdfRequest(LDoc);
         end);
       AResult := HelpChatMsg(hcmPdfHandedOver, ActiveLanguage);
     end, False); // the save dialog is the confirmation, and the user may cancel it
 end;
 
 procedure TFmxHelpChatAI.PdfRequest(const ADoc: THelpChatPrintableDoc);
+var
+  LLife: IHelpChatLifeToken;
+begin
+  // One at a time: the export dispatches the messages of the thread while
+  // it waits for the browser, and a second request - the button of the page
+  // pressed twice, which is input of another process - would run inside the
+  // first.
+  if FPdfBusy then
+    Exit;
+  LLife := FLife;
+  FPdfBusy := True;
+  try
+    SavePdfDocument(ADoc);
+  finally
+    if LLife.IsAlive then
+      FPdfBusy := False;
+  end;
+end;
+
+procedure TFmxHelpChatAI.ReloadPanel;
+var
+  LPanelUrl: string;
+begin
+  if not FActive or not Assigned(FView) or not Assigned(FTransport) then
+    Exit;
+  try
+    LPanelUrl := FTransport.GetPanelUrl;
+  except
+    on E: Exception do
+    begin
+      // The server cannot be reached: the page keeps saying so.
+      LogUi(llInfo, lsError, lcUi, 'Panel not reloaded: ' + E.Message);
+      Exit;
+    end;
+  end;
+  // Another URL is another session: the page loaded with the old token is
+  // refused at every request. The same one means the session is alive, and
+  // the refusal the page met was about something else.
+  if FView.PanelUrl <> LPanelUrl then
+    FView.OpenUrl(LPanelUrl, FTransport.GetPanelOrigin);
+end;
+
+procedure TFmxHelpChatAI.SavePdfDocument(const ADoc: THelpChatPrintableDoc);
 var
   LDoc: THelpChatPrintableDoc;
   LPage: THelpChatPdfPage;
@@ -2704,14 +2853,22 @@ begin
   else if ACommand = HELPCHAT_UI_LANGUAGE then
     LanguageChanged
   else if ACommand = HELPCHAT_UI_MODEL then
-    ModelChanged;
+    ModelChanged
+  else if ACommand = HELPCHAT_UI_RELOAD then
+    ReloadPanel;
 end;
 
 procedure TFmxHelpChatAI.ViewPageReady(Sender: TObject);
 begin
-  // The page (re)loaded: push the current theme, whatever the load carried.
+  // The page (re)loaded: push the current theme, whatever the load carried,
+  // and give the question box the caret - the native focus too, as the VCL
+  // panel does, or the keys stay with the form the user came from.
   if FActive then
+  begin
     ApplyTheme;
+    if Assigned(FView) and FView.ParentedVisible then
+      FView.FocusInput;
+  end;
 end;
 
 function TFmxHelpChatAI.BuildTheme: THelpChatTheme;
@@ -2900,6 +3057,11 @@ var
 begin
   if not FActive then
     Active := True;
+  // Still not active: the owner is being loaded (Active is only remembered
+  // until Loaded) or this is the designer. There is nothing to open yet,
+  // and no transport to give the context to.
+  if not FActive or (FTransport = nil) then
+    Exit;
   FTransport.SetContext(AContext);
   LogUi(llDetail, lsInfo, lcUi, 'Panel opened');
   LogUi(llDebug, lsInfo, lcUi, Format('Screen context: name %s, label "%s", class %s, ' +
@@ -2943,7 +3105,7 @@ begin
   if not FView.PageReady or (FView.PanelUrl <> LPanelUrl) then
     FView.OpenUrl(LPanelUrl, FTransport.GetPanelOrigin)
   else
-    FView.RunScript('window.hcFocus && window.hcFocus();');
+    FView.FocusInput;
   if not LWasVisible and Assigned(FOnAfterShowHelp) then
     FOnAfterShowHelp(Self);
 end;

@@ -107,8 +107,9 @@ type
     /// <summary>Calls <c>Shutdown</c> with the default timeout.</summary>
     destructor Destroy; override;
 
-    /// <summary>Enqueues a request and returns its cancellation token. Never
-    /// blocks. <c>ASettings</c> is copied, and the copy is given its concrete
+    /// <summary>Enqueues a request and returns its cancellation token; it
+    /// waits only while the queue is full (<c>HELPCHAT_QUEUE_DEPTH</c>
+    /// requests nobody took yet). <c>ASettings</c> is copied, and the copy is given its concrete
     /// language (never <c>hclAuto</c>). An empty <c>AProviderName</c> means
     /// the provider of that copy, which is what the engine passes. A
     /// non-empty <c>AAssistantName</c> becomes the <c>AssistantName</c> of
@@ -132,6 +133,10 @@ type
     /// What <c>/prompt</c> shows the excerpts with, without asking the model
     /// again.</summary>
     function SearchTerms(const AKey: string; out AQuestion: string): string;
+    /// <summary>Forgets the search terms of the conversation <c>AKey</c>:
+    /// called when it is cleared, so that <c>/prompt</c> does not show the
+    /// terms of a question that is gone.</summary>
+    procedure ForgetSearchTerms(const AKey: string);
     /// <summary>Cancels everything, wakes the workers and waits up to
     /// <c>ATimeoutMs</c> for them to exit. Returns False if some worker was still
     /// busy (typically inside a network call): it is detached and will end on its
@@ -176,6 +181,7 @@ type
     function ActiveCount: Integer;
     procedure SetSearchTerms(const AKey, AQuestion, ATerms: string);
     function GetSearchTerms(const AKey: string; out AQuestion: string): string;
+    procedure RemoveSearchTerms(const AKey: string);
   end;
 
   THelpChatRunnerShared = class(TInterfacedObject, IHelpChatRunnerShared)
@@ -206,6 +212,7 @@ type
     function ActiveCount: Integer;
     procedure SetSearchTerms(const AKey, AQuestion, ATerms: string);
     function GetSearchTerms(const AKey: string; out AQuestion: string): string;
+    procedure RemoveSearchTerms(const AKey: string);
   end;
 
   THelpChatWorker = class(TThread)
@@ -417,6 +424,16 @@ begin
   FLock.Enter;
   try
     FTerms.AddOrSetValue(AKey, TPair<string, string>.Create(AQuestion, ATerms));
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatRunnerShared.RemoveSearchTerms(const AKey: string);
+begin
+  FLock.Enter;
+  try
+    FTerms.Remove(AKey);
   finally
     FLock.Leave;
   end;
@@ -733,6 +750,11 @@ end;
 function THelpChatRunner.ActiveCount: Integer;
 begin
   Result := (FShared as IHelpChatRunnerShared).ActiveCount;
+end;
+
+procedure THelpChatRunner.ForgetSearchTerms(const AKey: string);
+begin
+  (FShared as IHelpChatRunnerShared).RemoveSearchTerms(AKey);
 end;
 
 function THelpChatRunner.SearchTerms(const AKey: string; out AQuestion: string): string;

@@ -796,46 +796,41 @@ type
   TGetVersionProc = function(ABrowserExecutableFolder: PWideChar;
     var AVersion: PWideChar): HResult; stdcall;
 
-  /// <summary>The three callbacks the runtime wants. Each one holds the
-  /// exporter as a plain pointer: the exporter owns them for the length of one
-  /// export and outlives them.</summary>
-  THcEnvironmentHandler = class(TInterfacedObject, IHcEnvironmentCompletedHandler)
+  /// <summary>What the callbacks the runtime wants share: the exporter, as a
+  /// plain pointer. The exporter keeps them for the length of one export,
+  /// but the runtime holds them too, and may call one after the exporter
+  /// gave up waiting and was freed: <c>Detach</c> takes the pointer away
+  /// first, and a callback that arrives late does nothing.</summary>
+  THcHandler = class(TInterfacedObject)
   private
     FOwner: THelpChatPdfExporter;
   public
     constructor Create(AOwner: THelpChatPdfExporter);
+    procedure Detach;
+  end;
+
+  THcEnvironmentHandler = class(THcHandler, IHcEnvironmentCompletedHandler)
+  public
     function Invoke(AErrorCode: HResult; const AEnvironment: IHcEnvironment): HResult; stdcall;
   end;
 
-  THcControllerHandler = class(TInterfacedObject, IHcControllerCompletedHandler)
-  private
-    FOwner: THelpChatPdfExporter;
+  THcControllerHandler = class(THcHandler, IHcControllerCompletedHandler)
   public
-    constructor Create(AOwner: THelpChatPdfExporter);
     function Invoke(AErrorCode: HResult; const AController: IHcController): HResult; stdcall;
   end;
 
-  THcNavigationHandler = class(TInterfacedObject, IHcNavigationCompletedHandler)
-  private
-    FOwner: THelpChatPdfExporter;
+  THcNavigationHandler = class(THcHandler, IHcNavigationCompletedHandler)
   public
-    constructor Create(AOwner: THelpChatPdfExporter);
     function Invoke(const ASender: IUnknown; const AArgs: IHcNavigationCompletedArgs): HResult; stdcall;
   end;
 
-  THcPrintHandler = class(TInterfacedObject, IHcPrintToPdfCompletedHandler)
-  private
-    FOwner: THelpChatPdfExporter;
+  THcPrintHandler = class(THcHandler, IHcPrintToPdfCompletedHandler)
   public
-    constructor Create(AOwner: THelpChatPdfExporter);
     function Invoke(AErrorCode: HResult; AIsSuccessful: Integer): HResult; stdcall;
   end;
 
-  THcCdpHandler = class(TInterfacedObject, IHcCdpCompletedHandler)
-  private
-    FOwner: THelpChatPdfExporter;
+  THcCdpHandler = class(THcHandler, IHcCdpCompletedHandler)
   public
-    constructor Create(AOwner: THelpChatPdfExporter);
     function Invoke(AErrorCode: HResult; AReturnObjectAsJson: PWideChar): HResult; stdcall;
   end;
 
@@ -892,10 +887,15 @@ end;
 
 { the handlers }
 
-constructor THcEnvironmentHandler.Create(AOwner: THelpChatPdfExporter);
+constructor THcHandler.Create(AOwner: THelpChatPdfExporter);
 begin
   inherited Create;
   FOwner := AOwner;
+end;
+
+procedure THcHandler.Detach;
+begin
+  FOwner := nil;
 end;
 
 function THcEnvironmentHandler.Invoke(AErrorCode: HResult;
@@ -903,16 +903,11 @@ function THcEnvironmentHandler.Invoke(AErrorCode: HResult;
 begin
   Result := S_OK;
   try
-    FOwner.EnvironmentReady(AErrorCode, AEnvironment);
+    if FOwner <> nil then
+      FOwner.EnvironmentReady(AErrorCode, AEnvironment);
   except
     // Nothing may be raised back into the runtime
   end;
-end;
-
-constructor THcControllerHandler.Create(AOwner: THelpChatPdfExporter);
-begin
-  inherited Create;
-  FOwner := AOwner;
 end;
 
 function THcControllerHandler.Invoke(AErrorCode: HResult;
@@ -920,15 +915,10 @@ function THcControllerHandler.Invoke(AErrorCode: HResult;
 begin
   Result := S_OK;
   try
-    FOwner.ControllerReady(AErrorCode, AController);
+    if FOwner <> nil then
+      FOwner.ControllerReady(AErrorCode, AController);
   except
   end;
-end;
-
-constructor THcNavigationHandler.Create(AOwner: THelpChatPdfExporter);
-begin
-  inherited Create;
-  FOwner := AOwner;
 end;
 
 function THcNavigationHandler.Invoke(const ASender: IUnknown;
@@ -941,30 +931,20 @@ begin
     LSuccess := 0;
     if AArgs <> nil then
       AArgs.Get_IsSuccess(LSuccess);
-    FOwner.NavigationDone(LSuccess <> 0);
+    if FOwner <> nil then
+      FOwner.NavigationDone(LSuccess <> 0);
   except
   end;
-end;
-
-constructor THcPrintHandler.Create(AOwner: THelpChatPdfExporter);
-begin
-  inherited Create;
-  FOwner := AOwner;
 end;
 
 function THcPrintHandler.Invoke(AErrorCode: HResult; AIsSuccessful: Integer): HResult; stdcall;
 begin
   Result := S_OK;
   try
-    FOwner.PrintDone(AErrorCode, AIsSuccessful <> 0);
+    if FOwner <> nil then
+      FOwner.PrintDone(AErrorCode, AIsSuccessful <> 0);
   except
   end;
-end;
-
-constructor THcCdpHandler.Create(AOwner: THelpChatPdfExporter);
-begin
-  inherited Create;
-  FOwner := AOwner;
 end;
 
 function THcCdpHandler.Invoke(AErrorCode: HResult;
@@ -972,7 +952,8 @@ function THcCdpHandler.Invoke(AErrorCode: HResult;
 begin
   Result := S_OK;
   try
-    FOwner.CdpDone(AErrorCode, string(AReturnObjectAsJson));
+    if FOwner <> nil then
+      FOwner.CdpDone(AErrorCode, string(AReturnObjectAsJson));
   except
   end;
 end;
@@ -1056,23 +1037,54 @@ begin
   Result := FWindow <> 0;
 end;
 
+/// <summary>The next message of the thread that is not input, taken out
+/// of the queue. The keyboard, the mouse (on a frame too), a command of the
+/// system menu and a request to close a window stay queued for the loop of
+/// the application: dispatched from inside an export they closed the form
+/// - and freed the component - under the method that was waiting. The
+/// ranges are asked in turn, starting after the one that answered last, so
+/// that a timer firing all the time cannot keep the others waiting.</summary>
+function PeekNoInput(var AMsg: TMsg; var ANext: Integer): Boolean;
+const
+  RANGES: array[0..5, 0..1] of Cardinal = (
+    (0, WM_CLOSE - 1), (WM_CLOSE + 1, WM_NCMOUSEMOVE - 1),
+    (WM_NCXBUTTONDBLCLK + 1, WM_KEYFIRST - 1), (WM_KEYLAST + 1, WM_SYSCOMMAND - 1),
+    (WM_SYSCOMMAND + 1, WM_MOUSEFIRST - 1), (WM_MOUSELAST + 1, $FFFFFFFF));
+var
+  I, LRange: Integer;
+begin
+  for I := 0 to High(RANGES) do
+  begin
+    LRange := (ANext + I) mod Length(RANGES);
+    if PeekMessage(AMsg, 0, RANGES[LRange, 0], RANGES[LRange, 1], PM_REMOVE) then
+    begin
+      ANext := LRange + 1;
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
 function THelpChatPdfExporter.Wait(ATimeoutMs: Cardinal): Boolean;
 var
   LStarted: UInt64;
   LMsg: TMsg;
+  LNext: Integer;
 begin
+  LNext := 0;
   LStarted := GetTickCount64;
   while (FStage <> STAGE_DONE) and (FStage <> STAGE_FAILED) and
         (GetTickCount64 - LStarted < ATimeoutMs) do
   begin
     // The runtime answers through the message queue of this thread, so there
-    // is nothing to wait on but the queue itself. No filter: the callbacks
-    // come as messages of windows of the runtime, which cannot be told from
-    // here, so everything the thread receives is dispatched - input
-    // included. Not WM_QUIT: dispatching it does nothing, and the message
-    // loop of the application would never see that it was asked to end. It
-    // is posted again for that loop, and the export gives up.
-    if PeekMessage(LMsg, 0, 0, 0, PM_REMOVE) then
+    // is nothing to wait on but the queue itself. The callbacks come as
+    // messages of windows of the runtime, which cannot be told from here,
+    // so everything the thread receives is dispatched - but the input of
+    // the user, which waits in the queue until the export is over. Not
+    // WM_QUIT: dispatching it does nothing, and the message loop of the
+    // application would never see that it was asked to end. It is posted
+    // again for that loop, and the export gives up.
+    if PeekNoInput(LMsg, LNext) then
     begin
       if LMsg.message = WM_QUIT then
       begin
@@ -1204,11 +1216,16 @@ end;
 procedure THelpChatPdfExporter.CloseController;
 var
   LController: IHcController;
+  I: Integer;
 begin
   FWebView := nil;
   if Supports(FController, IHcController, LController) then
     LController.Close;
   FController := nil;
+  // The runtime may still hold a handler and call it later - after a
+  // timeout, when this exporter is gone.
+  for I := 0 to FHandlers.Count - 1 do
+    (FHandlers[I] as THcHandler).Detach;
   FHandlers.Clear;
 end;
 

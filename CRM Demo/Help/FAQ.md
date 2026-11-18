@@ -3,8 +3,10 @@
 ## Where is my data?
 
 In `w10crmdemo.sdb`, in your **Documents** folder. It is a SQLite database encrypted with
-AES-256, and it is the only thing the application writes — there is no settings file and no
-registry key.
+AES-256, and it is the only thing the CRM itself writes — there is no settings file and no
+registry key. The assistant keeps its own files apart, under `%APPDATA%` in a folder named
+after the program: the conversation, the model and the language you picked, and the encrypted
+key.
 
 ## How do I start over with the sample data?
 
@@ -74,8 +76,9 @@ Your question, the name of the screen you are on, the excerpts of this manual th
 relevant and the outcome of any action it runs. When you ask it to work on a window - fill
 it, find a record, count a list - also the fields of that window and what is in them, the
 record found, the count. **Not the database**: the assistant cannot browse the leads, the
-accounts or the proposals, attached documents are never sent, and a password field is never
-read.
+accounts or the proposals, the documents stored on a lead are never sent, and a password
+field is never read. A file you attach to the chat with the paper clip is another matter: it
+is sent in full, with every question, until you clear the conversation.
 
 ## Can the assistant change my data?
 

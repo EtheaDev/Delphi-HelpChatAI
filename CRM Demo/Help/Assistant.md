@@ -21,7 +21,8 @@ question: use it when what you want to know has nothing to do with where you are
 Type in the box at the bottom — *"how do I export the mailing list"*, *"what happens if I
 remove a user"* — and press Enter. The answer comes from the pages of this manual: the
 assistant is told to stay inside them, to cite the page it used, and to say when it does not
-know rather than invent. **Read more** opens the whole page inside the assistant.
+know rather than invent. The link of the page it cites - the **Source** line under the
+answer - opens the whole page inside the assistant.
 
 The conversation stays as you move around the application, and the ↻ button at the top
 clears it.
@@ -146,9 +147,10 @@ The assistant uses Anthropic's Claude, unless the configuration offers other mod
 picked one in the header. The question you type, the name of the screen you are on, the
 excerpts of this manual that look relevant and the outcome of any action it runs leave your
 machine and reach the service of the model in use - Anthropic, Google, OpenAI - or stay on
-it, when the model runs on this computer. **Your database does not**: the assistant cannot
-browse the leads, the accounts or the proposals, and the attached documents stay where they
-are. What it does read is **the window in front of you**, when you ask it to work on it: the
+it, when the model runs on this computer. So do the earlier messages of the conversation,
+and **any file you attach with the paper clip**: in full, with every question, until you
+clear the conversation. **Your database does not**: the assistant cannot browse the leads,
+the accounts or the proposals, and the documents stored on a lead stay where they are. What it does read is **the window in front of you**, when you ask it to work on it: the
 fields of that window and what is in them, the record it found in a list, how many records a
 list has - those reach the service of the model like your question does. A password field is
 never read.

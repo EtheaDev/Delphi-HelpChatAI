@@ -54,13 +54,20 @@ type
   /// </summary>
   THelpChatDataField = class(THelpChatSkillField)
   public
+    /// <summary>The field of the data set behind the control; nil for a plain
+    /// control.</summary>
     Field: TField;
     /// <summary>The data source starts the edit by itself (a VCL
     /// <c>TDataSource.AutoEdit</c>, a LiveBindings source): what mode
     /// <c>current</c> relies on. True by default.</summary>
     AutoEdit: Boolean;
+    /// <summary>For a lookup: the data set its records are in.</summary>
     LookupDataSet: TDataSet;
+    /// <summary>For a lookup: the field of that data set that holds the
+    /// code.</summary>
     LookupKeyField: string;
+    /// <summary>For a lookup: the field of that data set the user
+    /// reads.</summary>
     LookupListField: string;
     /// <summary>The field the code of a lookup is written to.</summary>
     LookupTarget: TField;
@@ -70,7 +77,9 @@ type
     /// <summary>For a yes/no on a field that is not boolean: what checked
     /// and unchecked store ("Y;S", "N").</summary>
     CheckedValue: string;
+    /// <summary>What unchecked stores: see <c>CheckedValue</c>.</summary>
     UncheckedValue: string;
+    /// <summary>A field with <c>AutoEdit</c> on and nothing else set.</summary>
     constructor Create; virtual;
     /// <summary>The data set whose record holds the value; nil for a plain
     /// control.</summary>
@@ -98,8 +107,12 @@ type
   /// <summary>A list of records of the screen: a grid, a navigator, the
   /// record of a form.</summary>
   THelpChatDataList = record
+    /// <summary>What the model names the list by: the name of its control, else
+    /// of its data set.</summary>
     Id: string;
+    /// <summary>What the user reads for it.</summary>
     Caption: string;
+    /// <summary>The records of the list.</summary>
     DataSet: TDataSet;
     /// <summary>The fields it is searched by (the visible columns); empty =
     /// the visible fields of the data set.</summary>
@@ -109,9 +122,14 @@ type
   /// <summary>One button of the screen.</summary>
   THelpChatSkillCommand = class
   public
+    /// <summary>What the model names the button by.</summary>
     Id: string;
+    /// <summary>What the user reads on it.</summary>
     Caption: string;
+    /// <summary>Its hint, when it says more than the caption.</summary>
     Hint: string;
+    /// <summary>Its keyboard shortcut as text ("Ctrl+N"), when it has
+    /// one.</summary>
     ShortCut: string;
     /// <summary>What the skills take for a button that saves or confirms:
     /// not offered unless the application says otherwise.</summary>
@@ -122,10 +140,13 @@ type
 
   /// <summary>One page (tab) of the screen.</summary>
   THelpChatSkillPage = record
+    /// <summary>What the model names the page by.</summary>
     Name: string;
+    /// <summary>What the user reads on the tab.</summary>
     Caption: string;
     /// <summary>The captions from the outermost page in: "Notes > Private".</summary>
     Path: string;
+    /// <summary>True for the page that is in front.</summary>
     Shown: Boolean;
     /// <summary>The control of the page, for the framework.</summary>
     Control: TObject;
@@ -152,7 +173,9 @@ type
     /// <summary>The fields, in the order of the form. The caller frees the
     /// list.</summary>
     function Fields: THelpChatDataFieldList; virtual; abstract;
+    /// <summary>The lists of records the form shows (grids, list views).</summary>
     function Lists: TArray<THelpChatDataList>; virtual; abstract;
+    /// <summary>The pages of the form (tab sheets), shown or not.</summary>
     function Pages: TArray<THelpChatSkillPage>; virtual; abstract;
     /// <summary>Shows a page as a click on its tab: empty when shown, else
     /// why not.</summary>
@@ -163,6 +186,7 @@ type
     /// <summary>Presses the button of that id; with <c>AQueued</c> right
     /// after the action answered.</summary>
     procedure Press(const ACommandId: string; const AQueued: Boolean); virtual; abstract;
+    /// <summary>What the events of the framework receive as Sender.</summary>
     property Sender: TObject read FSender;
   end;
 
@@ -170,13 +194,18 @@ type
   /// and the screen it is working on (nil when there is none).</summary>
   THelpChatScreenProvider = class abstract
   public
+    /// <summary>True for an assistant of this framework.</summary>
     class function Supports(const AHost: TComponent): Boolean; virtual; abstract;
+    /// <summary>The screen that assistant is working on; nil when there is
+    /// none. The caller frees it.</summary>
     class function CreateScreen(const AHost: TComponent): THelpChatScreen; virtual; abstract;
   end;
 
   THelpChatScreenProviderClass = class of THelpChatScreenProvider;
 
+/// <summary>What a framework unit calls in its initialization.</summary>
 procedure HelpChatRegisterScreenProvider(const AProvider: THelpChatScreenProviderClass);
+/// <summary>And in its finalization.</summary>
 procedure HelpChatUnregisterScreenProvider(const AProvider: THelpChatScreenProviderClass);
 /// <summary>The provider that serves that assistant (the first registered
 /// when AHost is nil); nil when none.</summary>
@@ -184,11 +213,14 @@ function HelpChatScreenProviderFor(const AHost: TComponent): THelpChatScreenProv
 
 { The data behind a field }
 
+/// <summary>The kind of field the model is told a <c>TField</c> is.</summary>
 function HelpChatFieldKindOf(const AField: TField): THelpChatFieldKind;
 /// <summary>What the TField says of a field: kind, size, required, key,
 /// read-only, and the records of a lookup field.</summary>
 procedure HelpChatDescribeDataField(const AItem: THelpChatDataField; const AField: TField);
+/// <summary>True for a data set in edit or insert.</summary>
 function HelpChatIsEditing(const ADataSet: TDataSet): Boolean;
+/// <summary>The name a data set is called by in what the model reads.</summary>
 function HelpChatDataSetName(const ADataSet: TDataSet): string;
 /// <summary>"browsing the record shown", "inserting a new record, not saved
 /// yet"...</summary>
@@ -205,20 +237,32 @@ function HelpChatEnterEditing(const ADataSet: TDataSet; const AAutoEdit: Boolean
 { What the actions do, on any screen. They answer with the text the model
   reads; the ones that cannot do anything raise, with the reason. }
 
+/// <summary><c>describe_form</c>.</summary>
 function HelpChatScreenDescribe(const AScreen: THelpChatScreen; const AHideValues: Boolean): string;
+/// <summary><c>fill_form</c>. Never posts; <c>ASnapshot</c> receives what
+/// the fields held before.</summary>
 function HelpChatScreenFill(const AScreen: THelpChatScreen; const AValues: TJSONObject;
   const AMode: THelpChatFillMode; const AHideValues: Boolean;
   const ASnapshot: TDictionary<string, string>): string;
+/// <summary><c>cancel_edit</c>.</summary>
 function HelpChatScreenCancel(const AScreen: THelpChatScreen;
   const ASnapshot: TDictionary<string, string>): string;
+/// <summary><c>find_choice</c>.</summary>
 function HelpChatScreenFindChoice(const AScreen: THelpChatScreen; const AFieldId, AText: string): string;
+/// <summary><c>list_commands</c>.</summary>
 function HelpChatScreenListCommands(const AScreen: THelpChatScreen): string;
+/// <summary><c>press_command</c>.</summary>
 function HelpChatScreenPress(const AScreen: THelpChatScreen; const ACommand: string;
   const AQueued: Boolean): string;
+/// <summary><c>count_records</c>.</summary>
 function HelpChatScreenCount(const AScreen: THelpChatScreen; const AList: string): string;
+/// <summary><c>find_record</c>. Refused while the list, or a detail of it,
+/// is being edited: moving would save.</summary>
 function HelpChatScreenFindRecord(const AScreen: THelpChatScreen; const AText, AField, AList: string;
   const AHideValues: Boolean): string;
+/// <summary><c>list_pages</c>.</summary>
 function HelpChatScreenPagesText(const AScreen: THelpChatScreen): string;
+/// <summary><c>show_page</c>.</summary>
 function HelpChatScreenShowPage(const AScreen: THelpChatScreen; const APage: string): string;
 
 /// <summary>A caption or a name that saves or confirms (Save, OK, Salva,
@@ -313,6 +357,32 @@ end;
 function HelpChatIsEditing(const ADataSet: TDataSet): Boolean;
 begin
   Result := Assigned(ADataSet) and (ADataSet.State in dsEditModes);
+end;
+
+/// <summary>The detail data set of ADataSet that is in edit or insert, at
+/// any depth; nil when none is.</summary>
+function EditingDetailOf(const ADataSet: TDataSet; const ADepth: Integer): TDataSet;
+var
+  LDetails: TList<TDataSet>;
+  LDetail: TDataSet;
+begin
+  Result := nil;
+  if (ADataSet = nil) or (ADepth > 8) then
+    Exit;
+  LDetails := TList<TDataSet>.Create;
+  try
+    ADataSet.GetDetailDataSets(LDetails);
+    for LDetail in LDetails do
+    begin
+      if HelpChatIsEditing(LDetail) then
+        Exit(LDetail);
+      Result := EditingDetailOf(LDetail, ADepth + 1);
+      if Result <> nil then
+        Exit;
+    end;
+  finally
+    LDetails.Free;
+  end;
 end;
 
 function HelpChatDataSetName(const ADataSet: TDataSet): string;
@@ -484,6 +554,11 @@ begin
   LList := LDataSet.FindField(AField.LookupListField);
   if (LKey = nil) or (LList = nil) then
     Exit('the list of the values of this field cannot be read');
+  // Walking it would save it: First posts a record being edited (or drops
+  // one nobody changed), and the lookup table may be open for editing on
+  // this screen or on another. Reading must never do that.
+  if HelpChatIsEditing(LDataSet) then
+    Exit('the list of the values of this field is being edited: it can be read once that is saved or cancelled');
   // The cursor goes back where it was: the lookup table may be shown too.
   LDataSet.DisableControls;
   try
@@ -562,6 +637,11 @@ var
 begin
   Result := '';
   if (AField.LookupDataSet = nil) or not AField.LookupDataSet.Active or VarIsNull(AKey) then
+    Exit;
+  // Lookup is a read, but not for every data set: FireDAC's leaves edit
+  // mode first (CheckBrowseMode), which posts the record somebody is editing
+  // in the lookup table. Then the code alone is shown.
+  if HelpChatIsEditing(AField.LookupDataSet) then
     Exit;
   try
     LValue := AField.LookupDataSet.Lookup(AField.LookupKeyField, AKey, AField.LookupListField);
@@ -1254,6 +1334,34 @@ begin
       Format('%s = %s', [AFields[I].DisplayLabel, HelpChatSkillCut(AFields[I].DisplayText)]);
 end;
 
+/// <summary>AFields without the ones a control of the screen shows as a
+/// password: such a field is neither searched - a search that finds would
+/// tell what it holds - nor reported.</summary>
+function WithoutSecrets(const AScreen: THelpChatScreen;
+  const AFields: TArray<TField>): TArray<TField>;
+var
+  LScreenFields: THelpChatDataFieldList;
+  LScreenField: THelpChatDataField;
+  LField: TField;
+  LSecret: Boolean;
+begin
+  Result := nil;
+  LScreenFields := AScreen.Fields;
+  try
+    for LField in AFields do
+    begin
+      LSecret := False;
+      for LScreenField in LScreenFields do
+        if LScreenField.Secret and (LScreenField.Field = LField) then
+          LSecret := True;
+      if not LSecret then
+        Result := Result + [LField];
+    end;
+  finally
+    LScreenFields.Free;
+  end;
+end;
+
 function HelpChatScreenFindRecord(const AScreen: THelpChatScreen; const AText, AField, AList: string;
   const AHideValues: Boolean): string;
 var
@@ -1261,6 +1369,7 @@ var
   LList: THelpChatDataList;
   LFields, LSearch: TArray<TField>;
   LField: TField;
+  LDetail: TDataSet;
   LFound: Boolean;
   LText: string;
 begin
@@ -1284,13 +1393,21 @@ begin
   if HelpChatIsEditing(LList.DataSet) then
     raise Exception.CreateFmt('The list %s is %s: moving to another record would save it. The user ' +
       'saves it first, or cancel_edit abandons it.', [LList.Id, HelpChatDataSetState(LList.DataSet)]);
-  LFields := SearchFields(LList);
+  // The same for a detail of it: a master that moves posts the detail record
+  // being edited.
+  LDetail := EditingDetailOf(LList.DataSet, 0);
+  if LDetail <> nil then
+    raise Exception.CreateFmt('A detail of the list %s (%s) is %s: moving to another record would save ' +
+      'it. The user saves it first, or cancels it.', [LList.Id, HelpChatDataSetName(LDetail),
+      HelpChatDataSetState(LDetail)]);
+  LFields := WithoutSecrets(AScreen, SearchFields(LList));
   if Trim(AField) <> '' then
   begin
     LSearch := nil;
     for LField in LList.DataSet.Fields do
       if SameText(LField.FieldName, Trim(AField)) or SameText(LField.DisplayLabel, Trim(AField)) then
         LSearch := [LField];
+    LSearch := WithoutSecrets(AScreen, LSearch);
     if Length(LSearch) = 0 then
       raise Exception.CreateFmt('The list %s has no field "%s".', [LList.Id, AField]);
   end

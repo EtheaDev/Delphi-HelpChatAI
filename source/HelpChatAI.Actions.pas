@@ -85,6 +85,8 @@ const
   /// that reads like an approval: the user sees a line per value, and the
   /// line is short.</summary>
   HELPCHAT_ACTION_DISPLAY_MAXCHARS = 120;
+  /// <summary>The longest name of a parameter a confirmation shows.</summary>
+  HELPCHAT_ACTION_DISPLAY_KEY_MAXCHARS = 40;
   /// <summary>What the model reads when the user said no: the plan stops
   /// there, and the model is told not to look for another way.</summary>
   HELPCHAT_ACTION_DENIED_TEXT =
@@ -96,6 +98,12 @@ const
   HELPCHAT_ACTION_DENIED_BEFORE_TEXT =
     'The action "%s" was not run: the user refused an action of this request, which ' +
     'ends it. Tell the user what was not done and stop.';
+  /// <summary>What the model reads for a call whose arguments are not one
+  /// whole JSON object - cut at the token limit, usually: the action was not
+  /// run.</summary>
+  HELPCHAT_ACTION_BROKEN_ARGS_TEXT =
+    'its arguments arrived incomplete or were not a JSON object, so nothing was done. ' +
+    'Call it again with the complete arguments.';
 
 type
   /// <summary>Type of a parameter, as declared to the model.</summary>
@@ -105,10 +113,15 @@ type
   /// the description is all the model knows of it, and its first words are
   /// the label the confirmation dialog shows next to the value.</summary>
   THelpChatActionParam = record
+    /// <summary>The name the model calls the parameter by.</summary>
     Name: string;
+    /// <summary>What the model is told about it.</summary>
     Description: string;
+    /// <summary>Its type, as declared to the model.</summary>
     Kind: THelpChatActionParamKind;
+    /// <summary>False for a parameter the model may leave out.</summary>
     Required: Boolean;
+    /// <summary>A parameter, a required string unless said otherwise.</summary>
     class function Create(const AName, ADescription: string;
       const AKind: THelpChatActionParamKind = apkString;
       const ARequired: Boolean = True): THelpChatActionParam; static;
@@ -124,6 +137,8 @@ type
     FValues: TDictionary<string, string>;
     FRawJson: string;
   public
+    /// <summary>Reads the arguments out of the JSON object the model sent. Text
+    /// that is not one object gives no parameters: nothing is raised.</summary>
     constructor Create(const AJson: string);
     destructor Destroy; override;
     /// <summary>True when the model sent that parameter (case
@@ -165,6 +180,11 @@ type
     /// <summary>One value as it can be shown: no control characters, no more
     /// than <see cref="HELPCHAT_ACTION_DISPLAY_MAXCHARS" /> characters.</summary>
     class function DisplayValue(const AValue: string): string; static;
+    /// <summary>The name of a parameter as a dialog may show it: made safe
+    /// like a value, and no longer than
+    /// <see cref="HELPCHAT_ACTION_DISPLAY_KEY_MAXCHARS" />. A name nobody
+    /// declared was written by the model, like its value.</summary>
+    class function DisplayKey(const AKey: string): string; static;
     /// <summary>The JSON object as the model sent it.</summary>
     property RawJson: string read FRawJson;
   end;
@@ -198,6 +218,9 @@ type
     FHandler: THelpChatActionProc;
     FOnDisplay: THelpChatActionDisplayProc;
   public
+    /// <summary>An action as the broker keeps it: what the model is told (name,
+    /// description, parameters), the handler that runs it on the main thread,
+    /// and whether the user is asked first.</summary>
     constructor Create(const AName, ADescription: string;
       const AParams: TArray<THelpChatActionParam>; const AHandler: THelpChatActionProc;
       const AConfirm: Boolean);
@@ -263,7 +286,8 @@ type
     /// neutral form every provider starts from.</summary>
     function ToolsJson: string;
     /// <summary>Runs the action and waits for its result. Called on a worker
-    /// thread; never raises. <c>AResult</c> is what the handler answered, or
+    /// thread; never raises - whatever goes wrong on the way is
+    /// <c>aoFailed</c>. <c>AResult</c> is what the handler answered, or
     /// the reason of a failure; anything but <c>aoDone</c> becomes a sentence
     /// for the model through <see cref="HelpChatActionOutcomeText" />.</summary>
     function Invoke(const AName, AArgsJson: string;
@@ -283,6 +307,8 @@ type
     FOutcome: THelpChatActionOutcome;
     FAbandoned: Boolean;
   public
+    /// <summary>A call of the action <c>AName</c> with the arguments the model
+    /// wrote, not yet answered.</summary>
     constructor Create(const AName, AArgsJson: string);
     destructor Destroy; override;
     /// <summary>The host answers: the outcome and the text are stored and
@@ -292,12 +318,19 @@ type
     /// timed out or was cancelled while the host held the request. The host
     /// must not run the action, and owns the object from now on.</summary>
     procedure Abandon;
+    /// <summary>An id of its own, for a host that answers from somewhere
+    /// else.</summary>
     property Id: string read FId;
+    /// <summary>The action that was asked for.</summary>
     property Name: string read FName;
+    /// <summary>The arguments, as the JSON object the model wrote.</summary>
     property ArgsJson: string read FArgsJson;
     /// <summary>Signalled when the host answered.</summary>
     property Done: TEvent read FDone;
+    /// <summary>What the handler answered, or why it did not run: read once
+    /// <c>Done</c> is signalled.</summary>
     property Result: string read FResult;
+    /// <summary>How it went: read once <c>Done</c> is signalled.</summary>
     property Outcome: THelpChatActionOutcome read FOutcome;
     /// <summary>True when the waiter gave up while the host held the request:
     /// the host must not run the action, and frees the request.</summary>
@@ -342,12 +375,27 @@ type
     function IsAllowed(const AName: string): Boolean;
     function TakePending: TArray<THelpChatActionRequest>;
     /// <summary>The waiter gives up on a request: it is dropped if still
-    /// queued, freed if already answered, abandoned to the host otherwise.</summary>
-    procedure Forget(const ARequest: THelpChatActionRequest);
+    /// queued, freed if already answered, abandoned to the host otherwise.
+    /// True when the host had answered in the meantime - between the last
+    /// wait and this call: the action ran, and <c>AOutcome</c> and
+    /// <c>AResult</c> are what it answered. Telling the model "timeout" then
+    /// would make it ask again for something already done.</summary>
+    function Forget(const ARequest: THelpChatActionRequest;
+      out AOutcome: THelpChatActionOutcome; out AResult: string): Boolean;
+    /// <summary>The declaration of one of the own actions, built while the
+    /// lock is held; empty when there is none by that name.</summary>
+    function OwnToolJson(const AName: string): string;
+    /// <summary>The declaration of the action the model may call by that
+    /// name (see <see cref="Resolve" />), built under the lock of the broker
+    /// that owns it: a skill detached meanwhile on the main thread frees
+    /// its actions.</summary>
+    function ToolJsonOf(const AName: string): string;
     /// <summary>The host answers a request - or frees it, if the waiter is gone.</summary>
     procedure Finish(const ARequest: THelpChatActionRequest;
       const AOutcome: THelpChatActionOutcome; const AResult: string);
   public
+    /// <summary>An empty broker: enabled, its host active, the default
+    /// timeout.</summary>
     constructor Create;
     destructor Destroy; override;
 
@@ -464,12 +512,18 @@ function HelpChatActionConfirmText(const AAction: THelpChatAction;
 /// <summary>The short form of a parameter description, for a label: up to
 /// the first punctuation, at most <c>AMaxChars</c> characters.</summary>
 function HelpChatShortLabel(const ADescription: string; const AMaxChars: Integer = 40): string;
+/// <summary>True when the arguments of a call are usable: nothing at all, or
+/// one whole JSON object. False for a text that was cut (a reply stopped at
+/// the token limit in the middle of a call) or is not an object: read as "no
+/// arguments", such a call ran its action with every parameter missing.</summary>
+function HelpChatActionArgsAreWhole(const AArgsJson: string): Boolean;
 
 implementation
 
 uses
   System.JSON,
-  System.DateUtils;
+  System.DateUtils,
+  System.Diagnostics;
 
 function HelpChatActionOutcomeText(const AOutcome: THelpChatActionOutcome;
   const AName, AResult: string): string;
@@ -528,6 +582,21 @@ begin
   else
     LLines := '';
   Result := ConfirmTextOf(AAction.Name, AAction.Description, LLines, ALanguage);
+end;
+
+function HelpChatActionArgsAreWhole(const AArgsJson: string): Boolean;
+var
+  LValue: TJSONValue;
+begin
+  if Trim(AArgsJson) = '' then
+    Exit(True);
+  try
+    LValue := TJSONObject.ParseJSONValue(AArgsJson);
+  except
+    LValue := nil;
+  end;
+  Result := LValue is TJSONObject;
+  LValue.Free;
 end;
 
 function HelpChatShortLabel(const ADescription: string; const AMaxChars: Integer): string;
@@ -591,7 +660,11 @@ begin
       for LPair in TJSONObject(LValue) do
         // Everything is kept as text and converted on read: a model may send
         // 3, "3" or true for the same parameter.
-        FValues.AddOrSetValue(LPair.JsonString.Value.ToLower, LPair.JsonValue.Value);
+        // A null is a parameter left out - models write one for every
+        // optional parameter they do not use - and its Value is the text
+        // 'null', which an action would have read as data.
+        if not (LPair.JsonValue is TJSONNull) then
+          FValues.AddOrSetValue(LPair.JsonString.Value.ToLower, LPair.JsonValue.Value);
   finally
     LValue.Free;
   end;
@@ -615,8 +688,19 @@ begin
 end;
 
 function THelpChatActionArgs.AsInteger(const AName: string; const ADefault: Integer): Integer;
+var
+  LText: string;
+  LFloat: Double;
 begin
-  Result := StrToIntDef(Trim(AsString(AName)), ADefault);
+  LText := Trim(AsString(AName));
+  if TryStrToInt(LText, Result) then
+    Exit;
+  // 3.0 and 1e2 are whole numbers too, and some models write them so.
+  if TryStrToFloat(LText, LFloat, TFormatSettings.Invariant) and (Frac(LFloat) = 0) and
+     (Abs(LFloat) <= MaxInt) then
+    Result := Trunc(LFloat)
+  else
+    Result := ADefault;
 end;
 
 function THelpChatActionArgs.AsFloat(const AName: string; const ADefault: Double): Double;
@@ -652,12 +736,24 @@ begin
   Result := AValue;
   // A line break or a tab inside a value is how a value pretends to be a
   // second line of the dialog: none of them survives.
+  // The same for what Unicode calls a line or paragraph separator, and for
+  // the characters that reverse the reading order of what follows them.
   for I := 1 to Length(Result) do
-    if Result[I] < ' ' then
+    if (Result[I] < ' ') or (Result[I] = #$7F) or (Result[I] = #$85) or
+       (Result[I] = #$2028) or (Result[I] = #$2029) or
+       ((Result[I] >= #$202A) and (Result[I] <= #$202E)) or
+       ((Result[I] >= #$2066) and (Result[I] <= #$2069)) then
       Result[I] := ' ';
   Result := Trim(Result);
   if Length(Result) > HELPCHAT_ACTION_DISPLAY_MAXCHARS then
     Result := Copy(Result, 1, HELPCHAT_ACTION_DISPLAY_MAXCHARS - 3) + '...';
+end;
+
+class function THelpChatActionArgs.DisplayKey(const AKey: string): string;
+begin
+  Result := DisplayValue(AKey);
+  if Length(Result) > HELPCHAT_ACTION_DISPLAY_KEY_MAXCHARS then
+    Result := Copy(Result, 1, HELPCHAT_ACTION_DISPLAY_KEY_MAXCHARS - 3) + '...';
 end;
 
 function THelpChatActionArgs.ToDisplayString: string;
@@ -669,7 +765,7 @@ begin
   begin
     if Result <> '' then
       Result := Result + ', ';
-    Result := Result + LPair.Key + '=' + DisplayValue(LPair.Value);
+    Result := Result + DisplayKey(LPair.Key) + '=' + DisplayValue(LPair.Value);
   end;
 end;
 
@@ -682,7 +778,7 @@ begin
   begin
     if Result <> '' then
       Result := Result + sLineBreak;
-    Result := Result + '  ' + LPair.Key + ' = ' + DisplayValue(LPair.Value);
+    Result := Result + '  ' + DisplayKey(LPair.Key) + ' = ' + DisplayValue(LPair.Value);
   end;
 end;
 
@@ -712,7 +808,9 @@ begin
     // Then whatever the model sent under a name nobody declared.
     for LKey in FValues.Keys do
       if not LSeen.Contains(LKey) then
-        LList.Add(TPair<string, string>.Create(LKey, DisplayValue(FValues[LKey])));
+        // The model wrote the name too: a name nobody declared is shown
+        // short and on one line, like a value.
+        LList.Add(TPair<string, string>.Create(DisplayKey(LKey), DisplayValue(FValues[LKey])));
     Result := LList.ToArray;
     if Assigned(AAction) and Assigned(AAction.OnDisplay) then
     begin
@@ -863,7 +961,8 @@ begin
   FLock := TCriticalSection.Create;
   FActions := TObjectDictionary<string, THelpChatAction>.Create([doOwnsValues]);
   FOrder := TList<string>.Create;
-  // The requests are freed by whoever created them (Invoke), not by the list.
+  // The requests are not the list's to free: whoever touches one last does -
+  // Invoke, or Finish for one the waiter gave up on.
   FPending := TObjectList<THelpChatActionRequest>.Create(False);
   FEnabled := True;
   FHostActive := True;
@@ -1091,6 +1190,40 @@ begin
     Result := LShared.Find(AName);
 end;
 
+function THelpChatActionBroker.OwnToolJson(const AName: string): string;
+var
+  LAction: THelpChatAction;
+begin
+  Result := '';
+  FLock.Enter;
+  try
+    if FActions.TryGetValue(AName.Trim.ToLower, LAction) then
+      Result := LAction.ToToolJson;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatActionBroker.ToolJsonOf(const AName: string): string;
+var
+  LShared: THelpChatActionBroker;
+begin
+  Result := '';
+  if not IsAllowed(AName) then
+    Exit;
+  Result := OwnToolJson(AName);
+  if Result <> '' then
+    Exit;
+  FLock.Enter;
+  try
+    LShared := FShared;
+  finally
+    FLock.Leave;
+  end;
+  if Assigned(LShared) then
+    Result := LShared.OwnToolJson(AName);
+end;
+
 function THelpChatActionBroker.AvailableNames: TArray<string>;
 var
   LName: string;
@@ -1121,18 +1254,17 @@ function THelpChatActionBroker.ToolsJson: string;
 var
   LArray: TJSONArray;
   LValue: TJSONValue;
-  LName: string;
-  LAction: THelpChatAction;
+  LName, LTool: string;
 begin
   LArray := TJSONArray.Create;
   try
     if FEnabled then
       for LName in AvailableNames do
       begin
-        LAction := Resolve(LName);
-        if LAction = nil then
+        LTool := ToolJsonOf(LName);
+        if LTool = '' then
           Continue;
-        LValue := TJSONObject.ParseJSONValue(LAction.ToToolJson);
+        LValue := TJSONObject.ParseJSONValue(LTool);
         if LValue <> nil then
           LArray.AddElement(LValue);
       end;
@@ -1201,34 +1333,51 @@ begin
     LOutcome := aoDone;
     LArgs := THelpChatActionArgs.Create(LRequest.ArgsJson);
     try
-      LAllow := True;
-      // Anything that changes something asks first - unless nobody is
-      // waiting for the answer any more, in which case there is nothing to ask.
-      if LAction.Confirm and Assigned(FOnConfirm) and not LRequest.Abandoned then
-        FOnConfirm(Self, LAction.Name, LArgs, LAllow);
-      if not LAllow then
-        LOutcome := aoDenied
-      else if LRequest.Abandoned then
-        // The user took longer than the model call could wait (or the reply
-        // was cancelled meanwhile): the model has already been told the
-        // action did not answer, so running it now would act behind its
-        // back - and a retry would run it twice.
-        LOutcome := aoTimeout
-      else
-        try
-          LAction.Handler(LArgs, LResult);
-          if (FResultMaxChars > 0) and (LResult.Length > FResultMaxChars) then
-            LResult := LResult.Substring(0, FResultMaxChars);
-        except
-          on E: Exception do
-          begin
-            // The application's bug is the model's information, not a crash.
-            LOutcome := aoFailed;
-            LResult := E.Message;
+      // Whatever raises in here - the confirmation of the application, a
+      // text replaced with a wrong placeholder - the request is answered:
+      // left alone, the worker waited its 60 seconds, the request was never
+      // freed and the others of this batch were lost with it.
+      try
+        LAllow := True;
+        // Anything that changes something asks first - unless nobody is
+        // waiting for the answer any more, in which case there is nothing to ask.
+        if LAction.Confirm and Assigned(FOnConfirm) and not LRequest.Abandoned then
+          FOnConfirm(Self, LAction.Name, LArgs, LAllow);
+        if not LAllow then
+          LOutcome := aoDenied
+        else if LRequest.Abandoned then
+          // The user took longer than the model call could wait (or the reply
+          // was cancelled meanwhile): the model has already been told the
+          // action did not answer, so running it now would act behind its
+          // back - and a retry would run it twice.
+          LOutcome := aoTimeout
+        else
+          try
+            LAction.Handler(LArgs, LResult);
+            if (FResultMaxChars > 0) and (LResult.Length > FResultMaxChars) then
+              LResult := LResult.Substring(0, FResultMaxChars);
+          except
+            on E: Exception do
+            begin
+              // The application's bug is the model's information, not a crash.
+              LOutcome := aoFailed;
+              LResult := E.Message;
+            end;
           end;
+      except
+        on E: Exception do
+        begin
+          LOutcome := aoFailed;
+          LResult := E.Message;
         end;
+      end;
+      // Apart: the action has run or not by now, and what a listener raises
+      // must not change what the model is told about it.
       if Assigned(FOnExecuted) then
-        FOnExecuted(Self, LAction.Name, LOutcome, LResult);
+        try
+          FOnExecuted(Self, LAction.Name, LOutcome, LResult);
+        except
+        end;
     finally
       LArgs.Free;
     end;
@@ -1236,17 +1385,28 @@ begin
   end;
 end;
 
-procedure THelpChatActionBroker.Forget(const ARequest: THelpChatActionRequest);
+function THelpChatActionBroker.Forget(const ARequest: THelpChatActionRequest;
+  out AOutcome: THelpChatActionOutcome; out AResult: string): Boolean;
 var
   LOwn: Boolean;
 begin
+  Result := False;
+  AOutcome := aoCancelled;
+  AResult := '';
   FLock.Enter;
   try
     // Still queued: nobody has seen it. Already answered: the host is done
     // with it. Otherwise the host holds it - running the handler, or waiting
     // for the user to confirm - and will find it abandoned when it comes
     // back to Finish.
-    LOwn := (FPending.Remove(ARequest) >= 0) or (ARequest.Done.WaitFor(0) = wrSignaled);
+    LOwn := FPending.Remove(ARequest) >= 0;
+    if not LOwn and (ARequest.Done.WaitFor(0) = wrSignaled) then
+    begin
+      LOwn := True;
+      Result := True;
+      AOutcome := ARequest.Outcome;
+      AResult := ARequest.Result;
+    end;
     if not LOwn then
       ARequest.Abandon;
   finally
@@ -1260,8 +1420,10 @@ function THelpChatActionBroker.Invoke(const AName, AArgsJson: string;
   const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
 var
   LRequest: THelpChatActionRequest;
-  LDeadline: TDateTime;
+  LWatch: TStopwatch;
   LWait: TWaitResult;
+  LOutcome: THelpChatActionOutcome;
+  LText: string;
 begin
   AResult := '';
   if not FEnabled then
@@ -1289,7 +1451,9 @@ begin
     if Assigned(FOnPending) then
       FOnPending(Self);
 
-    LDeadline := IncMillisecond(Now, FTimeoutMs);
+    // A stopwatch, not the clock: the time of the machine may be set, or
+    // moved an hour, while a confirmation is on the screen.
+    LWatch := TStopwatch.StartNew;
     repeat
       // Short waits so that a cancelled reply does not keep a worker parked.
       LWait := LRequest.Done.WaitFor(100);
@@ -1297,25 +1461,36 @@ begin
         Break;
       if Assigned(ACancel) and ACancel.IsCancelled then
       begin
-        Forget(LRequest);
+        // Answered at the very last moment: the action ran, and that is
+        // what the model must hear.
+        if Forget(LRequest, Result, AResult) then
+          Exit;
         Exit(aoCancelled);
       end;
-    until Now > LDeadline;
+    until LWatch.ElapsedMilliseconds > FTimeoutMs;
 
     // The request is freed by whoever touches it last: by this thread when
     // the host answered, by the host (Finish) when it still holds it. A
     // confirmation dialog that outlives the timeout is the common case.
     if LWait <> wrSignaled then
     begin
-      Forget(LRequest);
+      if Forget(LRequest, Result, AResult) then
+        Exit;
       Exit(aoTimeout);
     end;
     AResult := LRequest.Result;
     Result := LRequest.Outcome;
     LRequest.Free;
   except
-    Forget(LRequest);
-    raise;
+    // Nothing leaves this method as an exception: the providers call it in
+    // the middle of a reply. What raised here is the host being woken up.
+    on E: Exception do
+    begin
+      if Assigned(LRequest) then
+        Forget(LRequest, LOutcome, LText);
+      AResult := E.Message;
+      Result := aoFailed;
+    end;
   end;
 end;
 

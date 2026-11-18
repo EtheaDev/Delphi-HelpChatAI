@@ -145,7 +145,7 @@ help system, so the <code>HelpKeyword</code> you already wrote keeps working.</p
 </tbody>
 </table>
 <h2 id="documentation">Documentation</h2>
-<p>The <a href="https://ethea.it/docs/helpchatai/">Project Site</a> has <strong>thirty-five pages of documentation</strong>,
+<p>The <a href="https://ethea.it/docs/helpchatai/">Project Site</a> has <strong>thirty-seven pages of documentation</strong>,
 from an empty form to a working chat in the <a href="https://ethea.it/docs/helpchatai/Quick-Start">Quick Start</a>
 to a step-by-step <a href="https://ethea.it/docs/helpchatai/In-Depth-Conversation">anatomy of a conversation</a>.
 They cover the VCL and FireMonkey components and their component editor, the providers and the
@@ -217,7 +217,7 @@ the encrypted one.</p>
 </tr>
 <tr>
 <td><code>gemini</code></td>
-<td><code>GEMINI_API_KEY</code></td>
+<td><code>GEMINI_API_KEY</code> or <code>GOOGLE_API_KEY</code></td>
 <td>yes</td>
 <td>yes</td>
 </tr>
@@ -329,7 +329,7 @@ packages and adds source paths.</p>
 <li>open the group project of your version under <code>packages/</code> — <code>Delphi13</code>,
 <code>Delphi12</code>, <code>Delphi11</code> or <code>Delphi10.4</code></li>
 <li>build it and install <code>dclHelpChatAIVcl</code> (and
-<code>dclHelpChatAIFmx</code>, then add <code>source</code> and <code>Ext/MarkdownProcessor/source</code> to the library path.</li>
+<code>dclHelpChatAIFmx</code>, from Delphi 12), then add <code>source</code> and <code>Ext/MarkdownProcessor/source</code> to the library path.</li>
 </ul>
 <p><code>packages/BuildAllPackages.ps1</code> builds them from a command line, every installed version or
 the ones named with <code>-DelphiVersion D13,D12</code>; <code>BuildAllPackagesD13.ps1</code> (and D12, D11, D10.4)
@@ -464,7 +464,7 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 <p><code>CRM Demo\BuildAllDemos.ps1</code> builds all four with every Delphi it finds, Win32 and
 Win64: twenty-four builds, and the FireMonkey ones are reported <code>N/A</code> below Delphi 12 rather
 than failed.</p>
-<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>527 tests</strong> that runs without
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>612 tests</strong> that runs without
 network: store, worker pool, cancellation, index scoring and the areas of a manual, Markdown
 safety, profiles and the configuration editor's controller, several assistants on real forms
 and the engine they share, the skills on real forms over an in-memory data set, the SSE parsing and
@@ -474,6 +474,20 @@ document - the last two of which write a real PDF with the WebView2 runtime of t
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>18 Nov 2026: ver. 2.0.0</p>
+<ul>
+<li>A review of the whole library before 2.0, with no new features: the defects it found are fixed, and the suite grew to 612 tests</li>
+<li>Security: a key is never sent to another address than its own (no HTTP redirect is followed); a saved PDF loads no image from outside; the remote server refuses an oversized request before asking for the key</li>
+<li>Models: a reply cut at the limit of tokens says so, and <code>MaxTokens</code> is 4096 by default (it was 1024); a long conversation no longer fails from the 26th question on; the refusals of compatible servers and of the OpenAI models that do not reason are handled</li>
+<li>Skills and actions: reading a screen never saves or moves a record being edited, and a field shown as a password is neither searched nor reported; a call whose arguments were cut is not run; the confirmation fits the screen, with <em>Yes</em> and <em>No</em> in the language of the chat</li>
+<li>Panel: a question waits for the file still going up; a reply that will not arrive shows an error; a reload keeps the question being written and the open documentation page</li>
+<li>Remote server: a panel left open loads again on a new session; the console server saves the conversations when its window is closed</li>
+<li>VCL and FireMonkey: the chat window opened from a dialog of a dialog, a <code>HostForm</code> that is destroyed, the PDF export, the design-time preview and the floating bubble; FireMonkey keeps <code>ImageIndex</code> and <code>ImageName</code> in step and has a file dialog for <code>ConfigFileName</code></li>
+<li>Configuration editor: it opens on the Models page while no model is configured, and that page takes the API key of the provider too; no <em>Icon</em> field (deduced, one written by hand stays) and no <code>stub</code> among the providers; it remembers its size, position and page across restarts of the IDE; an empty configuration file is a new one - Save creates it, and at run time it is no error</li>
+<li>Changes in behaviour: a picture attached may not exceed 3.6 MB; a remote session no longer runs <code>/check</code>, and an anonymous conversation is not written to disk; a relative <code>ConversationFile</code> is resolved against the executable; the configuration editor refuses a text that is not a whole number</li>
+<li>Files that change name, so that their conversation starts empty once: those of a profile written in a non-Latin alphabet, and on a remote server those of a user id longer than about 58 characters</li>
+<li>The index builder encodes spaces and parentheses in the link of a page (<code>Price%20list.md</code>): rebuild an index that has such file names</li>
+</ul>
 <p>17 Nov 2026: ver. 1.13.0</p>
 <ul>
 <li>The question is translated for the search: with a <code>DocLanguage</code> different from the chat, the model in use turns it into search terms in the language of the manual (<code>TranslateSearch</code>, on by default; <code>SearchTermsPrompt</code>) - the right page among the 3 for 20 Italian questions of 21, against 12</li>
@@ -527,7 +541,7 @@ and skip themselves where there is none.</p>
 <ul>
 <li><code>OnModelChanged</code> on both components: the user switched model in the panel (the badge, or <code>/use</code>), or code did with <code>SelectModel</code>. The local server raises the UI command <code>model</code> (<code>HELPCHAT_UI_MODEL</code>) for it, the way it raises <code>language</code></li>
 <li><code>RunSettings</code> is public on both components: the settings in force, with the model the user picked applied - what to read to know which model, provider and key the assistant is using now</li>
-<li>The panel offers only the models that could answer: a model of the list whose provider reports something missing (<code>claude</code> and <code>gemini</code> with no key, <code>openai</code> with neither a key nor an endpoint of its own, <code>docsearch</code> with no index) is left out, except the one in use; at start the engine never picks such a model while another can answer. <code>HelpChatModelIsConfigured</code> is the test, <code>Models</code> on the components and the engine apply it, <code>SelectModel</code> still accepts any model of the list, and the page asks for the list again when it gets the focus</li>
+<li>The panel offers only the models that could answer: a model of the list whose provider reports something missing (<code>claude</code> and <code>gemini</code> with no key, <code>openai</code> with no key unless its endpoint is on this machine or a private network, <code>docsearch</code> with no index) is left out, except the one in use; at start the engine never picks such a model while another can answer. <code>HelpChatModelIsConfigured</code> is the test, <code>Models</code> on the components and the engine apply it, <code>SelectModel</code> still accepts any model of the list, and the page asks for the list again when it gets the focus</li>
 <li><code>openai</code> wants a key for every endpoint on the internet, not only for api.openai.com: only a server on this machine or on a private network (<code>HelpChatIsLocalEndpoint</code>) is spared, so a model on Groq or OpenRouter without its key is reported by the configuration check and not offered in the panel</li>
 <li>The <code>github</code> icon, for a model of the catalogue that names it</li>
 <li>New default models, the best for in-app help in the benchmark (<code>Test\LLMBench</code>): <code>claude-haiku-5-5</code> (was <code>claude-haiku-4-5</code>) and <code>gemini-3.5-flash-lite</code> (was <code>gemini-3.8-flash</code>, four times slower and no more accurate); <code>gpt-6-luna</code> stays. A configuration that names its model is not affected</li>

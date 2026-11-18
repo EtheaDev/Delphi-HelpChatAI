@@ -98,6 +98,13 @@ const
   /// know - a model whose key is missing is something the application can
   /// ask for. The components turn it into <c>OnModelChanged</c>.</summary>
   HELPCHAT_UI_MODEL = 'model';
+  /// <summary>The UI command the page sends when the server refuses its
+  /// session (403 to a question or to the poll of a reply): a remote server
+  /// expired it, or was restarted. The host asks its transport for the URL
+  /// of the panel again and loads the page with the new session. Only a
+  /// page with a host channel can say it: with a local server the page and
+  /// its server share the one token.</summary>
+  HELPCHAT_UI_RELOAD = 'reload';
   /// <summary>POST /api/context: the native client hands the transport the screen
   /// the user is on. Local transports keep it in memory; a remote one posts it.</summary>
   HELPCHAT_API_CONTEXT = '/api/context';
@@ -566,7 +573,10 @@ begin
   // The page may only talk to its API and, when there is one, to the loopback
   // channel of its host: the policy names both, and nothing else.
   Result := Result.Replace('{{UI_BASE}}', TNetEncoding.HTML.Encode(AOptions.UiBase));
-  Result := Result.Replace('{{CONFIG}}', ConfigJson(AOptions));
+  // Inside a <script>: a JSON string does not escape "<", and a name or a
+  // message holding "</script>" would close the element there.
+  Result := Result.Replace('{{CONFIG}}',
+    ConfigJson(AOptions).Replace('</', '<\/').Replace('<!--', '<\!--'));
   Result := Result.Replace('{{CSS}}', LoadResourceText(HELPCHAT_RES_CSS));
   // After the default stylesheet: the host theme overrides the --hc-* variables.
   // The application's stylesheet travels in it, ahead of the colours.
