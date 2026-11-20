@@ -8,6 +8,7 @@ uses
   FireDAC.FMXUI.Wait,
   uDataMod in '..\..\common\uDataMod.pas' {DM: TDataModule},
   uProposalReport in '..\..\common\uProposalReport.pas',
+  uCRMActions in '..\..\common\uCRMActions.pas',
   uAppSecret in '..\..\common\uAppSecret.pas',
   uLicenseActivationFmx in '..\source\uLicenseActivationFmx.pas' {LicenseActivationFormFmx},
   uMainFormFmx in '..\source\uMainFormFmx.pas' {MainFormFmx},

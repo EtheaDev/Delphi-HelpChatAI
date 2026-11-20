@@ -126,7 +126,8 @@ type
     /// <summary>What this assistant may do: travels with every question and
     /// command of its panel, because the engine may be shared by the
     /// assistants of one profile, each with the actions of its own form.
-    /// Remote: actions do not travel yet, and this is kept for the record.</summary>
+    /// Remote: they are declared to the server, and a call of the model
+    /// comes back to be run by this broker.</summary>
     procedure SetActions(const AActions: IHelpChatActionInvoker);
     /// <summary>The actions last given; nil = this assistant can only
     /// answer.</summary>

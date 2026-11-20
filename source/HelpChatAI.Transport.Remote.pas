@@ -115,6 +115,14 @@ type
     FAssistantIcon: string;
     FEnabledCommands: THelpChatCommands;
     FActions: IHelpChatActionInvoker;
+    // The declaration the server of this session has, and whether it was
+    // told at all.
+    FActionsSent: string;
+    FActionsPushed: Boolean;
+    // What takes the calls of the model from the server and runs them:
+    // created with the first call, on a thread of its own.
+    FPump: IInterface;
+    FPumpObj: TObject;
     FAssistantSent: Boolean;
     // When the server last answered a call of this session: older than
     // HELPCHAT_REMOTE_CHECK_SECONDS and the session is checked before the
@@ -159,6 +167,23 @@ type
     procedure PushContext;
     procedure PushTheme;
     procedure PushAssistant;
+    /// <summary>The actions to declare: the <c>ToolsJson</c> of the broker,
+    /// empty when it offers none - or when the host channel is not
+    /// listening, since the page could not say that a call is
+    /// waiting.</summary>
+    function CurrentTools: string;
+    /// <summary>Declares them to the session when they differ from what it
+    /// has: called wherever the context is, since an application may
+    /// register an action at any time. A server that does not take them
+    /// (an older one, or <c>ClientActions</c> off) is not asked again until
+    /// they change.</summary>
+    procedure PushActions;
+    /// <summary>The page says a call of the model is waiting on the
+    /// server: a thread takes it, runs it on the broker - which queues it
+    /// for the main thread and asks the user, as with a local engine - and
+    /// posts how it went.</summary>
+    procedure WakeActions;
+    procedure StopActions;
     procedure Log(const ALevel: THelpChatLogLevel; const ASeverity: THelpChatLogSeverity;
       const AText: string);
   public
@@ -224,10 +249,14 @@ type
     /// the commands the server gives every session.</summary>
     procedure SetEnabledCommands(const ACommands: THelpChatCommands);
     function GetEnabledCommands: THelpChatCommands;
-    /// <summary>Remembered and never used: the model runs on the server and
-    /// the calls of an action do not travel back yet, so actions registered
-    /// on a component with a remote engine are never offered to the
-    /// model.</summary>
+    /// <summary>The broker of the assistant. Its actions are declared to
+    /// the session (<c>POST /api/actions</c>) when the panel is shown and
+    /// whenever the context is set, if they changed; the model on the server
+    /// is offered them, and a call comes back here: the page says so through
+    /// the host channel, the transport takes the call
+    /// (<c>GET /api/actions/pending</c>), runs it on this broker and posts
+    /// the outcome (<c>POST /api/actions/result</c>). Nothing is declared
+    /// without the host channel.</summary>
     procedure SetActions(const AActions: IHelpChatActionInvoker);
     function GetActions: IHelpChatActionInvoker;
     function GetAssistantName: string;
@@ -330,6 +359,237 @@ begin
     Result := Result.Substring(0, P);
 end;
 
+/// <summary>One call to the server: a form-encoded POST, or a GET, with the
+/// application key and the token of the session. No redirect is followed:
+/// the two secrets would go to whatever address the answer names. Raises
+/// what the HTTP client raises.</summary>
+function RemoteCall(const AGet: Boolean; const AUrl, AAppKey, AToken, ABody: string;
+  const ATimeoutMs: Integer; out AResponse: string): Integer;
+var
+  LClient: THTTPClient;
+  LBody: TStringStream;
+  LResponse: IHTTPResponse;
+begin
+  AResponse := '';
+  LClient := THTTPClient.Create;
+  try
+    LClient.ConnectionTimeout := ATimeoutMs;
+    LClient.ResponseTimeout := ATimeoutMs;
+    LClient.SendTimeout := ATimeoutMs;
+    LClient.HandleRedirects := False;
+    LClient.CustomHeaders[HELPCHAT_KEY_HEADER] := AAppKey;
+    if AToken <> '' then
+      LClient.CustomHeaders[HELPCHAT_TOKEN_HEADER] := AToken;
+    if AGet then
+      LResponse := LClient.Get(AUrl)
+    else
+    begin
+      LClient.ContentType := 'application/x-www-form-urlencoded';
+      LBody := TStringStream.Create(ABody, TEncoding.UTF8);
+      try
+        LResponse := LClient.Post(AUrl, LBody);
+      finally
+        LBody.Free;
+      end;
+    end;
+    Result := LResponse.StatusCode;
+    AResponse := LResponse.ContentAsString(TEncoding.UTF8);
+  finally
+    LClient.Free;
+  end;
+end;
+
+type
+  TRemoteActionCall = record
+    Id: string;
+    Name: string;
+    Args: string;
+  end;
+
+  /// <summary>Takes the calls of the model from the server and runs them on
+  /// the broker of the assistant, one thread at a time. Reference counted,
+  /// and held by its thread while it runs: the transport may be freed
+  /// meanwhile, so nothing of the transport is used here.</summary>
+  TRemoteActionPump = class(TInterfacedObject)
+  strict private
+    FLock: TCriticalSection;
+    FBaseUrl: string;
+    FAppKey: string;
+    FToken: string;
+    FTimeoutMs: Integer;
+    FActions: IHelpChatActionInvoker;
+    FCancel: IHelpChatCancelToken;
+    FRunning: Boolean;
+    FAgain: Boolean;
+    FStopped: Boolean;
+    function ParseCalls(const AJson: string): TArray<TRemoteActionCall>;
+    procedure Run;
+  public
+    constructor Create(const ABaseUrl, AAppKey: string; const ATimeoutMs: Integer);
+    destructor Destroy; override;
+    /// <summary>There is something to take: starts the thread, or tells the
+    /// running one to look once more.</summary>
+    procedure Wake(const AToken: string; const AActions: IHelpChatActionInvoker);
+    /// <summary>The transport stops: a call being run is cancelled, and
+    /// nothing more is taken.</summary>
+    procedure Stop;
+  end;
+
+constructor TRemoteActionPump.Create(const ABaseUrl, AAppKey: string; const ATimeoutMs: Integer);
+begin
+  inherited Create;
+  FLock := TCriticalSection.Create;
+  FBaseUrl := ABaseUrl;
+  FAppKey := AAppKey;
+  FTimeoutMs := ATimeoutMs;
+  FCancel := THelpChatCancelToken.Create;
+end;
+
+destructor TRemoteActionPump.Destroy;
+begin
+  FLock.Free;
+  inherited;
+end;
+
+procedure TRemoteActionPump.Stop;
+begin
+  FLock.Enter;
+  try
+    FStopped := True;
+  finally
+    FLock.Leave;
+  end;
+  FCancel.Cancel;
+end;
+
+procedure TRemoteActionPump.Wake(const AToken: string; const AActions: IHelpChatActionInvoker);
+var
+  LSelf: IInterface;
+begin
+  if (AToken = '') or not Assigned(AActions) then
+    Exit;
+  FLock.Enter;
+  try
+    if FStopped then
+      Exit;
+    FToken := AToken;
+    FActions := AActions;
+    if FRunning then
+    begin
+      FAgain := True;
+      Exit;
+    end;
+    FRunning := True;
+  finally
+    FLock.Leave;
+  end;
+  LSelf := Self;
+  TThread.CreateAnonymousThread(
+    procedure
+    begin
+      try
+        Run;
+      finally
+        LSelf := nil;
+      end;
+    end).Start;
+end;
+
+function TRemoteActionPump.ParseCalls(const AJson: string): TArray<TRemoteActionCall>;
+var
+  LValue, LCalls, LItem: TJSONValue;
+  LCall: TRemoteActionCall;
+begin
+  Result := nil;
+  LValue := TJSONObject.ParseJSONValue(AJson);
+  try
+    if not (LValue is TJSONObject) then
+      Exit;
+    LCalls := TJSONObject(LValue).GetValue('calls');
+    if not (LCalls is TJSONArray) then
+      Exit;
+    for LItem in TJSONArray(LCalls) do
+      if LItem is TJSONObject then
+      begin
+        LCall.Id := TJSONObject(LItem).GetValue<string>('id', '');
+        LCall.Name := TJSONObject(LItem).GetValue<string>('name', '');
+        LCall.Args := TJSONObject(LItem).GetValue<string>('args', '');
+        if LCall.Id <> '' then
+          Result := Result + [LCall];
+      end;
+  finally
+    LValue.Free;
+  end;
+end;
+
+procedure TRemoteActionPump.Run;
+var
+  LToken, LResponse, LResult: string;
+  LActions: IHelpChatActionInvoker;
+  LCalls: TArray<TRemoteActionCall>;
+  LCall: TRemoteActionCall;
+  LOutcome: THelpChatActionOutcome;
+  LStopped: Boolean;
+begin
+  try
+    while True do
+    begin
+      FLock.Enter;
+      try
+        LToken := FToken;
+        LActions := FActions;
+        LStopped := FStopped;
+        FAgain := False;
+      finally
+        FLock.Leave;
+      end;
+      LCalls := nil;
+      if not LStopped then
+        try
+          if RemoteCall(True, FBaseUrl + HELPCHAT_API_ACTIONS_PENDING, FAppKey, LToken, '',
+               FTimeoutMs, LResponse) = 200 then
+            LCalls := ParseCalls(LResponse);
+        except
+          // The server will give the call up by itself.
+        end;
+      for LCall in LCalls do
+      begin
+        LResult := '';
+        // Invoke never raises; with the token cancelled, or the host gone,
+        // it answers at once.
+        LOutcome := LActions.Invoke(LCall.Name, LCall.Args, FCancel, LResult);
+        try
+          RemoteCall(False, FBaseUrl + HELPCHAT_API_ACTIONS_RESULT, FAppKey, LToken,
+            'id=' + HelpChatFormEncode(LCall.Id) +
+            '&outcome=' + HelpChatActionOutcomeName(LOutcome) +
+            '&result=' + HelpChatFormEncode(LResult), FTimeoutMs, LResponse);
+        except
+          // Not delivered: the model is told the action timed out.
+        end;
+      end;
+      // Looked again after a batch: the model may have asked for the next
+      // action while this one ran.
+      FLock.Enter;
+      try
+        if FStopped or ((Length(LCalls) = 0) and not FAgain) then
+        begin
+          FRunning := False;
+          Exit;
+        end;
+      finally
+        FLock.Leave;
+      end;
+    end;
+  except
+    FLock.Enter;
+    try
+      FRunning := False;
+    finally
+      FLock.Leave;
+    end;
+  end;
+end;
+
 // Field by field, and only the fields that are posted: a record with strings
 // cannot be compared as memory.
 function SameContext(const A, B: THelpChatContext): Boolean;
@@ -383,38 +643,12 @@ end;
 
 function THelpChatRemoteTransport.Post(const APath, ABody: string; out AResponse: string): Integer;
 var
-  LClient: THTTPClient;
-  LBody: TStringStream;
-  LResponse: IHTTPResponse;
   LStart: Cardinal;
 begin
-  AResponse := '';
-  LClient := THTTPClient.Create;
-  try
-    LClient.ConnectionTimeout := FTimeoutMs;
-    LClient.ResponseTimeout := FTimeoutMs;
-    LClient.SendTimeout := FTimeoutMs;
-    // No redirect is followed: the application key and the token of the
-    // session would go to whatever address the answer names.
-    LClient.HandleRedirects := False;
-    LClient.CustomHeaders[HELPCHAT_KEY_HEADER] := FAppKey;
-    if FToken <> '' then
-      LClient.CustomHeaders[HELPCHAT_TOKEN_HEADER] := FToken;
-    LClient.ContentType := 'application/x-www-form-urlencoded';
-    LBody := TStringStream.Create(ABody, TEncoding.UTF8);
-    try
-      LStart := TThread.GetTickCount;
-      LResponse := LClient.Post(FBaseUrl + APath, LBody);
-      Result := LResponse.StatusCode;
-      AResponse := LResponse.ContentAsString(TEncoding.UTF8);
-      Log(llDebug, lsInfo, Format('POST %s: %d in %d ms', [APath, Result,
-        TThread.GetTickCount - LStart]));
-    finally
-      LBody.Free;
-    end;
-  finally
-    LClient.Free;
-  end;
+  LStart := TThread.GetTickCount;
+  Result := RemoteCall(False, FBaseUrl + APath, FAppKey, FToken, ABody, FTimeoutMs, AResponse);
+  Log(llDebug, lsInfo, Format('POST %s: %d in %d ms', [APath, Result,
+    TThread.GetTickCount - LStart]));
 end;
 
 procedure THelpChatRemoteTransport.OpenSession;
@@ -483,6 +717,9 @@ begin
   // A new session knows no screen: whatever was sent to the previous one has
   // to go again.
   FContextSent := False;
+  // ...and no action.
+  FActionsPushed := False;
+  FActionsSent := '';
   Log(llInfo, lsInfo, Format('Session opened on %s (profile "%s")', [FBaseUrl, FServerProfile]));
 end;
 
@@ -555,6 +792,7 @@ end;
 
 procedure THelpChatRemoteTransport.Stop;
 begin
+  StopActions;
   EndSession;
   FStarted := False;
   if Assigned(FChannel) then
@@ -585,6 +823,7 @@ begin
   // The panel is about to be shown: the session must exist here, and an
   // unreachable server has to be reported instead of loading nothing.
   EnsureSession;
+  PushActions;
   Result := Format('%s/?%s=%s', [FBaseUrl, HELPCHAT_TOKEN_QUERY, FToken]);
 end;
 
@@ -678,6 +917,10 @@ begin
     EnsureSession;
     PushContext;
   end;
+  // The actions are looked at whenever the screen is: an application
+  // registers them when it likes, and nothing tells the transport.
+  if FStarted then
+    PushActions;
 end;
 
 function THelpChatRemoteTransport.GetContext: THelpChatContext;
@@ -736,14 +979,72 @@ end;
 
 procedure THelpChatRemoteTransport.SetActions(const AActions: IHelpChatActionInvoker);
 begin
-  // Actions are local for now: the model runs on the server and the calls do
-  // not travel back yet. Kept so that the component can ask what it set.
   FLock.Enter;
   try
     FActions := AActions;
   finally
     FLock.Leave;
   end;
+  // Taking them away is the component deactivating: the session ends with it.
+  if Assigned(AActions) then
+    PushActions;
+end;
+
+function THelpChatRemoteTransport.CurrentTools: string;
+var
+  LActions: IHelpChatActionInvoker;
+begin
+  Result := '';
+  LActions := GetActions;
+  if Assigned(LActions) and Assigned(FChannel) and FChannel.IsActive and LActions.HasActions then
+    Result := LActions.ToolsJson;
+end;
+
+procedure THelpChatRemoteTransport.PushActions;
+var
+  LTools: string;
+begin
+  if not HasSession then
+    Exit;
+  LTools := CurrentTools;
+  if FActionsPushed and (LTools = FActionsSent) then
+    Exit;
+  // A session that was never told of an action needs no empty declaration.
+  if FActionsPushed or (LTools <> '') then
+    try
+      if SessionCall(HELPCHAT_API_ACTIONS,
+           HELPCHAT_FIELD_ACTIONS_TOOLS + '=' + HelpChatFormEncode(LTools)) then
+        Log(llDetail, lsInfo, 'Actions declared to the server')
+      else
+        Log(llInfo, lsWarning, 'The server did not take the actions of this assistant: ' +
+          'the model is not offered them');
+    except
+      // The chat still works; it just cannot act.
+    end;
+  // After the call, which may have opened a new session: and whatever it
+  // answered, so that a server that refuses is not asked at every screen.
+  FActionsPushed := True;
+  FActionsSent := LTools;
+end;
+
+procedure THelpChatRemoteTransport.WakeActions;
+begin
+  if not HasSession then
+    Exit;
+  if not Assigned(FPumpObj) then
+  begin
+    FPumpObj := TRemoteActionPump.Create(FBaseUrl, FAppKey, FTimeoutMs);
+    FPump := TRemoteActionPump(FPumpObj);
+  end;
+  TRemoteActionPump(FPumpObj).Wake(FToken, GetActions);
+end;
+
+procedure THelpChatRemoteTransport.StopActions;
+begin
+  if Assigned(FPumpObj) then
+    TRemoteActionPump(FPumpObj).Stop;
+  FPumpObj := nil;
+  FPump := nil;
 end;
 
 function THelpChatRemoteTransport.GetActions: IHelpChatActionInvoker;
@@ -805,8 +1106,7 @@ end;
 procedure THelpChatRemoteTransport.SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
 begin
   // Kept, and never called: the document would be built by the server, and
-  // the host channel carries commands, not documents. Like the actions, this
-  // is local for now.
+  // the host channel carries commands, not documents. This is local for now.
   FOnPdfRequest := AHandler;
 end;
 
@@ -826,6 +1126,12 @@ procedure THelpChatRemoteTransport.ChannelCommand(const ACommand: string);
 var
   LHandler: THelpChatUiCommandEvent;
 begin
+  // Not a command for the component: the page relays what the server said.
+  if ACommand = HELPCHAT_UI_ACTIONS then
+  begin
+    WakeActions;
+    Exit;
+  end;
   if ACommand = HELPCHAT_UI_RELOAD then
     FLastContact := 0;
   LHandler := FOnUiCommand;

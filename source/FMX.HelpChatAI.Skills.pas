@@ -298,14 +298,8 @@ end;
 // The data set of a bind source (TBindSourceDB) or of anything with a
 // published DataSet.
 function DataSetOfSource(const ASource: TObject): TDataSet;
-var
-  LValue: TObject;
 begin
-  LValue := PropObj(ASource, 'DataSet');
-  if LValue is TDataSet then
-    Result := TDataSet(LValue)
-  else
-    Result := nil;
+  Result := HelpChatSourceDataSet(ASource);
 end;
 
 function ControlText(const AObject: TObject): string;
@@ -407,30 +401,6 @@ type
   end;
 
 constructor TFmxBindings.Create(const ARoot: TFmxObject);
-
-  procedure Scan(const AOwner: TComponent);
-  var
-    I: Integer;
-    LComponent: TComponent;
-    LControl: TObject;
-  begin
-    for I := 0 to AOwner.ComponentCount - 1 do
-    begin
-      LComponent := AOwner.Components[I];
-      if InheritsFromName(LComponent, 'TCustomLinkControlToField') then
-      begin
-        LControl := PropObj(LComponent, 'Control');
-        if LControl is TComponent then
-          FieldLinks.AddOrSetValue(TComponent(LControl), LComponent);
-      end
-      else if InheritsFromName(LComponent, 'TCustomLinkGridToDataSource') or
-        InheritsFromName(LComponent, 'TCustomLinkListControlToField') then
-        ListLinks.Add(LComponent);
-      if LComponent.ComponentCount > 0 then
-        Scan(LComponent);
-    end;
-  end;
-
 var
   LOwner: TComponent;
 begin
@@ -441,7 +411,8 @@ begin
   LOwner := ARoot;
   if not (ARoot is TCommonCustomForm) and Assigned(ARoot.Owner) then
     LOwner := ARoot.Owner;
-  Scan(LOwner);
+  // The same scan as the VCL's (HelpChatAI.Skills.Screen).
+  HelpChatScanBindings(LOwner, FieldLinks, ListLinks);
 end;
 
 destructor TFmxBindings.Destroy;
@@ -1042,37 +1013,15 @@ end;
 // A control bound to a field by a link: the field, its data set, its lookup.
 function DescribeBound(const AField: THelpChatFmxField; const ALink: TComponent): Boolean;
 var
-  LSource: TObject;
-  LDataSet, LFillDataSet: TDataSet;
-  LTField: TField;
   LItems: TObject;
 begin
-  Result := False;
-  LSource := PropObj(ALink, 'DataSource');
-  LDataSet := DataSetOfSource(LSource);
-  if LDataSet = nil then
-    Exit;
-  LTField := LDataSet.FindField(PropStr(ALink, 'FieldName'));
-  if LTField = nil then
+  // The field, its source, its lookup: the same for the VCL.
+  Result := HelpChatDescribeBoundField(AField, ALink);
+  if not Result then
     Exit;
   AField.Link := ALink;
-  AField.AutoEdit := PropBool(LSource, 'AutoEdit', True);
-  HelpChatDescribeDataField(AField, LTField);
-  // A combo filled from another data set: the code of a record of it.
-  LFillDataSet := DataSetOfSource(PropObj(ALink, 'FillDataSource'));
-  if Assigned(LFillDataSet) and (PropStr(ALink, 'FillValueFieldName') <> '') and
-    (PropStr(ALink, 'FillDisplayFieldName') <> '') and (AField.Field.FieldKind <> fkLookup) then
-  begin
-    AField.Kind := hfkLookup;
-    AField.LookupDataSet := LFillDataSet;
-    AField.LookupKeyField := PropStr(ALink, 'FillValueFieldName');
-    AField.LookupListField := PropStr(ALink, 'FillDisplayFieldName');
-  end;
   if AField.Kind = hfkLookup then
-  begin
-    AField.LookupOf := AField.LookupDataSet.Name;
-    HelpChatFillLookupChoices(AField);
-  end
+    // described by the link
   else if Supports(AField.Control, IIsChecked) and not (AField.Control is TCustomButton) then
   begin
     AField.Kind := hfkBoolean;
@@ -1095,7 +1044,6 @@ begin
     AField.Placeholder := TCustomEdit(AField.Control).TextPrompt;
   end;
   AField.ReadOnly := AField.ReadOnly or PropBool(AField.Control, 'ReadOnly');
-  Result := True;
 end;
 
 function HelpChatFmxCollectFields(const ARoot: TFmxObject;
@@ -1251,17 +1199,6 @@ begin
     end;
 end;
 
-// True when the bind source ASource (a TBindSourceDB, a prototype source) is
-// editing a record.
-function SourceIsEditing(const ASource: TObject): Boolean;
-var
-  LValue: TValue;
-begin
-  Result := HelpChatIsEditing(DataSetOfSource(ASource));
-  if not Result and RttiProp(ASource, 'Editing', LValue) and (LValue.Kind = tkEnumeration) then
-    Result := LValue.AsBoolean;
-end;
-
 // What a button of a TBindNavigator, or a button with one of the bind
 // navigator actions, does: AIsPost for the ones that save, and the result
 // True for the ones that move to another record, insert one or reload while
@@ -1270,18 +1207,12 @@ end;
 // never by its hint: the hint is a localized text of the RTL.
 function NavigationWhileEditing(const AControl: TControl; const AAction: TBasicAction;
   out AIsPost: Boolean): Boolean;
-const
-  // TNavigateButton, in Data.Bind.Controls.
-  KIND_FIRST = 0; KIND_PRIOR = 1; KIND_NEXT = 2; KIND_LAST = 3; KIND_INSERT = 4;
-  KIND_POST = 7; KIND_REFRESH = 9; KIND_APPLY = 10;
-  MOVING: array[0..5] of string = ('First', 'Prior', 'Next', 'Last', 'Insert', 'Refresh');
 var
   LValue: TValue;
   LSource: TObject;
   LOwner: TFmxObject;
   LKind: Integer;
   LMoves: Boolean;
-  LName: string;
 begin
   Result := False;
   AIsPost := False;
@@ -1289,11 +1220,8 @@ begin
   LMoves := False;
   if InheritsFromName(AControl, 'TBindNavButton') then
   begin
-    if not RttiProp(AControl, 'Index', LValue) or (LValue.Kind <> tkEnumeration) then
+    if not HelpChatBindNavigateButton(AControl, LKind, AIsPost, LMoves) then
       Exit;
-    LKind := LValue.AsOrdinal;
-    AIsPost := (LKind = KIND_POST) or (LKind = KIND_APPLY);
-    LMoves := LKind in [KIND_FIRST, KIND_PRIOR, KIND_NEXT, KIND_LAST, KIND_INSERT, KIND_REFRESH];
     LOwner := AControl.Parent;
     while Assigned(LOwner) and (LSource = nil) do
     begin
@@ -1302,20 +1230,9 @@ begin
       LOwner := LOwner.Parent;
     end;
   end
-  else if Assigned(AAction) then
-  begin
-    AIsPost := InheritsFromName(AAction, 'TFMXBindNavigatePost') or
-      InheritsFromName(AAction, 'TBindNavigatePost') or
-      InheritsFromName(AAction, 'TFMXBindNavigateApplyUpdates') or
-      InheritsFromName(AAction, 'TBindNavigateApplyUpdates');
-    for LName in MOVING do
-      if InheritsFromName(AAction, 'TFMXBindNavigate' + LName) or
-         InheritsFromName(AAction, 'TBindNavigate' + LName) then
-        LMoves := True;
-    if LMoves and RttiProp(AAction, 'DataSource', LValue) and LValue.IsObject then
-      LSource := LValue.AsObject;
-  end;
-  Result := LMoves and Assigned(LSource) and SourceIsEditing(LSource);
+  else if not HelpChatBindNavigateAction(AAction, AIsPost, LMoves, LSource) then
+    Exit;
+  Result := LMoves and Assigned(LSource) and HelpChatBindSourceEditing(LSource);
 end;
 
 procedure CollectCommands(const ARoot: TFmxObject; const AList: THelpChatSkillCommandList;

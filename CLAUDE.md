@@ -59,7 +59,7 @@ README.htm               README.md as HTML, installed and linked as ReadMe in th
 InternalDocs/            design notes and analyses, not published: the agent that syncs GitHub
                          ignores this folder (Configuration-Profiles.md: several assistants in
                          one application, the design shipped in 1.7.0). Slide/ holds the
-                         conference decks (ITDevCon: slides.md, part1/part2.md, build_slides),
+                         conference deck (ITDevCon: slides.md, one talk - the two parts were merged into it; build_slides),
                          moved here from Docs/ on purpose: the slides are never published.
                          Anything that must stay off GitHub goes under InternalDocs, never in
                          a new top-level folder
@@ -68,10 +68,17 @@ Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
                          of Embarcadero with HelpChatAI in it, and one manual for both in
                          Help/*.md (plus Help/Images and the help-index.json the applications
                          read)
-"CRM Demo"/common/       uDataMod (the FireDAC data module, the database and every query),
-                         uProposalReport (the invoice as HTML, and the parser of the
-                         line items the model writes) and uAppSecret (the API key
-                         encrypted with DCPcrypt), shared by the two demos.
+"CRM Demo"/common/       uDataMod (the FireDAC data module, the database and every query,
+                         and what the actions do to the data: ResolveAccountName,
+                         CreateAccount, CreateLead, LeadForProposal - no assistant there),
+                         uCRMActions (the four actions of the assistant, declared once:
+                         RegisterCRMActions takes the brokers and the hooks of the
+                         visual half each main form passes - open a tab, refresh a
+                         link, show the lead or the draft), uProposalReport (the
+                         invoice as HTML, and the parser of the line items the model
+                         writes) and uAppSecret (the API key encrypted with DCPcrypt),
+                         shared by the two demos. A name, a description or a parameter
+                         is what the model reads: written twice, the two demos drifted.
                          Framework-neutral on purpose - the FireDAC wait cursor
                          (FireDAC.VCLUI.Wait / .FMXUI.Wait) is the one thing that is not,
                          so it lives in each .dpr instead. uHelpChatLog writes the log
@@ -100,6 +107,10 @@ Test/source, Test/Delphi13, Test/data         DUnitX suite and fixtures
                          summary table) and the four per-version wrappers, same shape as
                          StyledComponents/Demos. -Framework VCL|FMX everywhere; FMX on 10.4
                          and 11 is reported N/A, not SKIP
+"CRM Demo"/ResetDemoDatabase.cmd   deletes w10crmdemo.sdb from the Documents folder of the
+                         user (where uDataMod creates it at the first start, from the
+                         TFDMemTable of uDataMod.dfm; one for both demos, never in the
+                         repository), refusing while a demo is running
 Server/source, Server/Delphi13                HelpChatAIServerApp: the console HelpChatAI server
                          (Server/Bin, Server/Dcu and helpchatai-server.json are svn-ignored;
                          helpchatai-server.json.sample is the versioned starting point)
@@ -327,7 +338,9 @@ the edit on every version, not on the one that happens to be open.
   clearly wrote in another language; now the user who wants Italian answers picks Italian);
   `Settings.Languages` what the flag of the panel offers (fewer than two = no flag);
   `Settings.ResolveLanguage` the concrete one among them, never `hclAuto` (English when the
-  configured or OS language is not offered, else the first offered). All three live under
+  configured or OS language is not offered, else the first offered). The default
+  `LanguageRule` says "even when the user writes in another language" in so many words:
+  "Reply in English" alone let a first Italian question get an Italian answer. All three live under
   `Settings` and in `helpchatai.json`, not on the components, for the reason `Provider`
   does. `THelpChatEngine.SelectLanguage` **writes `Settings.Language`** - unlike an assistant,
   which is an override - because every reader of the language reads it there (the snapshot of
@@ -515,7 +528,16 @@ the edit on every version, not on the one that happens to be open.
 - **Screen context is native.** `TVclHelpChatAI.BuildContext` computes it on the main thread and
   calls `Transport.SetContext`; the page never sends it (a remote client may, as override).
   Deepest `HelpKeyword`/`HelpContext` wins (focused control upwards, form last); the active
-  `TTabSheet` caption is the screen label.
+  `TTabSheet` caption is the screen label. **The form is the one the skills work on**
+  (`HelpChatVclWorkingForm` / `HelpChatFmxWorkingForm`): with the chat in front, the form the
+  user left for it, and the control that form keeps focused (`FLastFocus` for a panel in a
+  `Container` of that very form) - it used to fall back to the host form, so "where am I?"
+  asked from a lead window answered with the main form. And it is **pushed again while the
+  panel is open** (VCL: `TrackFocus` on idle when focus form or control changed; FMX: on
+  `TFormActivateMessage`, queued, because the skills note the last form in the same message),
+  not only by `Open`. An `OnGetContext` that rewrites the screen must check
+  `AContext.ScreenType` first, never `Screen.ActiveForm`, which is then the chat (both demos
+  did).
 - **F1 goes through the Delphi help system (VCL).** `THelpChatHelpViewer` (`HelpChatAI.HelpViewer`,
   RTL: ICustomHelpViewer + IExtendedHelpViewer registered via `System.HelpIntfs.RegisterViewer`)
   receives keyword and context requests; the `TApplicationEvents.OnMessage` F1 handler only
@@ -1205,7 +1227,16 @@ the edit on every version, not on the one that happens to be open.
   its `Content`), the form activated last from `TFormActivateMessage`, the tabs of a
   `TTabControl` with `TabPosition = None` left out (a card panel). There is no FMX test in the
   DUnitX suite (a VCL program): the FMX screen was checked by a FireMonkey harness that builds
-  a form in code. `Settings.Skills` names them (JSON string or array, profiles
+  a form in code. **The links are the same in both frameworks, and so is their reading**:
+  `HelpChatScanBindings`, `HelpChatDescribeBoundField`, `HelpChatBindSourceEditing`,
+  `HelpChatBindNavigateButton`/`Action` live in `HelpChatAI.Skills.Screen`, and the VCL screen
+  uses them too - a control a link binds is a field of its `TField` before any adapter, a grid
+  a link fills is a list, a `TBindNavigator` (its `TNavButton`s told by `Index`) never offers
+  *Post* nor moves while editing, and an action with no `DataSource` asks the bound sources
+  too (`AnyBindingEditing`). The VCL CRM demo binds with LiveBindings only: before this its
+  fields were read as plain edits, its grids were no lists, and the *Post* of its navigators
+  was offered. `HelpChatAI.Tests.Skills.Bindings` builds such a form in code (2.1).
+  `Settings.Skills` names them (JSON string or array, profiles
   too). Three rules: **an action of the application wins** (`AddAction` skips a name the
   broker or its shared broker has, and `Detach` removes only what the skill added); **naming a
   skill allows it** (its actions are appended to a non-empty `Allowed`); **an unknown name is
@@ -1249,10 +1280,30 @@ the edit on every version, not on the one that happens to be open.
   (read through RTTI); `TArray.Contains` is not in 10.4. And in tests: naming a `TEdit` gives
   it its name as text; `TryISO8601ToDate` with `AReturnUTC = False` shifts a time without
   offset.
-- **Actions are local for now.** With `Settings.Remote` the model runs on the server and the
-  actions live in the client: the definitions and the calls do not travel yet. The broker queue
-  is shaped for it (`TakePending`/`Complete` over HTTP, the host channel already exists), but
-  until that is built, registering actions with a remote engine does nothing.
+- **With a remote engine the declaration and the call travel, the handler never does.**
+  (2.1) `THelpChatActionRelay` (`HelpChatAI.Actions`) is the `IHelpChatActionInvoker` of a
+  session of the server: `SetTools` takes the `ToolsJson` of the client's broker
+  (`POST /api/actions`; only name, description and `input_schema` are kept, 64 actions,
+  narrowed by the `AllowedActions` of the server's engine - where naming a skill allows
+  nothing, the skills being in the client), `Invoke` queues the call and waits
+  (`HELPCHAT_RELAY_DEF_TIMEOUT_MS`: the client's 60 s plus a margin, so the client gives up
+  first), `TakeCallsJson` hands each call out once (`GET /api/actions/pending`) and `Complete`
+  takes the outcome (`POST /api/actions/result`, 410 when nobody waits any more).
+  `THelpChatServerSession.SetClientActions` creates it and `MarkEnded` closes it (every
+  waiting call answers `aoCancelled`). **No connection is kept open for it**: the page is
+  what polls a reply, so `GET /api/poll` carries `HELPCHAT_ACTIONS_HEADER` while a call is
+  undelivered, `panel.js` posts the UI command `actions` to the host channel, and
+  `THelpChatRemoteTransport.ChannelCommand` wakes a `TRemoteActionPump` - one thread, held
+  by its own reference, using nothing of the transport - which takes the calls, runs each on
+  the component's broker (`Invoke`: main thread, confirmation, as with a local engine) and
+  posts how it went. Hence nothing is declared without the host channel. The transport
+  declares in `GetPanelUrl`, `SetContext` and `SetActions`, only when `ToolsJson` changed
+  (nothing tells it that the application registered an action), and remembers a refusal
+  until then. The server says no with **405**, never 403, which `SessionCall` reads as a
+  session to open again (`THelpChatRemoteServer.ClientActions`, `AcceptsClientActions`; the
+  local server answers 405 too). A remote session still starts without `run`. A call the
+  client already took may run after the server gave up on it: its answer is refused, and
+  nothing takes the action back.
 - **The plain demo is where a beginner starts, so several assistants live in a twin.**
   `*_CRMDemo_MultiAgent.dproj` compiles the same sources with `MULTIAGENT`: one unit
   (`uMultiAgent`, `uMultiAgentFmx`) holds everything it adds - the general assistant's

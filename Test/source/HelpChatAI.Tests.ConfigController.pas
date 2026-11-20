@@ -636,6 +636,12 @@ begin
   Assert.AreEqual('Gemini.ApiKey', THelpChatConfigController.ProviderKeyPath('Gemini'));
   Assert.AreEqual('', THelpChatConfigController.ProviderKeyPath('docsearch'));
   Assert.AreEqual('', THelpChatConfigController.ProviderKeyPath(''));
+  // The hint of its box: the last four characters of a real key, none of a
+  // short one - four characters of "abcd" are the key.
+  Assert.AreEqual('****6789', THelpChatConfigController.MaskSecretShort(' sk-ant-123456789 '));
+  Assert.AreEqual('****', THelpChatConfigController.MaskSecretShort('abcd'));
+  Assert.AreEqual('****', THelpChatConfigController.MaskSecretShort('12345678'));
+  Assert.AreEqual('', THelpChatConfigController.MaskSecretShort('  '));
   // stub answers one sentence to everything: not a model to offer.
   for LProvider in THelpChatConfigController.ModelProviders do
     Assert.AreNotEqual('stub', LProvider);

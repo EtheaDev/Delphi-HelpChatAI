@@ -234,6 +234,50 @@ procedure HelpChatFillLookupChoices(const AField: THelpChatDataField);
 function HelpChatEnterEditing(const ADataSet: TDataSet; const AAutoEdit: Boolean;
   const AMode: THelpChatFillMode): string;
 
+{ LiveBindings, read by the names of their classes: no binding unit is
+  needed, and the VCL and FireMonkey share the same links
+  (Data.Bind.Components, Data.Bind.Grid). }
+
+/// <summary>The data set of a source: a <c>TDataSource</c>, a
+/// <c>TBindSourceDB</c>, anything with a published <c>DataSet</c>; nil
+/// otherwise.</summary>
+function HelpChatSourceDataSet(const ASource: TObject): TDataSet;
+/// <summary>The LiveBindings links of the components <c>AOwner</c> owns, and
+/// of theirs: <c>AFieldLinks</c> maps a control to the link that binds it to
+/// a field (<c>TLinkControlToField</c>, <c>TLinkFillControlToField</c>),
+/// <c>AListLinks</c> gets the links that fill a grid or a list with a data
+/// set (<c>TLinkGridToDataSource</c>, <c>TLinkListControlToField</c>).</summary>
+procedure HelpChatScanBindings(const AOwner: TComponent;
+  const AFieldLinks: TDictionary<TComponent, TComponent>; const AListLinks: TList<TComponent>);
+/// <summary>The control a list link fills: its <c>GridControl</c>, else its
+/// <c>Control</c>.</summary>
+function HelpChatBindingListControl(const ALink: TComponent): TObject;
+/// <summary>The data set a list link fills the control with.</summary>
+function HelpChatBindingListDataSet(const ALink: TComponent): TDataSet;
+/// <summary>What a link says of the field it binds a control to: the
+/// <c>TField</c> (<see cref="HelpChatDescribeDataField" />), the
+/// <c>AutoEdit</c> of its source, and the lookup of a link that fills the
+/// control from another data set. False when the link binds no field, which
+/// is no field to fill.</summary>
+function HelpChatDescribeBoundField(const AField: THelpChatDataField;
+  const ALink: TComponent): Boolean;
+/// <summary>True when a bind source (or a data source) is editing a
+/// record.</summary>
+function HelpChatBindSourceEditing(const ASource: TObject): Boolean;
+/// <summary>What a bind navigator action is (<c>TBindNavigatePost</c> of the
+/// VCL, <c>TFMXBindNavigatePost</c>...): False for any other action.
+/// <c>AIsPost</c> for the ones that save, <c>AMoves</c> for the ones that
+/// move to another record, insert one or reload, <c>ASource</c> the source
+/// it works on.</summary>
+function HelpChatBindNavigateAction(const AAction: TBasicAction;
+  out AIsPost, AMoves: Boolean; out ASource: TObject): Boolean;
+/// <summary>What the button of a navigator does, from its <c>Index</c> (a
+/// <c>TNavigateButton</c> of <c>Data.Bind.Controls</c>, read through RTTI,
+/// never from its hint, which is a localized text of the RTL): False when
+/// the button has no index. <c>AKind</c> is the index.</summary>
+function HelpChatBindNavigateButton(const AButton: TObject;
+  out AKind: Integer; out AIsPost, AMoves: Boolean): Boolean;
+
 { What the actions do, on any screen. They answer with the text the model
   reads; the ones that cannot do anything raise, with the reason. }
 
@@ -285,7 +329,7 @@ var
 implementation
 
 uses
-  System.StrUtils, System.Math, System.Variants;
+  System.StrUtils, System.Math, System.Variants, System.TypInfo, System.Rtti;
 
 const
   MSG_NO_FORM = 'No form is active: the user is not working on any screen of the application.';
@@ -339,7 +383,8 @@ begin
       Result := hfkMemo;
     ftSmallint, ftInteger, ftWord, ftLargeint, ftAutoInc, ftShortint, ftByte, ftLongWord:
       Result := hfkInteger;
-    ftFloat, ftCurrency, ftBCD, ftFMTBcd, ftExtended, ftSingle:
+    // Qualified: System.TypInfo has an ftExtended and an ftSingle of its own.
+    ftFloat, ftCurrency, ftBCD, ftFMTBcd, Data.DB.ftExtended, Data.DB.ftSingle:
       Result := hfkNumber;
     ftDate:
       Result := hfkDate;
@@ -1900,6 +1945,224 @@ begin
         LScreen.Free;
       end;
     end, False);
+end;
+
+{ LiveBindings }
+
+function BindHasProp(const AObject: TObject; const AName: string; const AKinds: TTypeKinds): Boolean;
+var
+  LInfo: PPropInfo;
+begin
+  Result := False;
+  if AObject = nil then
+    Exit;
+  LInfo := GetPropInfo(AObject, AName);
+  Result := Assigned(LInfo) and (LInfo^.PropType^^.Kind in AKinds);
+end;
+
+function BindPropObj(const AObject: TObject; const AName: string): TObject;
+begin
+  if BindHasProp(AObject, AName, [tkClass]) then
+    Result := GetObjectProp(AObject, AName)
+  else
+    Result := nil;
+end;
+
+function BindPropStr(const AObject: TObject; const AName: string): string;
+begin
+  if BindHasProp(AObject, AName, [tkString, tkLString, tkWString, tkUString]) then
+    Result := GetStrProp(AObject, AName)
+  else
+    Result := '';
+end;
+
+function BindPropBool(const AObject: TObject; const AName: string; const ADefault: Boolean): Boolean;
+begin
+  if BindHasProp(AObject, AName, [tkEnumeration]) then
+    Result := GetOrdProp(AObject, AName) <> 0
+  else
+    Result := ADefault;
+end;
+
+function BindInheritsFrom(const AObject: TObject; const AClassName: string): Boolean;
+var
+  LClass: TClass;
+begin
+  Result := False;
+  if AObject = nil then
+    Exit;
+  LClass := AObject.ClassType;
+  while Assigned(LClass) do
+  begin
+    if SameText(LClass.ClassName, AClassName) then
+      Exit(True);
+    LClass := LClass.ClassParent;
+  end;
+end;
+
+// A property read through extended RTTI: the public ones too, which is where
+// a navigator button keeps its index and a bind source says it is editing.
+function BindRttiProp(const AObject: TObject; const AName: string; out AValue: TValue): Boolean;
+var
+  LContext: TRttiContext;
+  LProperty: TRttiProperty;
+begin
+  Result := False;
+  if AObject = nil then
+    Exit;
+  LProperty := LContext.GetType(AObject.ClassType).GetProperty(AName);
+  if Assigned(LProperty) and LProperty.IsReadable then
+    try
+      AValue := LProperty.GetValue(AObject);
+      Result := True;
+    except
+      Result := False;
+    end;
+end;
+
+function HelpChatSourceDataSet(const ASource: TObject): TDataSet;
+var
+  LValue: TObject;
+begin
+  LValue := BindPropObj(ASource, 'DataSet');
+  if LValue is TDataSet then
+    Result := TDataSet(LValue)
+  else
+    Result := nil;
+end;
+
+procedure HelpChatScanBindings(const AOwner: TComponent;
+  const AFieldLinks: TDictionary<TComponent, TComponent>; const AListLinks: TList<TComponent>);
+var
+  I: Integer;
+  LComponent: TComponent;
+  LControl: TObject;
+begin
+  if AOwner = nil then
+    Exit;
+  for I := 0 to AOwner.ComponentCount - 1 do
+  begin
+    LComponent := AOwner.Components[I];
+    // TCustomLinkFillControlToField descends from it.
+    if BindInheritsFrom(LComponent, 'TCustomLinkControlToField') then
+    begin
+      LControl := BindPropObj(LComponent, 'Control');
+      if (LControl is TComponent) and Assigned(AFieldLinks) then
+        AFieldLinks.AddOrSetValue(TComponent(LControl), LComponent);
+    end
+    else if (BindInheritsFrom(LComponent, 'TCustomLinkGridToDataSource') or
+      BindInheritsFrom(LComponent, 'TCustomLinkListControlToField')) and Assigned(AListLinks) then
+      AListLinks.Add(LComponent);
+    if LComponent.ComponentCount > 0 then
+      HelpChatScanBindings(LComponent, AFieldLinks, AListLinks);
+  end;
+end;
+
+function HelpChatBindingListControl(const ALink: TComponent): TObject;
+begin
+  Result := BindPropObj(ALink, 'GridControl');
+  if Result = nil then
+    Result := BindPropObj(ALink, 'Control');
+end;
+
+function HelpChatBindingListDataSet(const ALink: TComponent): TDataSet;
+begin
+  Result := HelpChatSourceDataSet(BindPropObj(ALink, 'DataSource'));
+end;
+
+function HelpChatDescribeBoundField(const AField: THelpChatDataField;
+  const ALink: TComponent): Boolean;
+var
+  LSource: TObject;
+  LDataSet, LFillDataSet: TDataSet;
+  LTField: TField;
+begin
+  Result := False;
+  LSource := BindPropObj(ALink, 'DataSource');
+  LDataSet := HelpChatSourceDataSet(LSource);
+  if LDataSet = nil then
+    Exit;
+  LTField := LDataSet.FindField(BindPropStr(ALink, 'FieldName'));
+  if LTField = nil then
+    Exit;
+  AField.AutoEdit := BindPropBool(LSource, 'AutoEdit', True);
+  HelpChatDescribeDataField(AField, LTField);
+  // A combo filled from another data set: the code of a record of it.
+  LFillDataSet := HelpChatSourceDataSet(BindPropObj(ALink, 'FillDataSource'));
+  if Assigned(LFillDataSet) and (BindPropStr(ALink, 'FillValueFieldName') <> '') and
+    (BindPropStr(ALink, 'FillDisplayFieldName') <> '') and (AField.Field.FieldKind <> fkLookup) then
+  begin
+    AField.Kind := hfkLookup;
+    AField.LookupDataSet := LFillDataSet;
+    AField.LookupKeyField := BindPropStr(ALink, 'FillValueFieldName');
+    AField.LookupListField := BindPropStr(ALink, 'FillDisplayFieldName');
+  end;
+  if AField.Kind = hfkLookup then
+  begin
+    AField.LookupOf := AField.LookupDataSet.Name;
+    HelpChatFillLookupChoices(AField);
+  end;
+  Result := True;
+end;
+
+function HelpChatBindSourceEditing(const ASource: TObject): Boolean;
+var
+  LValue: TValue;
+begin
+  Result := HelpChatIsEditing(HelpChatSourceDataSet(ASource));
+  if not Result and BindRttiProp(ASource, 'Editing', LValue) and (LValue.Kind = tkEnumeration) then
+    Result := LValue.AsBoolean;
+end;
+
+const
+  // TNavigateButton, in Data.Bind.Controls.
+  BIND_NAV_FIRST = 0; BIND_NAV_PRIOR = 1; BIND_NAV_NEXT = 2; BIND_NAV_LAST = 3;
+  BIND_NAV_INSERT = 4; BIND_NAV_POST = 7; BIND_NAV_REFRESH = 9; BIND_NAV_APPLY = 10;
+  BIND_NAV_LAST_KIND = 11;
+
+function HelpChatBindNavigateAction(const AAction: TBasicAction;
+  out AIsPost, AMoves: Boolean; out ASource: TObject): Boolean;
+const
+  MOVING: array[0..5] of string = ('First', 'Prior', 'Next', 'Last', 'Insert', 'Refresh');
+var
+  LName: string;
+  LValue: TValue;
+begin
+  AIsPost := False;
+  AMoves := False;
+  ASource := nil;
+  Result := BindInheritsFrom(AAction, 'TBindNavigateAction') or
+    BindInheritsFrom(AAction, 'TFMXBindNavigateAction');
+  AIsPost := BindInheritsFrom(AAction, 'TFMXBindNavigatePost') or
+    BindInheritsFrom(AAction, 'TBindNavigatePost') or
+    BindInheritsFrom(AAction, 'TFMXBindNavigateApplyUpdates') or
+    BindInheritsFrom(AAction, 'TBindNavigateApplyUpdates');
+  for LName in MOVING do
+    if BindInheritsFrom(AAction, 'TFMXBindNavigate' + LName) or
+       BindInheritsFrom(AAction, 'TBindNavigate' + LName) then
+      AMoves := True;
+  Result := Result or AIsPost or AMoves;
+  if Result and BindRttiProp(AAction, 'DataSource', LValue) and LValue.IsObject then
+    ASource := LValue.AsObject;
+end;
+
+function HelpChatBindNavigateButton(const AButton: TObject;
+  out AKind: Integer; out AIsPost, AMoves: Boolean): Boolean;
+var
+  LValue: TValue;
+begin
+  AKind := -1;
+  AIsPost := False;
+  AMoves := False;
+  Result := BindRttiProp(AButton, 'Index', LValue) and
+    (LValue.Kind in [tkEnumeration, tkInteger]);
+  if not Result then
+    Exit;
+  AKind := LValue.AsOrdinal;
+  Result := (AKind >= 0) and (AKind <= BIND_NAV_LAST_KIND);
+  AIsPost := (AKind = BIND_NAV_POST) or (AKind = BIND_NAV_APPLY);
+  AMoves := AKind in [BIND_NAV_FIRST, BIND_NAV_PRIOR, BIND_NAV_NEXT, BIND_NAV_LAST,
+    BIND_NAV_INSERT, BIND_NAV_REFRESH];
 end;
 
 initialization

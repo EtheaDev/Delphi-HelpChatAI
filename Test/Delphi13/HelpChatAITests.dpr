@@ -66,7 +66,8 @@ uses
   HelpChatAI.Tests.SecretNodes in '..\source\HelpChatAI.Tests.SecretNodes.pas',
   HelpChatAI.Tests.ConfigController in '..\source\HelpChatAI.Tests.ConfigController.pas',
   HelpChatAI.Tests.UiState in '..\source\HelpChatAI.Tests.UiState.pas',
-  HelpChatAI.Tests.Skills in '..\source\HelpChatAI.Tests.Skills.pas';
+  HelpChatAI.Tests.Skills in '..\source\HelpChatAI.Tests.Skills.pas',
+  HelpChatAI.Tests.Skills.Bindings in '..\source\HelpChatAI.Tests.Skills.Bindings.pas';
 
 {$IFNDEF TESTINSIGHT}
 var

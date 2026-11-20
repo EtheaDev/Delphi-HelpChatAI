@@ -210,6 +210,12 @@ type
     FModalWatch: TVclHelpChatHideWatch;
     FContainer: TWinControl;
     FActiveContainer: TWinControl;
+    // The focus as the last idle turn saw it (compared, never dereferenced),
+    // and the last control focused outside the chat: what the context of a
+    // panel in a Container of the same form is built from.
+    FSeenForm: Pointer;
+    FSeenControl: Pointer;
+    FLastFocus: TControl;
     FBubble: TVclHelpChatAIBubble;
     FImages: TCustomImageList;
     FImageChangeLink: TChangeLink;
@@ -445,6 +451,14 @@ type
     procedure CoordinatorStyleChanged;
     procedure CoordinatorIdle;
     procedure CoordinatorModalEnd;
+    /// <summary>True for a control of the chat: inside the panel, or on the
+    /// window of a chat or a dialog of the library.</summary>
+    function IsChatControl(const AControl: TControl): Boolean;
+    procedure SetLastFocus(const AControl: TControl);
+    /// <summary>While the panel is open, gives the transport the context
+    /// again when the focus moved: the screen the user asks about is the one
+    /// they were on when they went to the chat, not the one it opened on.</summary>
+    procedure TrackFocus;
     function IsOurWindow(const AHandle: HWND): Boolean;
     /// <summary>True when AForm is where this assistant lives: its host form,
     /// its own window, or the form of the container it is embedded in.</summary>
@@ -473,10 +487,11 @@ type
     /// assistant is using now: <c>RunSettings.ActiveModelName</c>, the
     /// provider and the key of that model (see <c>OnModelChanged</c>).</summary>
     function RunSettings: THelpChatSettings;
-    /// <summary>Builds the context of the current screen: active form (name,
-    /// class), the deepest control with HelpKeyword/HelpContext from the focused
-    /// control upwards (the form last), the active tab sheet as label, the
-    /// focused control; then fires OnGetContext.</summary>
+    /// <summary>Builds the context of the current screen: the form the user is
+    /// working on (name, class: the active form, or the one active before the
+    /// chat took the focus), the deepest control with HelpKeyword/HelpContext
+    /// from the control focused there upwards (the form last), the active tab
+    /// sheet as label, that control; then fires OnGetContext.</summary>
     function BuildContext: THelpChatContext;
     /// <summary>True when the focused control or one of its parents (the form
     /// included) declares a HelpKeyword or HelpContext: the VCL will route F1
@@ -1429,6 +1444,8 @@ begin
       FContainer := nil;
     if AComponent = FActiveContainer then
       FActiveContainer := nil;
+    if AComponent = FLastFocus then
+      FLastFocus := nil;
   end;
 end;
 
@@ -1787,6 +1804,48 @@ begin
   // place the bubble as soon as it does.
   if FActive and FShowBubble and (FBubble = nil) then
     EnsureBubble;
+  TrackFocus;
+end;
+
+function TVclHelpChatAI.IsChatControl(const AControl: TControl): Boolean;
+begin
+  Result := Assigned(AControl) and
+    ((Assigned(FView) and ((AControl = FView) or FView.ContainsControl(AControl))) or
+     not HelpChatVclIsWorkingForm(GetParentForm(AControl)));
+end;
+
+procedure TVclHelpChatAI.SetLastFocus(const AControl: TControl);
+begin
+  if AControl = FLastFocus then
+    Exit;
+  if Assigned(FLastFocus) then
+    FLastFocus.RemoveFreeNotification(Self);
+  FLastFocus := AControl;
+  if Assigned(FLastFocus) then
+    FLastFocus.FreeNotification(Self);
+end;
+
+procedure TVclHelpChatAI.TrackFocus;
+var
+  LForm: TCustomForm;
+  LControl: TControl;
+begin
+  if not FActive then
+    Exit;
+  LForm := Screen.ActiveCustomForm;
+  LControl := Screen.ActiveControl;
+  if (Pointer(LForm) = FSeenForm) and (Pointer(LControl) = FSeenControl) then
+    Exit;
+  FSeenForm := LForm;
+  FSeenControl := LControl;
+  if Assigned(LControl) and not IsChatControl(LControl) then
+    SetLastFocus(LControl);
+  // Only while the panel is open: closed, the next Open builds it anyway. A
+  // focus that went into the chat gives the same context as before (the
+  // form and the control the user left), which a remote transport does not
+  // send again.
+  if IsPanelVisible and Assigned(FTransport) then
+    FTransport.SetContext(BuildContext);
 end;
 
 function TVclHelpChatAI.ResolveHostForm: TCustomForm;
@@ -2979,8 +3038,11 @@ var
   LSheet: TTabSheet;
 begin
   Result := Default(THelpChatContext);
-  LForm := Screen.ActiveCustomForm;
-  if (LForm = nil) or (LForm = FOwnForm) then
+  // The form the user is working on, which is the one the skills work on:
+  // while the chat has the focus, the form that had it before - not the host
+  // form, which was the answer to "where am I?" asked from any other window.
+  LForm := HelpChatVclWorkingForm;
+  if LForm = nil then
     LForm := ResolveHostForm;
   if Assigned(LForm) then
   begin
@@ -2989,9 +3051,22 @@ begin
     Result.ScreenType := LForm.ClassName;
   end;
 
-  // Walk up from the focused control: the deepest help keyword/context wins
-  // (the form's own help is the fallback), the active tab sheet is the screen.
+  // The control focused there: the focus itself when it is on that form and
+  // outside the chat, else what the form keeps focused, else - a panel in a
+  // Container of that very form has the focus - the control left last.
   LControl := Screen.ActiveControl;
+  if (LControl = nil) or IsChatControl(LControl) or (GetParentForm(LControl) <> LForm) then
+  begin
+    LControl := nil;
+    if Assigned(LForm) and Assigned(LForm.ActiveControl) and
+       not IsChatControl(LForm.ActiveControl) then
+      LControl := LForm.ActiveControl
+    else if Assigned(FLastFocus) and (GetParentForm(FLastFocus) = LForm) then
+      LControl := FLastFocus;
+  end;
+
+  // Walk up from that control: the deepest help keyword/context wins
+  // (the form's own help is the fallback), the active tab sheet is the screen.
   if Assigned(LControl) and (GetParentForm(LControl) = LForm) then
   begin
     Result.FocusedControl := LControl.Name;

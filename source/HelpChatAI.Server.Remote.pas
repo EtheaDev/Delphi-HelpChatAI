@@ -222,6 +222,7 @@ type
     FSessionFolder: string;
     FIdleSeconds: Integer;
     FMaxSessions: Integer;
+    FClientActions: Boolean;
     FSweeper: THelpChatSessionSweeper;
     // The engines of the profiles, keyed by the profile in lower case and
     // owned (each owns its settings). Guarded by their own lock: creating
@@ -313,6 +314,8 @@ type
     /// <summary>False, for the same reason: the language is a setting of the
     /// one engine, and the page of every session is rendered in it.</summary>
     function CanSelectLanguage(const AEngine: THelpChatEngine): Boolean; override;
+    /// <summary><see cref="ClientActions" />.</summary>
+    function AcceptsClientActions: Boolean; override;
     /// <summary>A sentence that says nothing about this machine: what an
     /// exception carries - a path, an address, the name of a file - goes to
     /// <c>OnLog</c>, not to whoever sent the request.</summary>
@@ -369,6 +372,15 @@ type
     /// 503; 0 = no limit. Counts sessions, not users: the same user on two
     /// devices is two.</summary>
     property MaxSessions: Integer read FMaxSessions write FMaxSessions default HELPCHAT_REMOTE_DEF_MAX_SESSIONS;
+    /// <summary>Whether an application may declare its actions to its
+    /// session, for the model to call them: the action runs in the
+    /// application, on its own main thread and after its own confirmation,
+    /// and only its outcome comes back. True by default. What the
+    /// declaration costs the server is its text in every request of that
+    /// session - written by a client that has an application key - and the
+    /// <c>AllowedActions</c> of the configuration narrows what is offered,
+    /// per profile. False answers 405 to <c>POST /api/actions</c>.</summary>
+    property ClientActions: Boolean read FClientActions write FClientActions default True;
     /// <summary>Who may open a session, and on which conversation: see
     /// <see cref="THelpChatAuthenticateEvent" />. Without it the application
     /// key alone is checked and the user id is taken on trust.</summary>
@@ -499,6 +511,7 @@ begin
   FStorage := hssMemory;
   FIdleSeconds := HELPCHAT_REMOTE_DEF_IDLE_MINUTES * 60;
   FMaxSessions := HELPCHAT_REMOTE_DEF_MAX_SESSIONS;
+  FClientActions := True;
   MaxConnections := HELPCHAT_REMOTE_DEF_MAX_CONNECTIONS;
   Port := HELPCHAT_REMOTE_DEF_PORT;
   // A server is reached from outside; the local one stays on 127.0.0.1.
@@ -1002,6 +1015,11 @@ begin
   end;
   if Length(LDead) > 0 then
     Log('%d idle session(s) expired', [Length(LDead)]);
+end;
+
+function THelpChatRemoteServer.AcceptsClientActions: Boolean;
+begin
+  Result := FClientActions;
 end;
 
 function THelpChatRemoteServer.CanSelectModel(const AEngine: THelpChatEngine): Boolean;

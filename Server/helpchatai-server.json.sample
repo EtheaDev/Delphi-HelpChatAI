@@ -3,6 +3,8 @@
   "//keys": "One key per application allowed to use this server; never the model API key.",
   "Port": 8080,
   "BindIP": "0.0.0.0",
+  "//clientActions": "true lets an application declare its actions to the model: they run in the application, never here. AllowedActions (root or profile) narrows them.",
+  "ClientActions": true,
   "Keys": [
     "change-this-key"
   ],

@@ -13,8 +13,8 @@ uses
   FireDAC.Stan.Error, FireDAC.DatS, FireDAC.Phys.Intf, FireDAC.DApt.Intf,
   FireDAC.Stan.StorageBin, Data.DB, FireDAC.Comp.DataSet, FireDAC.Comp.Client,
   Vcl.VirtualImage,
-  // Il documento della proposta e le sue righe: codice senza niente di VCL,
-  // quindi sta in common e lo genera anche la demo FireMonkey.
+  // The proposal document and its line items: code with nothing of the VCL,
+  // so it lives in common and the FireMonkey demo generates it too.
   uProposalReport
   {$IFDEF VCLSTYLEDCOMPONENTS}, Vcl.StyledComponentsHooks{$ENDIF};
 
@@ -76,14 +76,14 @@ type
     procedure SaveProposalButtonClick(Sender: TObject);
   private
     { Private declarations }
-    /// <summary>Ricalcola il totale dalle righe presenti.</summary>
+    /// <summary>Recomputes the total from the line items there are.</summary>
     procedure UpdateTotal;
   public
     { Public declarations }
     FLeadId: Integer;
     procedure NewDraft(ALeadId: Integer; const ACompanyName: String);
-    /// <summary>Prepara una bozza gia' compilata e la mostra. La usa
-    /// l'assistente: l'utente controlla, poi preme Preview e Save.</summary>
+    /// <summary>Prepares a draft already filled in and shows it. The
+    /// assistant uses it: the user checks it, then presses Preview and Save.</summary>
     procedure PrepareDraft(ALeadId: Integer; const ACompanyName, AAddress1,
       AAddress2, APhone: String; const AItems: TArray<TProposalLineItem>);
   end;
@@ -115,9 +115,9 @@ begin
   try
     if DM.LineItemsTotalQuery.FindField('Total') <> nil then
     begin
-      // Il totale arriva come numero dalla query: CurrToStr lo scrive con le
-      // impostazioni dell'utente, che sono le stesse con cui il binding lo
-      // rilegge nel campo valuta.
+      // The total comes from the query as a number: CurrToStr writes it with
+      // the settings of the user, the same the binding reads it back with
+      // into the currency field.
       TotalEdit.Text := CurrToStr(DM.LineItemsTotalQuery.FieldByName('Total').AsCurrency);
       TLinkObservers.ControlChanged(TotalEdit);
     end;
@@ -146,8 +146,8 @@ begin
     DM.LineItemsFDMemTable.FieldByName('Price').AsCurrency := LItem.Price;
     DM.LineItemsFDMemTable.Post;
   end;
-  // Non modale: il gestore di un'azione gira sul thread principale e deve
-  // tornare subito, altrimenti il worker che lo ha chiesto va in timeout.
+  // Not modal: the handler of an action runs on the main thread and must
+  // return at once, or the worker that asked for it times out.
   Show;
   UpdateTotal;
 end;

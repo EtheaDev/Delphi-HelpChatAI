@@ -18,9 +18,7 @@ uses
   Vcl.BaseImageCollection, Vcl.ImageCollection, System.ImageList, Vcl.ImgList,
   Vcl.VirtualImageList, Vcl.VirtualImage, System.IOUtils,
   HelpChatAI.Types, HelpChatAI.Log, HelpChatAI.Actions, Vcl.HelpChatAI,
-  // per TProposalLineItem e ParseProposalLineItems, che un'azione
-  // passa alla bozza
-  uProposalReport, uDraftProposal
+  uDraftProposal
   {$IFDEF VCLSTYLEDCOMPONENTS}, Vcl.StyledComponentsHooks{$ENDIF};
 
 type
@@ -240,39 +238,35 @@ type
     procedure HelpChatLog(Sender: TObject; const AEntry: THelpChatLogEntry);
   private
     { Private declarations }
-    // La finestra di attivazione e' aperta: un altro cambio di modello non
-    // ne apre una seconda.
+    // The activation window is open: another change of model does not open
+    // a second one.
     FAskingKey: Boolean;
     FRanOnce: Boolean;
     procedure AppIdle(Sender: TObject; var Done: Boolean);
-    procedure RefreshGrids;
     procedure UpdateNavButtons;
-    /// <summary>Quello che l'assistente puo' fare in questa applicazione, e
-    /// nient'altro: ogni azione dichiara nome, descrizione e parametri, e il
-    /// gestore gira sul thread principale. Quelle che scrivono dati chiedono
-    /// conferma all'utente prima di partire.</summary>
+    /// <summary>What the assistant may do in this application, and nothing
+    /// else: each action declares name, description and parameters, and the
+    /// handler runs on the main thread. Those that write data ask the user
+    /// to confirm before they start.</summary>
     procedure RegisterHelpActions;
-    function ResolveAccountName(const AText: string): string;
-    /// <summary>Ripiego: il modello che l'assistente sta per usare vuole una
-    /// chiave e non ne ha (ne' nei file di configurazione ne' nella variabile
-    /// d'ambiente del suo servizio). La chiediamo per quel modello, la
-    /// cifriamo con il segreto di questa applicazione e la scriviamo nel file
-    /// utente, da dove la prossima esecuzione la rilegge cifrata. All'avvio e
-    /// a ogni cambio di modello dal pannello.</summary>
+    /// <summary>Fallback: the model the assistant is about to use wants a
+    /// key and has none (neither in the configuration files nor in the
+    /// environment variable of its service). We ask for it for that model,
+    /// encrypt it with the secret of this application and write it to the
+    /// per-user file, where the next run reads it back encrypted. At startup
+    /// and at every change of model from the panel.</summary>
     procedure AskForApiKeyIfMissing;
-    /// <summary>La scheda che l'assistente ha chiamato per nome.</summary>
+    /// <summary>The tab the assistant named.</summary>
     function FindTab(const AName: string): TTabSheet;
-    /// <summary>Il lead chiamato per nome, o per azienda se il nome non basta.</summary>
-    function LocateLeadByName(const AName: string): Boolean;
   public
     { Public declarations }
   end;
 
-/// <summary>Porta ai pixel dello schermo le larghezze di colonna dei
-/// TLinkGridToDataSource di un form: LiveBindings le tiene come sono
-/// scritte nel DFM, in pixel di progetto, e le riapplica alla griglia
-/// dopo che la VCL l'ha scalata. Senza questo, a 150% o 175% le colonne
-/// restano strette e il testo esce troncato.</summary>
+/// <summary>Brings the column widths of the TLinkGridToDataSource of a form
+/// to screen pixels: LiveBindings keeps them as the DFM writes them, in
+/// design pixels, and applies them again to the grid after the VCL scaled
+/// it. Without this, at 150% or 175% the columns stay narrow and the text
+/// is cut.</summary>
 procedure ScaleBoundGridColumns(AForm: TCustomForm);
 
 var
@@ -286,20 +280,22 @@ uses
   System.Types, System.Math,
   uDataMod, uLeads, uProposal,
   HelpChatAI.Settings,
-  // La chiave API non sta in chiaro nella configurazione: uAppSecret la
-  // cifra e la rilegge, e HelpChatDecryptSecret e' il gancio che il
-  // componente chiama. DCPcrypt serve a questa demo, non alla libreria.
+  // The API key is not in clear text in the configuration: uAppSecret
+  // encrypts it and reads it back, and HelpChatDecryptSecret is the hook the
+  // component calls. DCPcrypt is for this demo, not for the library.
   uAppSecret, uLicenseActivation,
-  // Il log dell'assistente su file, scritto da Logify.
+  // The actions of the assistant, shared with the FireMonkey demo.
+  uCRMActions,
+  // The log of the assistant to a file, written by Logify.
   uHelpChatLog,
-  // Un provider esiste solo se la sua unit e' linkata: si registra nella
-  // initialization. Senza questa riga Settings.Provider = 'docsearch'
-  // trova soltanto lo stub e la chat risponde che il provider non c'e'.
+  // A provider exists only if its unit is linked: it registers itself in its
+  // initialization. Without this line Settings.Provider = 'docsearch' finds
+  // only the stub, and the chat answers that the provider is not there.
   HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude,
   HelpChatAI.Provider.OpenAI, HelpChatAI.Provider.Gemini
   {$IFDEF MULTIAGENT}
-  // L'edizione con piu' assistenti (VCL_CRMDemo_MultiAgent.dproj): tutto
-  // quello che aggiunge sta in questa unit.
+  // The edition with several assistants (VCL_CRMDemo_MultiAgent.dproj):
+  // everything it adds is in this unit.
   , uMultiAgent
   {$ENDIF};
 
@@ -334,8 +330,8 @@ function TMainForm.FindTab(const AName: string): TTabSheet;
 var
   I: Integer;
 begin
-  // Il modello chiama una schermata come la chiamerebbe un utente: prima il
-  // nome esatto, poi una corrispondenza parziale.
+  // The model names a screen as a user would: the exact name first, then a
+  // partial match.
   for I := 0 to PageControl.PageCount - 1 do
     if SameText(PageControl.Pages[I].Caption, AName) or
        SameText(PageControl.Pages[I].HelpKeyword, AName) or
@@ -347,208 +343,72 @@ begin
   Result := nil;
 end;
 
-function TMainForm.LocateLeadByName(const AName: string): Boolean;
-begin
-  Result := DM.LeadsFDTable.Locate('Name', VarArrayOf([AName]), [loCaseInsensitive]);
-  if not Result then
-    Result := DM.LeadsFDTable.Locate('AccountName', VarArrayOf([AName]), [loCaseInsensitive, loPartialKey]);
-end;
-
-/// <summary>The company name as the Accounts list spells it. An exact match
-/// (case apart) wins; else a name containing the text, if there is exactly
-/// one; else an exception written for the model: no match means "create it
-/// with create_account", more than one means "ask the user which one". The
-/// lookup walks the table under DisableControls and goes back where it was,
-/// so the grids of the application do not move.</summary>
-function TMainForm.ResolveAccountName(const AText: string): string;
-var
-  LTable: TDataSet;
-  LBookmark: TBookmark;
-  LCandidates: TStringList;
-  LName, LError: string;
-begin
-  Result := Trim(AText);
-  if Result = '' then
-    Exit;
-  LTable := DM.AcctFDTable;
-  LCandidates := TStringList.Create;
-  try
-    LTable.DisableControls;
-    try
-      LBookmark := LTable.GetBookmark;
-      try
-        LTable.First;
-        while not LTable.Eof do
-        begin
-          LName := LTable.FieldByName('AccountName').AsString;
-          if SameText(LName, Result) then
-            Exit(LName);
-          if LName.ToLower.Contains(Result.ToLower) then
-            LCandidates.Add(LName);
-          LTable.Next;
-        end;
-      finally
-        if LTable.BookmarkValid(LBookmark) then
-          LTable.GotoBookmark(LBookmark);
-        LTable.FreeBookmark(LBookmark);
-      end;
-    finally
-      LTable.EnableControls;
-    end;
-    if LCandidates.Count = 1 then
-      Exit(LCandidates[0]);
-    if LCandidates.Count > 1 then
-      LError := Format('More than one account matches "%s": %s. Ask the user which one.',
-        [Result, string.Join(', ', LCandidates.ToStringArray)])
-    else
-      LError := Format('There is no account called "%s". Create it with create_account, ' +
-        'then call create_lead again.', [Result]);
-  finally
-    LCandidates.Free;
-  end;
-  raise Exception.Create(LError);
-end;
-
 procedure TMainForm.RegisterHelpActions;
 var
+  LHooks: TCRMActionHooks;
   LProposalActions: THelpChatActionBroker;
 begin
-  // Con un assistente solo, la proposta e' un'azione sua come le altre. Con
-  // piu' assistenti e' un'azione condivisa: registrata una volta per tutti, e
-  // a decidere chi la usa e' la configurazione (AllowedActions, in
-  // uMultiAgent), non questo codice.
+  // With one assistant, the proposal is an action of its own like the
+  // others. With several it is a shared action: registered once for all of
+  // them, and who uses it is decided by the configuration (AllowedActions,
+  // in uMultiAgent), not by this code.
   {$IFDEF MULTIAGENT}
   LProposalActions := HelpChatSharedActions;
   {$ELSE}
   LProposalActions := HelpChat.Actions;
   {$ENDIF}
 
-  HelpChat.Actions.Add('open_screen',
-    'Brings one of the application screens to the front. Only when the user asks to ' +
-    'go to a screen: never to show where something is while answering a question.',
-    [THelpChatActionParam.Create('name',
-      'Screen name: Dashboard, Accounts, Leads, Sales, Marketing, Calendar or Users.')],
-    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+  // The actions are declared in uCRMActions and change the data through the
+  // data module, the same for both demos: here is only what a window does.
+  LHooks.OpenScreen :=
+    function(AName: string): string
     var
       LTab: TTabSheet;
     begin
-      LTab := FindTab(AArgs.AsString('name'));
+      LTab := FindTab(AName);
       if LTab = nil then
-        raise Exception.CreateFmt('There is no "%s" screen.', [AArgs.AsString('name')]);
+        Exit('');
       PageControl.ActivePage := LTab;
       PageControlChange(PageControl);
-      AResult := 'Opened the ' + LTab.Caption + ' screen.';
-    end, False); // changes nothing: no confirmation
-
-  // Scrive un record: chiede conferma (il default), e l'utente vede nome e
-  // valori. L'azienda deve esistere: l'handler la cerca e, se manca o se il
-  // nome e' ambiguo, lo dice al modello con un'eccezione che spiega cosa
-  // fare - creare l'azienda con create_account, o chiedere all'utente.
-  HelpChat.Actions.Add('create_account',
-    'Creates a company in the Accounts list. Use it before create_lead when the ' +
-    'company of the lead is not there yet.',
-    [THelpChatActionParam.Create('name', 'Company name')],
-    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
-    var
-      LName: string;
+      Result := LTab.Caption;
+    end;
+  LHooks.CurrentUser :=
+    function: string
     begin
-      LName := Trim(AArgs.AsString('name'));
-      if LName = '' then
-        raise Exception.Create('The company name is required.');
-      // Idempotent: after a timeout the model may call it again, and the
-      // second call must not create a second company.
-      if DM.AcctFDTable.Locate('AccountName', VarArrayOf([LName]), [loCaseInsensitive]) then
-        raise Exception.CreateFmt('The account "%s" already exists.',
-          [DM.AcctFDTable.FieldByName('AccountName').AsString]);
-      AcctBindSourceDB.DataSet.DisableControls;
-      try
-        AcctBindSourceDB.DataSet.AppendRecord([nil, LName]);
-      finally
-        AcctBindSourceDB.DataSet.EnableControls;
-      end;
-      // The Accounts grid reads the query, the combo of the lead window reads
-      // the table: both have to see the new row.
+      Result := UsernameComboBox.Text;
+    end;
+  LHooks.AccountCreated :=
+    procedure(AName: string)
+    begin
+      // The Accounts grid and the combo of the lead window read the
+      // companies again.
       LinkGridToDataSourceAcctBindSourceDB.Active := False;
       LinkGridToDataSourceAcctBindSourceDB.Active := True;
-      DM.AcctFDTable.Refresh;
       LeadsForm.LinkFillControlToField2.Active := False;
       LeadsForm.LinkFillControlToField2.Active := True;
-      AResult := Format('Account "%s" created.', [LName]);
-    end);
-
-  HelpChat.Actions.Add('create_lead',
-    'Creates a new lead for the active user and opens its detail window so the ' +
-    'user can check it. Does not send anything to anybody. The company must ' +
-    'exist in the Accounts list: if it does not, create it with create_account first.',
-    [THelpChatActionParam.Create('name', 'Name of the person'),
-     THelpChatActionParam.Create('account',
-       'Company name, as in the Accounts list (it must exist)', apkString, False),
-     THelpChatActionParam.Create('phone', 'Office phone', apkString, False),
-     THelpChatActionParam.Create('email', 'E-mail address', apkString, False),
-     THelpChatActionParam.Create('notes', 'Anything worth remembering', apkString, False)],
-    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
-    var
-      LDataSet: TDataSet;
-      LAccount: string;
+    end;
+  LHooks.LeadCreated :=
+    procedure(ALeadId: Integer)
     begin
-      // The company as it is spelled in the Accounts list, or an exception
-      // the model reads: "create it first" or "ask the user which one".
-      LAccount := ResolveAccountName(AArgs.AsString('account'));
       PageControl.ActivePage := LeadsTab;
-      LDataSet := LeadsBindNewSourceDB.DataSet;
-      LDataSet.Append;
-      LDataSet.FieldByName('Status').AsString := 'New';
-      LDataSet.FieldByName('Name').AsString := AArgs.AsString('name');
-      LDataSet.FieldByName('AccountName').AsString := LAccount;
-      LDataSet.FieldByName('OfficePhone').AsString := AArgs.AsString('phone');
-      LDataSet.FieldByName('Email').AsString := AArgs.AsString('email');
-      LDataSet.FieldByName('Notes').AsString := AArgs.AsString('notes');
-      LDataSet.FieldByName('User').AsString := UsernameComboBox.Text;
-      LDataSet.FieldByName('DateCreated').AsDateTime := Now;
-      LDataSet.Post;
-      RefreshGrids;
-      LeadsForm.LocateLead(LDataSet.FieldByName('LeadId').AsInteger);
+      LeadsForm.LocateLead(ALeadId);
       BindNavigator1.DataSource := LeadsBindNewSourceDB;
       LeadsForm.Show;
-      AResult := Format('Lead "%s" created with status New (id %d).',
-        [AArgs.AsString('name'), LDataSet.FieldByName('LeadId').AsInteger]);
-    end, True);
-
-  LProposalActions.Add('draft_proposal',
-    'Opens the proposal draft for a lead with the address and the line items ' +
-    'already filled in. It does not save it: the user presses Preview and Save Proposal.',
-    [THelpChatActionParam.Create('lead', 'Name of the lead, or of its company'),
-     THelpChatActionParam.Create('items',
-       'The line items, one per line, written as "title x quantity @ price", ' +
-       'for example "Consulting x 12 @ 150". The price uses a dot as decimal separator.'),
-     THelpChatActionParam.Create('address1', 'Street address of the customer', apkString, False),
-     THelpChatActionParam.Create('address2', 'City, state and postal code', apkString, False),
-     THelpChatActionParam.Create('phone', 'Phone of the customer', apkString, False)],
-    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
-    var
-      LItems: TArray<TProposalLineItem>;
-      LLeadId: Integer;
-      LCompany: string;
+    end;
+  LHooks.DraftReady :=
+    procedure(ADraft: TCRMDraft)
     begin
-      LItems := ParseProposalLineItems(AArgs.AsString('items'));
-      if not LocateLeadByName(AArgs.AsString('lead')) then
-        raise Exception.CreateFmt('There is no lead called "%s".', [AArgs.AsString('lead')]);
-      LLeadId := DM.LeadsFDTable.FieldByName('LeadId').AsInteger;
-      LCompany := DM.LeadsFDTable.FieldByName('AccountName').AsString;
-      if DM.ProposalsFDTable.Locate('LeadId', VarArrayOf([LLeadId]), []) then
-        raise Exception.Create('This lead already has a proposal.');
-      DraftProposalForm.PrepareDraft(LLeadId, LCompany,
-        AArgs.AsString('address1'), AArgs.AsString('address2'), AArgs.AsString('phone'), LItems);
-      AResult := Format('Draft ready for %s with %d line item(s): check it and press Preview.',
-        [LCompany, Length(LItems)]);
-    end, True);
+      DraftProposalForm.PrepareDraft(ADraft.LeadId, ADraft.Company,
+        ADraft.Address1, ADraft.Address2, ADraft.Phone, ADraft.Items);
+    end;
+  RegisterCRMActions(HelpChat.Actions, LProposalActions, LHooks);
 end;
 
 procedure TMainForm.HelpChatActionExecuted(Sender: TObject; const AName: string;
   const AOutcome: THelpChatActionOutcome; const AResult: string);
 begin
-  // Niente barra di stato in questa applicazione: l'esito interessa al modello,
-  // che lo riceve comunque, e all'utente, che vede la finestra aprirsi.
+  // No status bar in this application: the outcome matters to the model,
+  // which gets it anyway, and to the user, who sees the window open.
   if AOutcome = aoFailed then
     Beep;
 end;
@@ -556,10 +416,10 @@ end;
 procedure TMainForm.HelpChatDecryptSecret(Sender: TObject; const AName, AValue: string;
   var AResult: string; var AHandled: Boolean);
 begin
-  // Gira sul thread del worker che sta per chiamare il servizio: solo
-  // calcolo, nessuna finestra e nessuna attesa. AName direbbe di quale
-  // segreto si tratta (Claude.ApiKey, Remote.AppKey...): qui rispondiamo per
-  // tutti quelli che portano il prefisso, chiunque li abbia chiesti.
+  // This runs on the worker thread that is about to call the service:
+  // compute and return, no window and no waiting. AName would say which
+  // secret it is (Claude.ApiKey, Remote.AppKey...); here every value
+  // carrying the prefix is answered for, whoever asked.
   AHandled := AppSecretIsProtected(AValue);
   if AHandled then
     AResult := AppSecretReveal(AValue);
@@ -567,12 +427,12 @@ end;
 
 procedure TMainForm.HelpChatLog(Sender: TObject; const AEntry: THelpChatLogEntry);
 begin
-  // Il log dell'assistente su file, con Logify (uHelpChatLog): in
-  // %APPDATA%\HelpChatAI\Logs\VCL_CRMDemo.log, a rotazione. Gira sul thread
-  // che scrive la voce (spesso un worker), una chiamata alla volta, e Logify
-  // la mette in coda e torna subito. Il livello e' Settings.LogLevel, "info"
-  // se nessuno lo cambia: "LogLevel": "debug" in helpchatai.json mostra
-  // tutto, domanda, risposta e chiamate HTTP comprese.
+  // The log of the assistant to a file, with Logify (uHelpChatLog): in
+  // %APPDATA%\HelpChatAI\Logs\VCL_CRMDemo.log, rotated. It runs on the
+  // thread that writes the entry (often a worker), one call at a time, and
+  // Logify queues it and returns at once. The level is Settings.LogLevel,
+  // "info" unless changed: "LogLevel": "debug" in helpchatai.json shows
+  // everything, question, reply and HTTP calls included.
   HelpChatLogWrite(AEntry);
 end;
 
@@ -584,29 +444,30 @@ var
   LInfo: THelpChatModelInfo;
   I: Integer;
 begin
-  // RunSettings sono le impostazioni del motore in esecuzione, con il modello
-  // scelto nel pannello gia' applicato: e' il suo provider a dire se manca
-  // la chiave (la property, i tre helpchatai.json gia' caricati, la variabile
-  // d'ambiente, il gestore qui sopra). docsearch o un Ollama locale non ne
-  // vogliono, e la finestra non si apre.
+  // RunSettings are the settings of the running engine, with the model
+  // picked in the panel already applied: its provider says whether the key
+  // is missing (the property, the three helpchatai.json already loaded, the
+  // environment variable, the handler above). docsearch or a local Ollama
+  // want none, and the window does not open.
   if FAskingKey or not AppSecretMissingKey(HelpChat.RunSettings, LRequest) then
     Exit;
   FAskingKey := True;
   try
-    // Una riga per servizio (Claude, Gemini, OpenAI), quella del modello in
-    // uso in grassetto: gia' che c'e', l'utente registra anche le altre.
+    // One row per service (Claude, Gemini, OpenAI), the one of the model in
+    // use in bold: while at it, the user registers the others too.
     LRequests := AppSecretKeyRequests(HelpChat.RunSettings);
     if not TLicenseActivationForm.Execute(LRequests,
       THelpChatSettings.UserConfigFile, LKeys) then
       Exit;
-    // Cifrate, nella sezione del provider o nel modello del catalogo se ha
-    // un endpoint suo, e applicate subito: in memoria resta la cifrata.
+    // Encrypted, into the section of the provider or into the model of the
+    // catalogue when it has an endpoint of its own, and applied at once:
+    // what stays in memory is the encrypted one.
     AppSecretActivate(HelpChat.RunSettings, LRequests, LKeys);
     for I := 0 to High(LKeys) do
       LKeys[I] := '';
-    // Il modello in uso e' ancora senza chiave, ma l'utente ne ha registrata
-    // un'altra: si passa al primo che puo' rispondere. Models offre solo
-    // quelli (piu' quello in uso), e il cambio arriva anche al pannello.
+    // The model in use still has no key, but the user registered another
+    // one: switch to the first that can answer. Models offers only those
+    // (plus the one in use), and the switch reaches the panel too.
     if AppSecretMissingKey(HelpChat.RunSettings, LRequest) then
       for LInfo in HelpChat.Models do
         if not LInfo.Active then
@@ -621,33 +482,28 @@ end;
 
 procedure TMainForm.HelpChatModelChanged(Sender: TObject);
 begin
-  // L'utente ha scelto un altro modello nel pannello: se a quello manca la
-  // chiave, gliela chiediamo adesso invece di lasciarlo alla prima domanda.
+  // The user picked another model in the panel: if it has no key, we ask
+  // for it now instead of leaving it to the first question.
   AskForApiKeyIfMissing;
 end;
 
 procedure TMainForm.HelpChatGetContext(Sender: TObject; var AContext: THelpChatContext);
 begin
-  // Il componente ricava la schermata salendo dal controllo che ha il fuoco:
-  // dentro una pagina arriva alla TTabSheet e prende la sua parola chiave, ma
-  // il menu laterale sta fuori dal PageControl, e da li' F1 descriverebbe la
-  // finestra invece della pagina che l'utente sta guardando. Per questa
-  // applicazione la pagina attiva e' sempre la risposta giusta.
-  if PageControl.ActivePage <> nil then
+  // The component finds the screen walking up from the focused control:
+  // inside a page it reaches the TTabSheet and takes its keyword, but the
+  // side menu is outside the PageControl, and from there F1 would describe
+  // the window instead of the page the user is looking at. For this
+  // application the active page is always the right answer - but only on
+  // this window: when the user is working on the lead or on the proposal,
+  // the component already chose that one (ScreenType), even with the chat
+  // in front.
+  if (AContext.ScreenType = ClassName) and (PageControl.ActivePage <> nil) then
   begin
     AContext.ScreenName := PageControl.ActivePage.Name;
     AContext.ScreenLabel := PageControl.ActivePage.Caption;
     if PageControl.ActivePage.HelpKeyword <> '' then
       AContext.HelpKeyword := PageControl.ActivePage.HelpKeyword;
   end;
-end;
-
-procedure TMainForm.RefreshGrids;
-begin
-  LeadsBindClosedSourceDB.DataSet.Refresh;
-  LeadsBindActiveSourceDB.DataSet.Refresh;
-  LeadsBindNewSourceDB.DataSet.Refresh;
-  LeadsBindProposalSentSourceDB.DataSet.Refresh;
 end;
 
 procedure TMainForm.RemoveAcctButtonClick(Sender: TObject);
@@ -737,10 +593,10 @@ end;
 
 procedure TMainForm.AccountsTabResize(Sender: TObject);
 begin
-  // La larghezza della griglia e della colonna sono gia' in pixel dello
-  // schermo (ScaleBoundGridColumns ha scalato le colonne all'avvio):
-  // moltiplicare la differenza per ScaleFactor dava una colonna piu' larga
-  // della griglia, con la barra di scorrimento orizzontale sempre accesa.
+  // The widths of the grid and of the column are already screen pixels
+  // (ScaleBoundGridColumns scaled the columns at startup): multiplying the
+  // difference by ScaleFactor gave a column wider than the grid, with the
+  // horizontal scroll bar always on.
   LinkGridToDataSourceAcctBindSourceDB.Columns[1].Width :=
     AccountsSG.ClientWidth - LinkGridToDataSourceAcctBindSourceDB.Columns[0].Width -
     Round(4 * ScaleFactor);
@@ -1085,7 +941,7 @@ begin
         end;
     end;
 
-    RefreshGrids;
+    DM.RefreshLeadQueries;
 
     LDataSet.Locate('LeadId',VarArrayOf([LIndex]),[]);
   end;
@@ -1150,14 +1006,15 @@ begin
     ScaleBoundGridColumns(Self);
     ScaleBoundGridColumns(LeadsForm);
 
-    // L'assistente: l'indice del manuale sta in Help\help-index.json, il
-    // percorso nel DFM e' relativo all'eseguibile. Da qui in poi F1 apre la
-    // chat sulla pagina della schermata attiva (HelpKeyword delle schede e
-    // delle finestre) e la bolla in basso a destra la apre senza contesto.
+    // The assistant: the index of the manual is in Help\help-index.json, the
+    // path in the DFM is relative to the executable. From here on F1 opens
+    // the chat on the page of the active screen (HelpKeyword of the tabs and
+    // of the windows) and the bubble at the bottom right opens it with the
+    // context of the window the user is on.
     RegisterHelpActions;
     HelpChatLogOpen('VCL_CRMDemo');
-    // Quello che succede, mai quello che l'utente scrive: "LogLevel" in un
-    // helpchatai.json lo alza (detail, debug) senza ricompilare.
+    // What happens, never what the user writes: "LogLevel" in a
+    // helpchatai.json raises it (detail, debug) without recompiling.
     HelpChat.Settings.LogLevel := llInfo;
     HelpChat.OnLogEvent := HelpChatLog;
     {$IFDEF MULTIAGENT}
@@ -1165,8 +1022,8 @@ begin
     {$ENDIF}
     HelpChat.Active := True;
     {$IFDEF MULTIAGENT}
-    // Il secondo assistente, sulla finestra del lead: dopo il primo, di cui
-    // copia provider, modelli, manuale e gestore della chiave.
+    // The second assistant, on the lead window: after the first, whose
+    // provider, models, manual and key handler it copies.
     CreateSalesAssistant(HelpChat, LeadsForm);
     {$ENDIF}
     AskForApiKeyIfMissing;

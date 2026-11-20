@@ -281,6 +281,9 @@
     fetch(api('/api/poll/' + encodeURIComponent(id)), { headers: headers, cache: 'no-store' })
       .then(function (r) {
         if (r.status === 403) sessionLost();
+        // The model called an action of the application, and the engine is
+        // remote: the host is told, and takes the call from the server.
+        if (r.headers.get('X-HelpChat-Actions')) uiCommand('actions');
         return r.ok ? r.text() : null;
       })
       .then(function (html) {

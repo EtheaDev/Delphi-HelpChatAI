@@ -1313,8 +1313,8 @@ begin
   if FController.GetValue(LPath, ccsRoot, LText) and (LText <> '') then
     // Short enough to be read whole in the box: the last four characters
     // only, never the length (MaskSecret is for the list).
-    ProviderKeyEdit.TextHint := 'Set in this file (****' + Copy(LText, Length(LText) - 3, 4) +
-      '): type a new one to replace it'
+    ProviderKeyEdit.TextHint := 'Set in this file (' +
+      THelpChatConfigController.MaskSecretShort(LText) + '): type a new one to replace it'
   else
     ProviderKeyEdit.TextHint := 'Not in this file: type it, then Set';
 end;

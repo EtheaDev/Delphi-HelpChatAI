@@ -95,6 +95,10 @@ type
     [Test] procedure Profiles_WithoutAHandler_TheDefaultAnswersAll;
     [Test] procedure Profiles_TheSameUser_HasOneConversationPerProfile;
     [Test] procedure Transport_SendsTheProfile;
+    [Test] procedure Relay_KeepsOfADeclarationOnlyWhatAnActionIs;
+    [Test] procedure Relay_ACallWaitsForTheClient;
+    [Test] procedure ClientActions_TheEndpointsOfAServer;
+    [Test] procedure ClientActions_AModelOnTheServer_RunsAnActionOfTheClient;
   end;
 
 implementation
@@ -110,6 +114,8 @@ uses
   HelpChatAI.Theme,
   HelpChatAI.Server.HostChannel,
   HelpChatAI.Transport.Remote,
+  HelpChatAI.Actions,
+  HelpChatAI.Tests.Actions,
   HelpChatAI.Tests.Helpers;
 
 { TContextProvider }
@@ -851,6 +857,294 @@ begin
   LIntf.GetPanelUrl;
   Assert.AreEqual('', LTransport.ServerProfile, 'the default assistant answered');
   LIntf.Stop;
+end;
+
+const
+  TOOL_OPEN = '{"name":"open_screen","description":"Opens a screen",' +
+    '"input_schema":{"type":"object","properties":{"name":{"type":"string"}}}}';
+
+procedure TRemoteTests.Relay_KeepsOfADeclarationOnlyWhatAnActionIs;
+var
+  LRelay: THelpChatActionRelay;
+  LRef: IHelpChatActionInvoker;
+  LError, LMany: string;
+  I: Integer;
+begin
+  LRelay := THelpChatActionRelay.Create;
+  LRef := LRelay;
+  Assert.IsFalse(LRef.HasActions);
+  Assert.AreEqual('[]', LRef.ToolsJson);
+
+  // What a client adds to an action stays with the client, and a name
+  // declared twice is one action.
+  Assert.IsTrue(LRelay.SetTools('[{"name":"open_screen","description":"Opens a screen",' +
+    '"cache_control":{"type":"ephemeral"},"input_schema":{"type":"object","properties":{}}},' +
+    '{"name":"OPEN_SCREEN","description":"again","input_schema":{}},' +
+    '{"name":"save","input_schema":{"type":"object"}}]', LError), LError);
+  Assert.IsTrue(LRef.HasActions);
+  Assert.AreEqual('[{"name":"open_screen","description":"Opens a screen",' +
+    '"input_schema":{"type":"object","properties":{}}},' +
+    '{"name":"save","description":"","input_schema":{"type":"object"}}]', LRef.ToolsJson);
+
+  // The configuration of the server narrows, case apart.
+  LRelay.Allowed := ['Save', 'nobody_declared_this'];
+  Assert.AreEqual('[{"name":"save","description":"","input_schema":{"type":"object"}}]',
+    LRef.ToolsJson);
+  LRelay.Allowed := ['something_else'];
+  Assert.IsFalse(LRef.HasActions);
+  LRelay.Allowed := nil;
+
+  // A text that is not a declaration changes nothing.
+  Assert.IsFalse(LRelay.SetTools('{"name":"x"}', LError));
+  Assert.AreEqual('the actions are not a JSON array', LError);
+  Assert.IsFalse(LRelay.SetTools('[{"name":"has space","input_schema":{}}]', LError));
+  Assert.IsFalse(LRelay.SetTools('[{"name":"x"}]', LError));
+  Assert.AreEqual('the action "x" has no input_schema', LError);
+  Assert.IsFalse(LRelay.SetTools('[{"name":"' + StringOfChar('a', 65) + '","input_schema":{}}]', LError));
+  Assert.IsFalse(LRelay.SetTools('not json at all', LError));
+  LMany := '';
+  for I := 0 to HELPCHAT_RELAY_MAX_ACTIONS do
+    LMany := LMany + Format(',{"name":"a%d","input_schema":{}}', [I]);
+  Assert.IsFalse(LRelay.SetTools('[' + LMany.Substring(1) + ']', LError));
+  Assert.AreEqual('too many actions', LError);
+  Assert.Contains(LRef.ToolsJson, '"open_screen"', 'the declaration of before is still there');
+
+  // An empty one takes everything away.
+  Assert.IsTrue(LRelay.SetTools('', LError));
+  Assert.IsFalse(LRef.HasActions);
+end;
+
+procedure TRemoteTests.Relay_ACallWaitsForTheClient;
+var
+  LRelay: THelpChatActionRelay;
+  LRef: IHelpChatActionInvoker;
+  LError, LResult, LCalls, LId: string;
+  LOutcome: THelpChatActionOutcome;
+  LCancel: IHelpChatCancelToken;
+  LThread: TThread;
+  LValue: TJSONValue;
+
+  procedure StartCall(const AName: string);
+  begin
+    LOutcome := aoFailed;
+    LResult := '';
+    LThread := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        LOutcome := LRef.Invoke(AName, '{"name":"Orders"}', LCancel, LResult);
+      end);
+    LThread.FreeOnTerminate := False;
+    LThread.Start;
+  end;
+
+  procedure EndCall;
+  begin
+    LThread.WaitFor;
+    FreeAndNil(LThread);
+  end;
+
+  function TakeOne: string;
+  begin
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := LRelay.HasUndelivered;
+      end), 'the call is waiting');
+    LCalls := LRelay.TakeCallsJson;
+    LValue := TJSONObject.ParseJSONValue(LCalls);
+    try
+      Result := TJSONObject(LValue).GetValue<string>('calls[0].id');
+      Assert.AreEqual('open_screen', TJSONObject(LValue).GetValue<string>('calls[0].name'));
+      Assert.AreEqual('{"name":"Orders"}', TJSONObject(LValue).GetValue<string>('calls[0].args'));
+    finally
+      LValue.Free;
+    end;
+    Assert.IsFalse(LRelay.HasUndelivered, 'a call is handed out once');
+    Assert.AreEqual('{"calls":[]}', LRelay.TakeCallsJson);
+  end;
+
+begin
+  LRelay := THelpChatActionRelay.Create;
+  LRef := LRelay;
+  Assert.IsTrue(LRelay.SetTools('[' + TOOL_OPEN + ']', LError), LError);
+  LCancel := THelpChatCancelToken.Create;
+
+  // The client takes the call, runs it and answers.
+  StartCall('open_screen');
+  LId := TakeOne;
+  Assert.IsTrue(LRelay.Complete(LId, aoDone, 'opened ' + StringOfChar('x', 5000)));
+  Assert.IsFalse(LRelay.Complete(LId, aoDone, 'twice'), 'answered once');
+  EndCall;
+  Assert.AreEqual(aoDone, LOutcome);
+  Assert.AreEqual(HELPCHAT_DEF_ACTION_RESULT_MAXCHARS, Length(LResult),
+    'the result of a client is cut here too');
+
+  // What was not declared never reaches the client.
+  Assert.AreEqual(aoUnknown, LRef.Invoke('delete_everything', '{}', nil, LResult));
+  Assert.IsFalse(LRelay.HasUndelivered);
+
+  // A client that does not answer: the model is told, and an answer that
+  // comes afterwards is refused.
+  LRelay.TimeoutMs := 300;
+  StartCall('open_screen');
+  LId := TakeOne;
+  EndCall;
+  Assert.AreEqual(aoTimeout, LOutcome);
+  Assert.IsFalse(LRelay.Complete(LId, aoDone, 'late'));
+  LRelay.TimeoutMs := HELPCHAT_RELAY_DEF_TIMEOUT_MS;
+
+  // The reply is cancelled while the client has the call.
+  StartCall('open_screen');
+  LId := TakeOne;
+  LCancel.Cancel;
+  EndCall;
+  Assert.AreEqual(aoCancelled, LOutcome);
+  LCancel := nil;
+
+  // The session ends: whoever waits is answered, and nothing is queued any more.
+  StartCall('open_screen');
+  LId := TakeOne;
+  LRelay.Close;
+  EndCall;
+  Assert.AreEqual(aoCancelled, LOutcome);
+  Assert.AreEqual(aoCancelled, LRef.Invoke('open_screen', '{}', nil, LResult));
+  Assert.IsFalse(LRef.HasActions);
+end;
+
+procedure TRemoteTests.ClientActions_TheEndpointsOfAServer;
+var
+  LToken: string;
+  LOutcome: THelpChatActionOutcome;
+begin
+  StartServer;
+  LToken := OpenSession('carl');
+
+  Assert.AreEqual('{"calls":[]}', Get(HELPCHAT_API_ACTIONS_PENDING, LToken).ContentAsString(TEncoding.UTF8),
+    'nothing declared, nothing waiting');
+  Assert.AreEqual(200, Integer(Post(HELPCHAT_API_ACTIONS,
+    'tools=' + HelpChatFormEncode('[' + TOOL_OPEN + ']'), LToken).StatusCode));
+  Assert.AreEqual(400, Integer(Post(HELPCHAT_API_ACTIONS, 'tools=nonsense', LToken).StatusCode));
+  Assert.Contains(Post(HELPCHAT_API_ACTIONS, 'tools=nonsense', LToken).ContentAsString(TEncoding.UTF8),
+    'not a JSON array');
+  Assert.AreEqual(410, Integer(Post(HELPCHAT_API_ACTIONS_RESULT,
+    'id=nobody&outcome=done&result=x', LToken).StatusCode), 'nobody waits for that call');
+  Assert.AreEqual(400, Integer(Post(HELPCHAT_API_ACTIONS_RESULT,
+    'id=nobody&outcome=perhaps', LToken).StatusCode));
+  Assert.AreEqual(403, Integer(Post(HELPCHAT_API_ACTIONS, 'tools=', 'not-a-token').StatusCode));
+
+  // A server that takes no actions from its clients: not a 403, which a
+  // client reads as a session that is gone.
+  FServer.ClientActions := False;
+  Assert.AreEqual(405, Integer(Post(HELPCHAT_API_ACTIONS,
+    'tools=' + HelpChatFormEncode('[' + TOOL_OPEN + ']'), LToken).StatusCode));
+
+  // The names travel as they are written.
+  Assert.IsTrue(HelpChatActionOutcomeFromName(' Denied ', LOutcome));
+  Assert.AreEqual(aoDenied, LOutcome);
+  for LOutcome := Low(THelpChatActionOutcome) to High(THelpChatActionOutcome) do
+    Assert.AreNotEqual('', HelpChatActionOutcomeName(LOutcome));
+end;
+
+procedure TRemoteTests.ClientActions_AModelOnTheServer_RunsAnActionOfTheClient;
+var
+  LTransport: IHelpChatTransport;
+  LRemote: THelpChatRemoteTransport;
+  LBroker: THelpChatActionBroker;
+  LBrokerRef: IHelpChatActionInvoker;
+  LToken, LOpened: string;
+  LOnMainThread: Boolean;
+  LSignals: Integer;
+
+  // What the page does: it sends the question, polls the reply and, when
+  // the server says a call is waiting, tells its host through the channel.
+  // The loop also plays the application, running what its broker queued.
+  function AskAsThePage(const AText: string): string;
+  var
+    LHtml, LId: string;
+    LMatch: TMatch;
+    LResponse: IHTTPResponse;
+    LBody: TStringStream;
+    LHeaders: TNetHeaders;
+    I: Integer;
+  begin
+    LHtml := Post(HELPCHAT_API_SEND, 'message=' + HelpChatFormEncode(AText), LToken).ContentAsString(TEncoding.UTF8);
+    LMatch := TRegEx.Match(LHtml, 'data-msgid="([^"]+)"[^>]*data-pending');
+    Assert.IsTrue(LMatch.Success, 'the send returns a pending assistant bubble: ' + LHtml);
+    LId := LMatch.Groups[1].Value;
+    for I := 1 to 500 do
+    begin
+      LResponse := Get(HELPCHAT_API_POLL + LId, LToken);
+      LHtml := LResponse.ContentAsString(TEncoding.UTF8);
+      if (LHtml <> '') and not LHtml.Contains('data-pending') then
+        Break;
+      if LResponse.HeaderValue[HELPCHAT_ACTIONS_HEADER] <> '' then
+      begin
+        Inc(LSignals);
+        LHeaders := [TNetHeader.Create(HELPCHAT_TOKEN_HEADER, LRemote.HostChannel.Token)];
+        LBody := TStringStream.Create('', TEncoding.UTF8);
+        try
+          Assert.AreEqual(204, Integer(FClient.Post(LRemote.HostChannel.GetOrigin +
+            HELPCHAT_API_UI + HELPCHAT_UI_ACTIONS, LBody, nil, LHeaders).StatusCode));
+        finally
+          LBody.Free;
+        end;
+      end;
+      CheckSynchronize(10);
+      LBroker.ExecutePending;
+    end;
+    Result := LHtml;
+  end;
+
+begin
+  FSettings.Provider := TEST_PROVIDER_ACTOR;
+  StartServer;
+  LBroker := THelpChatActionBroker.Create;
+  LBrokerRef := LBroker;
+  LBroker.Add('open_screen', 'Opens a screen of the application',
+    [THelpChatActionParam.Create('name', 'Name of the screen')],
+    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+    begin
+      LOpened := AArgs.AsString('name');
+      LOnMainThread := TThread.CurrentThread.ThreadID = MainThreadID;
+      AResult := 'opened ' + LOpened;
+    end, False);
+  LRemote := THelpChatRemoteTransport.Create(Url(''), TEST_APP_KEY);
+  LTransport := LRemote;
+  LTransport.SetActions(LBrokerRef);
+  LTransport.Start;
+  try
+    LSignals := 0;
+    LToken := LTransport.GetPanelUrl.Substring(LTransport.GetPanelUrl.IndexOf('=') + 1);
+    // Declared with the session: the model on the server calls it, the
+    // handler runs here, on the main thread, and the model reads its answer.
+    Assert.Contains(AskAsThePage('do:open_screen:{"name":"Orders"}'), 'opened Orders');
+    Assert.AreEqual('Orders', LOpened);
+    Assert.IsTrue(LOnMainThread, 'the handler ran on the main thread of the client');
+    Assert.IsTrue(LSignals >= 1, 'the poll said a call was waiting');
+
+    // Two actions in one reply: the second is taken after the first.
+    LOpened := '';
+    Assert.Contains(AskAsThePage('do:open_screen:{"name":"Leads"}|do:open_screen:{"name":"Accounts"}'),
+      'opened Accounts');
+
+    // An action the application registers later is declared with the next
+    // context; one the server does not allow is never offered.
+    LBroker.Add('close_screen', 'Closes the screen',
+      procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+      begin
+        AResult := 'closed';
+      end, False);
+    LTransport.SetContext(Default(THelpChatContext));
+    Assert.Contains(AskAsThePage('do:close_screen'), 'closed');
+    FEngine.Settings.AllowedActions := 'close_screen';
+    LBroker.Remove('close_screen');
+    LTransport.SetContext(Default(THelpChatContext));
+    LOpened := '';
+    Assert.DoesNotContain(AskAsThePage('do:open_screen:{"name":"Orders"}'), 'opened');
+    Assert.AreEqual('', LOpened, 'what the configuration of the server forbids never runs');
+  finally
+    LTransport.Stop;
+  end;
 end;
 
 initialization

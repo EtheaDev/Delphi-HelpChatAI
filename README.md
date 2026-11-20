@@ -271,7 +271,7 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 Win64: twenty-four builds, and the FireMonkey ones are reported `N/A` below Delphi 12 rather
 than failed.
 
-`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **612 tests** that runs without
+`Test/Delphi13/HelpChatAITests.dproj` is a DUnitX suite of **616 tests** that runs without
 network: store, worker pool, cancellation, index scoring and the areas of a manual, Markdown
 safety, profiles and the configuration editor's controller, several assistants on real forms
 and the engine they share, the skills on real forms over an in-memory data set, the SSE parsing and
@@ -285,6 +285,15 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+20 Nov 2026: ver. 2.1.0
+- Actions and skills with a remote engine: the application declares them to its session, the model on the server calls them, and each call comes back to run in the application - its main thread, its confirmation dialog - with only the outcome going to the server. Nothing changes in the code that registers them; it needs the host channel
+- Server: `ClientActions` (`"ClientActions": false` in `helpchatai-server.json`) refuses the actions of the clients, and `AllowedActions` of the server's configuration narrows them, per profile
+- Configuration editor: the hint of the provider key shows no character of a key of eight characters or fewer
+- VCL skills read LiveBindings, as the FireMonkey ones do: a control a link binds is a field of its `TField`, a grid it fills is a list, and a `TBindNavigator` never offers *Post*, nor moves while a record is being edited
+- The screen context is the form the user is working on, also when the chat has the focus (it was the host form), and it follows the user while the panel is open
+- The language rule says it in so many words: reply in the language of the chat even when the user writes in another one
+- CRM demos: the actions of the assistant are declared once, in `common\uCRMActions`, and what they do to the data is in the data module; each main form keeps only the visual part
 
 18 Nov 2026: ver. 2.0.0
 - A review of the whole library before 2.0, with no new features: the defects it found are fixed, and the suite grew to 612 tests

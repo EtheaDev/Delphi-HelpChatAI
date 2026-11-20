@@ -105,8 +105,11 @@ const
   /// which also tells the engine to translate the search when the manual is
   /// in another language (<see cref="HELPCHAT_MODEL_DEF_SEARCH_TERMS_PROMPT" />).
   /// Until 1.12 the model followed a user who clearly wrote in another
-  /// language.</summary>
-  HELPCHAT_MODEL_DEF_LANGUAGE_RULE = 'The language of this chat is %0:s. Reply in %0:s.';
+  /// language; and "Reply in %0:s" alone was not enough to stop it - a first
+  /// question in Italian on an English chat got an Italian answer - so the
+  /// rule says it in so many words.</summary>
+  HELPCHAT_MODEL_DEF_LANGUAGE_RULE = 'The language of this chat is %0:s. Reply in %0:s, ' +
+    'even when the user writes in another language.';
   /// <summary>Appended when <c>DocLanguage</c> says the documentation is
   /// written in a language other than the one of the chat (%0:s the
   /// documentation, %1:s the chat). A translated caption is a caption the

@@ -111,6 +111,7 @@
         <DCCReference Include="..\source\HelpChatAI.Tests.ConfigController.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.UiState.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Skills.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.Skills.Bindings.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

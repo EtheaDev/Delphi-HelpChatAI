@@ -473,6 +473,11 @@ type
     /// <summary>Active and with <c>RegisterHelpViewer</c>: a candidate for a
     /// request of the help system.</summary>
     function TakesHelp: Boolean;
+    /// <summary>A form was activated: while the panel is open, the transport
+    /// gets the context again, on the next turn of the loop - the screen the
+    /// user asks about is the one they left for the chat, not the one it
+    /// opened on.</summary>
+    procedure CoordinatorFormActivated;
   protected
     /// <summary>Applies an <c>Active</c> read from the form file, which
     /// <c>SetActive</c> only remembered while loading. Never at design
@@ -512,12 +517,13 @@ type
     /// counted and lives on while a queued call still holds it.</summary>
     destructor Destroy; override;
 
-    /// <summary>Builds the context of the current screen: active form (name,
-    /// caption, class), the deepest control with HelpKeyword/HelpContext from
-    /// the focused control upwards, the active tab item as label, the focused
-    /// control; then fires OnGetContext. The form is <c>Screen.ActiveForm</c>
-    /// - the host form when that is the chat's own window - so a form
-    /// without an assistant is described too. A form declares no help of its
+    /// <summary>Builds the context of the current screen: the form the user is
+    /// working on (name, caption, class), the deepest control with
+    /// HelpKeyword/HelpContext from the control focused there upwards, the
+    /// active tab item as label, that control; then fires OnGetContext. The
+    /// form is the one the skills work on (<c>HelpChatFmxWorkingForm</c>): the
+    /// active form, or the one active before the chat took the focus - so a
+    /// form without an assistant is described too. A form declares no help of its
     /// own in FireMonkey, and with nothing focused the active tab of the
     /// first <c>TTabControl</c> is the screen.</summary>
     function BuildContext: THelpChatContext;
@@ -1203,6 +1209,8 @@ begin
   LItem := ItemOn(AForm, hnAny);
   if Assigned(LItem) and (FItems.IndexOf(LItem) > 0) then
     FItems.Move(FItems.IndexOf(LItem), 0);
+  for LItem in FItems.ToArray do
+    LItem.CoordinatorFormActivated;
 end;
 
 procedure TFmxHelpChatCoordinator.Add(const AItem: TFmxHelpChatAI);
@@ -2983,8 +2991,10 @@ var
   LTab: TTabItem;
 begin
   Result := Default(THelpChatContext);
-  LForm := Screen.ActiveForm;
-  if (LForm = nil) or (LForm = FOwnForm) then
+  // While the chat has the focus, the form that had it before: the host form
+  // was the answer to "where am I?" asked from any other window.
+  LForm := HelpChatFmxWorkingForm;
+  if LForm = nil then
     LForm := ResolveHostForm;
   if Assigned(LForm) then
   begin
@@ -3357,6 +3367,24 @@ begin
     Close
   else
     Open;
+end;
+
+procedure TFmxHelpChatAI.CoordinatorFormActivated;
+var
+  LLife: IHelpChatLifeToken;
+begin
+  if not FActive or not IsPanelVisible then
+    Exit;
+  // The message arrives while the form is being activated, before the
+  // skills have noted it as the last one: asked now, the working form could
+  // still be the previous one.
+  LLife := FLife;
+  TThread.ForceQueue(nil,
+    procedure
+    begin
+      if LLife.IsAlive and FActive and Assigned(FTransport) and IsPanelVisible then
+        FTransport.SetContext(BuildContext);
+    end);
 end;
 
 function TFmxHelpChatAI.IsPanelVisible: Boolean;

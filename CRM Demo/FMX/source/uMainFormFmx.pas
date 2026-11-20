@@ -8,7 +8,8 @@
 {   here too - open_screen, create_lead and draft_proposal.                    }
 {                                                                              }
 {   The data module is the very same one the VCL demo uses (..\..\common):      }
-{   same database, same queries, same bind sources.                            }
+{   same database, same queries, same bind sources - and so are the actions    }
+{   of the assistant (uCRMActions).                                            }
 {                                                                              }
 {******************************************************************************}
 
@@ -27,7 +28,7 @@ uses
   Data.Bind.EngExt, Data.Bind.Components, Data.Bind.Grid, Data.Bind.DBScope,
   Fmx.Bind.DBEngExt, Fmx.Bind.Editors, Fmx.Bind.Grid, Fmx.Bind.Navigator,
   HelpChatAI.Types, HelpChatAI.Log, HelpChatAI.Actions, FMX.HelpChatAI,
-  uProposalReport, Data.Bind.Controls, System.ImageList;
+  Data.Bind.Controls, System.ImageList;
 
 const
   /// <summary>The style the demo wears, relative to the executable.</summary>
@@ -215,7 +216,6 @@ type
     // a second one.
     FAskingKey: Boolean;
     FStarted: Boolean;
-    function ResolveAccountName(const AText: string): string;
     procedure SetMenuCompact(ACompact: Boolean);
     procedure ApplyDarkStyle;
     procedure AppIdle(Sender: TObject; var Done: Boolean);
@@ -229,11 +229,7 @@ type
     /// and whenever the user switches model in the panel.</summary>
     procedure AskForApiKeyIfMissing;
     function FindTab(const AName: string): TTabItem;
-    /// <summary>The lead called by name, or by company when the name is not
-    /// enough: the model names a lead the way a user would.</summary>
-    function LocateLeadByName(const AName: string): Boolean;
     procedure RefreshTotals;
-    procedure RefreshLeadGrids;
     /// <summary>Opens the detail on the current record of one of the four
     /// lead boards.</summary>
     procedure ShowLeadDetail(ASource: TBindSourceDB);
@@ -257,6 +253,8 @@ uses
   // and reads it back, and HelpChatDecryptSecret is the hook the component
   // calls. DCPcrypt belongs to this demo, not to the library.
   uAppSecret, uLicenseActivationFmx,
+  // The actions of the assistant, shared with the VCL demo.
+  uCRMActions,
   // A provider exists only if its unit is linked: it registers itself in
   // the initialization. Same rule as in the VCL demo.
   HelpChatAI.Provider.DocSearch, HelpChatAI.Provider.Claude,
@@ -484,22 +482,6 @@ begin
   Result := nil;
 end;
 
-function TMainFormFmx.LocateLeadByName(const AName: string): Boolean;
-begin
-  Result := DM.LeadsFDTable.Locate('Name', VarArrayOf([AName]), [loCaseInsensitive]);
-  if not Result then
-    Result := DM.LeadsFDTable.Locate('AccountName', VarArrayOf([AName]),
-      [loCaseInsensitive, loPartialKey]);
-end;
-
-procedure TMainFormFmx.RefreshLeadGrids;
-begin
-  LeadsBindNewSourceDB.DataSet.Refresh;
-  LeadsBindActiveSourceDB.DataSet.Refresh;
-  LeadsBindProposalSentSourceDB.DataSet.Refresh;
-  LeadsBindClosedSourceDB.DataSet.Refresh;
-end;
-
 procedure TMainFormFmx.ShowLeadDetail(ASource: TBindSourceDB);
 begin
   if not Assigned(ASource.DataSet) or (ASource.DataSet.RecordCount = 0) then
@@ -542,63 +524,9 @@ begin
   DM.SetUser(UserCombo.Text);
 end;
 
-/// <summary>The company name as the Accounts list spells it. An exact match
-/// (case apart) wins; else a name containing the text, if there is exactly
-/// one; else an exception written for the model: no match means "create it
-/// with create_account", more than one means "ask the user which one". The
-/// lookup walks the table under DisableControls and goes back where it was,
-/// so the grids of the application do not move.</summary>
-function TMainFormFmx.ResolveAccountName(const AText: string): string;
-var
-  LTable: TDataSet;
-  LBookmark: TBookmark;
-  LCandidates: TStringList;
-  LName, LError: string;
-begin
-  Result := Trim(AText);
-  if Result = '' then
-    Exit;
-  LTable := DM.AcctFDTable;
-  LCandidates := TStringList.Create;
-  try
-    LTable.DisableControls;
-    try
-      LBookmark := LTable.GetBookmark;
-      try
-        LTable.First;
-        while not LTable.Eof do
-        begin
-          LName := LTable.FieldByName('AccountName').AsString;
-          if SameText(LName, Result) then
-            Exit(LName);
-          if LName.ToLower.Contains(Result.ToLower) then
-            LCandidates.Add(LName);
-          LTable.Next;
-        end;
-      finally
-        if LTable.BookmarkValid(LBookmark) then
-          LTable.GotoBookmark(LBookmark);
-        LTable.FreeBookmark(LBookmark);
-      end;
-    finally
-      LTable.EnableControls;
-    end;
-    if LCandidates.Count = 1 then
-      Exit(LCandidates[0]);
-    if LCandidates.Count > 1 then
-      LError := Format('More than one account matches "%s": %s. Ask the user which one.',
-        [Result, string.Join(', ', LCandidates.ToStringArray)])
-    else
-      LError := Format('There is no account called "%s". Create it with create_account, ' +
-        'then call create_lead again.', [Result]);
-  finally
-    LCandidates.Free;
-  end;
-  raise Exception.Create(LError);
-end;
-
 procedure TMainFormFmx.RegisterHelpActions;
 var
+  LHooks: TCRMActionHooks;
   LProposalActions: THelpChatActionBroker;
 begin
   // With one assistant the proposal is one of its actions like the others.
@@ -611,126 +539,49 @@ begin
   LProposalActions := HelpChat.Actions;
   {$ENDIF}
 
-  HelpChat.Actions.Add('open_screen',
-    'Brings one of the application screens to the front. Only when the user asks to ' +
-    'go to a screen: never to show where something is while answering a question.',
-    [THelpChatActionParam.Create('name',
-      'Screen name: Dashboard, Accounts, Leads, Sales, Marketing, Calendar or Users.')],
-    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+  // The actions are declared in uCRMActions and change the data through the
+  // data module, the same for both demos: here is only what a window does.
+  LHooks.OpenScreen :=
+    function(AName: string): string
     var
       LTab: TTabItem;
     begin
-      LTab := FindTab(AArgs.AsString('name'));
+      LTab := FindTab(AName);
       if LTab = nil then
-        raise Exception.CreateFmt('There is no "%s" screen.', [AArgs.AsString('name')]);
+        Exit('');
       Tabs.ActiveTab := LTab;
       TabsChange(Tabs);
-      AResult := 'Opened the ' + LTab.Text + ' screen.';
-    end, False); // changes nothing: no confirmation
-
-  // Writes a record: it asks for confirmation (the default), and the user
-  // sees the name and the values before answering. The company must exist:
-  // the handler looks it up and, when it is missing or the name is
-  // ambiguous, tells the model with an exception that says what to do -
-  // create it with create_account, or ask the user.
-  HelpChat.Actions.Add('create_account',
-    'Creates a company in the Accounts list. Use it before create_lead when the ' +
-    'company of the lead is not there yet.',
-    [THelpChatActionParam.Create('name', 'Company name')],
-    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
-    var
-      LName: string;
+      Result := LTab.Text;
+    end;
+  LHooks.CurrentUser :=
+    function: string
     begin
-      LName := Trim(AArgs.AsString('name'));
-      if LName = '' then
-        raise Exception.Create('The company name is required.');
-      // Idempotent: after a timeout the model may call it again, and the
-      // second call must not create a second company.
-      if DM.AcctFDTable.Locate('AccountName', VarArrayOf([LName]), [loCaseInsensitive]) then
-        raise Exception.CreateFmt('The account "%s" already exists.',
-          [DM.AcctFDTable.FieldByName('AccountName').AsString]);
-      AcctBindSourceDB.DataSet.DisableControls;
-      try
-        AcctBindSourceDB.DataSet.AppendRecord([nil, LName]);
-      finally
-        AcctBindSourceDB.DataSet.EnableControls;
-      end;
-      // The Accounts grid reads the query, the combo of the lead window reads
-      // the table: both have to see the new row.
+      Result := UserCombo.Text;
+    end;
+  LHooks.AccountCreated :=
+    procedure(AName: string)
+    begin
+      // The Accounts grid and the combo of the lead window read the
+      // companies again.
       LinkGridAccounts.Active := False;
       LinkGridAccounts.Active := True;
-      DM.AcctFDTable.Refresh;
       LeadsFormFmx.LinkAccountName.Active := False;
       LeadsFormFmx.LinkAccountName.Active := True;
-      AResult := Format('Account "%s" created.', [LName]);
-    end);
-
-  HelpChat.Actions.Add('create_lead',
-    'Creates a new lead for the active user and opens its detail window so the ' +
-    'user can check it. Does not send anything to anybody. The company must ' +
-    'exist in the Accounts list: if it does not, create it with create_account first.',
-    [THelpChatActionParam.Create('name', 'Name of the person'),
-     THelpChatActionParam.Create('account',
-       'Company name, as in the Accounts list (it must exist)', apkString, False),
-     THelpChatActionParam.Create('phone', 'Office phone', apkString, False),
-     THelpChatActionParam.Create('email', 'E-mail address', apkString, False),
-     THelpChatActionParam.Create('notes', 'Anything worth remembering', apkString, False)],
-    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
-    var
-      LDataSet: TDataSet;
-      LAccount: string;
+    end;
+  LHooks.LeadCreated :=
+    procedure(ALeadId: Integer)
     begin
-      // The company as it is spelled in the Accounts list, or an exception
-      // the model reads: "create it first" or "ask the user which one".
-      LAccount := ResolveAccountName(AArgs.AsString('account'));
       Tabs.ActiveTab := LeadsTab;
-      LDataSet := LeadsBindNewSourceDB.DataSet;
-      LDataSet.Append;
-      LDataSet.FieldByName('Status').AsString := 'New';
-      LDataSet.FieldByName('Name').AsString := AArgs.AsString('name');
-      LDataSet.FieldByName('AccountName').AsString := LAccount;
-      LDataSet.FieldByName('OfficePhone').AsString := AArgs.AsString('phone');
-      LDataSet.FieldByName('Email').AsString := AArgs.AsString('email');
-      LDataSet.FieldByName('Notes').AsString := AArgs.AsString('notes');
-      LDataSet.FieldByName('User').AsString := UserCombo.Text;
-      LDataSet.FieldByName('DateCreated').AsDateTime := Now;
-      LDataSet.Post;
-      RefreshLeadGrids;
-      LeadsFormFmx.LocateLead(LDataSet.FieldByName('LeadId').AsInteger);
+      LeadsFormFmx.LocateLead(ALeadId);
       LeadsFormFmx.Show;
-      AResult := Format('Lead "%s" created with status New (id %d).',
-        [AArgs.AsString('name'), LDataSet.FieldByName('LeadId').AsInteger]);
-    end, True);
-
-  LProposalActions.Add('draft_proposal',
-    'Opens the proposal draft for a lead with the address and the line items ' +
-    'already filled in. It does not save it: the user presses Preview and Save Proposal.',
-    [THelpChatActionParam.Create('lead', 'Name of the lead, or of its company'),
-     THelpChatActionParam.Create('items',
-       'The line items, one per line, written as "title x quantity @ price", ' +
-       'for example "Consulting x 12 @ 150". The price uses a dot as decimal separator.'),
-     THelpChatActionParam.Create('address1', 'Street address of the customer', apkString, False),
-     THelpChatActionParam.Create('address2', 'City, state and postal code', apkString, False),
-     THelpChatActionParam.Create('phone', 'Phone of the customer', apkString, False)],
-    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
-    var
-      LItems: TArray<TProposalLineItem>;
-      LLeadId: Integer;
-      LCompany: string;
+    end;
+  LHooks.DraftReady :=
+    procedure(ADraft: TCRMDraft)
     begin
-      LItems := ParseProposalLineItems(AArgs.AsString('items'));
-      if not LocateLeadByName(AArgs.AsString('lead')) then
-        raise Exception.CreateFmt('There is no lead called "%s".', [AArgs.AsString('lead')]);
-      LLeadId := DM.LeadsFDTable.FieldByName('LeadId').AsInteger;
-      LCompany := DM.LeadsFDTable.FieldByName('AccountName').AsString;
-      if DM.ProposalsFDTable.Locate('LeadId', VarArrayOf([LLeadId]), []) then
-        raise Exception.Create('This lead already has a proposal.');
-      DraftProposalFormFmx.PrepareDraft(LLeadId, LCompany,
-        AArgs.AsString('address1'), AArgs.AsString('address2'),
-        AArgs.AsString('phone'), LItems);
-      AResult := Format('Draft ready for %s with %d line item(s): check it and press Preview.',
-        [LCompany, Length(LItems)]);
-    end, True);
+      DraftProposalFormFmx.PrepareDraft(ADraft.LeadId, ADraft.Company,
+        ADraft.Address1, ADraft.Address2, ADraft.Phone, ADraft.Items);
+    end;
+  RegisterCRMActions(HelpChat.Actions, LProposalActions, LHooks);
 end;
 
 procedure TMainFormFmx.HelpChatGetContext(Sender: TObject;
@@ -740,21 +591,23 @@ begin
   // at is that window, not the page behind it. The VCL forms declare it in
   // HelpType/HelpKeyword, which a FireMonkey form does not have, so each
   // unit carries the keyword as a constant and this is where it is read.
-  if Screen.ActiveForm = TCommonCustomForm(LeadsFormFmx) then
+  // The form is the one the component chose (ScreenType), not
+  // Screen.ActiveForm: with the chat in front, that is the chat's window.
+  if AContext.ScreenType = TLeadsFormFmx.ClassName then
   begin
     AContext.ScreenName := 'LeadDetail';
     AContext.ScreenLabel := 'Lead Detail';
     AContext.HelpKeyword := LEADS_HELP_KEYWORD;
     Exit;
   end;
-  if Screen.ActiveForm = TCommonCustomForm(ProposalFormFmx) then
+  if AContext.ScreenType = TProposalFormFmx.ClassName then
   begin
     AContext.ScreenName := 'Proposal';
     AContext.ScreenLabel := 'Proposal';
     AContext.HelpKeyword := PROPOSAL_HELP_KEYWORD;
     Exit;
   end;
-  if Screen.ActiveForm = TCommonCustomForm(DraftProposalFormFmx) then
+  if AContext.ScreenType = TDraftProposalFormFmx.ClassName then
   begin
     AContext.ScreenName := 'DraftProposal';
     AContext.ScreenLabel := 'Draft Proposal';
@@ -764,8 +617,9 @@ begin
   // Same reason as in the VCL demo: the side menu lives outside the tab
   // control, and from there the component would describe the window
   // instead of the page the user is looking at. Here the active page is
-  // always the right answer.
-  if Assigned(Tabs.ActiveTab) then
+  // always the right answer - on this form, not on a window of the
+  // application that has no assistant of its own.
+  if (AContext.ScreenType = ClassName) and Assigned(Tabs.ActiveTab) then
   begin
     AContext.ScreenName := Tabs.ActiveTab.Name;
     AContext.ScreenLabel := Tabs.ActiveTab.Text;

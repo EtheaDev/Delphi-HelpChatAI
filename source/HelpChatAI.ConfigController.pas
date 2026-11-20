@@ -258,6 +258,11 @@ type
     /// <summary>A secret as it can be shown: its length and its last four
     /// characters, never more.</summary>
     class function MaskSecret(const AValue: string): string; static;
+    /// <summary>The same secret for a place with little room, the hint of an
+    /// edit box: four asterisks and its last four characters, without the
+    /// length. A secret of eight characters or fewer shows none of them, as
+    /// in MaskSecret; an empty one is empty.</summary>
+    class function MaskSecretShort(const AValue: string): string; static;
     /// <summary>The files of the component, in the order they are read.</summary>
     class function FilesFor(const AExeFile, AConfigFileName: string): TArray<THelpChatConfigFile>; static;
     /// <summary>The index in AFiles of the file the configuration of the
@@ -979,6 +984,19 @@ begin
     Exit(StringOfChar('*', LValue.Length));
   Result := StringOfChar('*', 8) + LValue.Substring(LValue.Length - 4) +
     Format(' (%d characters)', [LValue.Length]);
+end;
+
+class function THelpChatConfigController.MaskSecretShort(const AValue: string): string;
+var
+  LValue: string;
+begin
+  LValue := Trim(AValue);
+  if LValue = '' then
+    Exit('');
+  Result := StringOfChar('*', 4);
+  // Four characters of a short secret are half of it, or all of it.
+  if LValue.Length > 8 then
+    Result := Result + LValue.Substring(LValue.Length - 4);
 end;
 
 class function THelpChatConfigController.FilesFor(const AExeFile,

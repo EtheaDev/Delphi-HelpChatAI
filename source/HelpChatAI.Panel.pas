@@ -105,6 +105,11 @@ const
   /// page with a host channel can say it: with a local server the page and
   /// its server share the one token.</summary>
   HELPCHAT_UI_RELOAD = 'reload';
+  /// <summary>The UI command the page sends when the server says, with the
+  /// poll of a reply, that the model called an action of the client
+  /// (<see cref="HELPCHAT_ACTIONS_HEADER" />): the remote transport takes
+  /// the calls, runs them and answers. It never reaches the component.</summary>
+  HELPCHAT_UI_ACTIONS = 'actions';
   /// <summary>POST /api/context: the native client hands the transport the screen
   /// the user is on. Local transports keep it in memory; a remote one posts it.</summary>
   HELPCHAT_API_CONTEXT = '/api/context';
@@ -203,6 +208,33 @@ const
   /// <summary>Poll attempts before the client gives up on a pending bubble
   /// (900 x 800 ms = 12 minutes: bounded, unlike the KittoX original).</summary>
   HELPCHAT_DEF_MAX_POLLS = 900;
+
+  /// <summary>POST /api/actions: a remote client declares what its
+  /// assistant may do, as the <c>tools</c> array of its broker in the field
+  /// <c>tools</c> (empty = nothing). The model of that session is offered
+  /// them, narrowed by the <c>AllowedActions</c> of the server's
+  /// configuration, and a call comes back to the client to be run. 405
+  /// where the server takes no actions from clients (and on a local server,
+  /// whose host hands its broker over directly), 400 with the reason for a
+  /// declaration that cannot be read.</summary>
+  HELPCHAT_API_ACTIONS = '/api/actions';
+  /// <summary>The field of the declaration.</summary>
+  HELPCHAT_FIELD_ACTIONS_TOOLS = 'tools';
+  /// <summary>GET /api/actions/pending: the calls of the model the client
+  /// has not taken yet, <c>{"calls":[{"id","name","args"}]}</c>; each is
+  /// handed out once.</summary>
+  HELPCHAT_API_ACTIONS_PENDING = '/api/actions/pending';
+  /// <summary>POST /api/actions/result: how a call went - <c>id</c>,
+  /// <c>outcome</c> (done, denied, unknown, failed, timeout, cancelled) and
+  /// <c>result</c>, what the handler answered. 410 when nobody is waiting
+  /// for that call any more.</summary>
+  HELPCHAT_API_ACTIONS_RESULT = '/api/actions/result';
+  /// <summary>The response header of GET /api/poll that says a call is
+  /// waiting for the client of this session: the page tells its host with
+  /// the UI command <see cref="HELPCHAT_UI_ACTIONS" />. The page is what
+  /// polls while a reply is on its way, so no connection is kept open for
+  /// it.</summary>
+  HELPCHAT_ACTIONS_HEADER = 'X-HelpChat-Actions';
 
   /// <summary>POST /api/pdf: the page asks for a document to be saved as
   /// PDF. The engine builds it, the client prints it - only the client has a

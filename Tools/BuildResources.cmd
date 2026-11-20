@@ -1,5 +1,6 @@
 @rem ---- Explorer pause: when started by double click the window stays open at the end ----
 @if defined EXPLORER_PAUSE_CHILD goto :explorer_pause_skip
+@if not "%~1"=="" goto :explorer_pause_skip
 @echo %cmdcmdline% | "%SystemRoot%\System32\find.exe" /i "%~nx0" > NUL
 @if errorlevel 1 goto :explorer_pause_skip
 @echo %cmdcmdline% | "%SystemRoot%\System32\find.exe" /i "call " > NUL

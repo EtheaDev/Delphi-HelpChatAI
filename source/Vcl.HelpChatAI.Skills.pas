@@ -32,10 +32,17 @@
 ///  the active one, else the one active last, never the window of the chat;
 ///  its active MDI child for an MDI form), and it holds what the user sees:
 ///  the controls that are visible and enabled, in tab order, outside the
-///  chat. A field is a control an adapter accepts (<see cref="THelpChatVclFieldAdapter" />):
+///  chat. A field is a control bound to a field by LiveBindings
+///  (<c>TLinkControlToField</c>: the value goes through the <c>TField</c> of
+///  its <c>TBindSourceDB</c>; <c>TLinkFillControlToField</c> makes it a lookup),
+///  or a control an adapter accepts (<see cref="THelpChatVclFieldAdapter" />):
 ///  any data-aware control (a published <c>DataSource</c> and
 ///  <c>DataField</c>: the value goes through the <c>TField</c>), edits,
 ///  memos, combo boxes, check boxes, radio groups and buttons, date pickers.
+///  The bindings are read through RTTI, by the names of their classes, the
+///  way FireMonkey reads them (<c>HelpChatScanBindings</c>): a grid or a list
+///  a link fills with a data set is a list, a <c>TBindNavigator</c> is a
+///  navigator.
 ///  Its id is the name of the control; its caption the label whose
 ///  <c>FocusControl</c> it is, else its own caption, the display label of its
 ///  field, the nearest label on its left or above it, its text hint; its
@@ -100,6 +107,10 @@ type
     Placeholder: string;
     /// <summary>Data-aware: the source of the control.</summary>
     DataSource: TDataSource;
+    /// <summary>The LiveBindings link that binds the control, if any: the
+    /// field is then read and written through its <c>TField</c>, and
+    /// <c>Adapter</c> is nil.</summary>
+    Link: TComponent;
     function ReadValue: string; override;
     function WriteValue(const AText: string; out AShown: string): string; override;
     procedure Focus; override;
@@ -165,6 +176,9 @@ procedure UnregisterHelpChatVclFieldAdapter(const AAdapter: THelpChatVclFieldAda
 /// the window of the chat or a dialog of the library, else the visible form
 /// that was active last; the active child of an MDI form. nil when none.</summary>
 function HelpChatVclWorkingForm: TCustomForm;
+/// <summary>Whether a form is one the user may be working on: visible, and
+/// neither the window of a chat nor a dialog of the library.</summary>
+function HelpChatVclIsWorkingForm(const AForm: TCustomForm): Boolean;
 /// <summary>What the skills of that assistant work on:
 /// <see cref="HelpChatVclWorkingForm" />, as <c>OnGetTarget</c> may change it.</summary>
 function HelpChatVclTarget(const AHost: TComponent): TWinControl;
@@ -387,6 +401,31 @@ begin
     Result := GetStrProp(AObject, AName)
   else
     Result := '';
+end;
+
+function InheritsFromName(const AObject: TObject; const AClassName: string): Boolean;
+var
+  LClass: TClass;
+begin
+  Result := False;
+  if AObject = nil then
+    Exit;
+  LClass := AObject.ClassType;
+  while Assigned(LClass) do
+  begin
+    if SameText(LClass.ClassName, AClassName) then
+      Exit(True);
+    LClass := LClass.ClassParent;
+  end;
+end;
+
+// The form (or the frame) that owns the controls under ARoot, and so the
+// links that bind them.
+function BindingsOwner(const ARoot: TWinControl): TComponent;
+begin
+  Result := ARoot;
+  if not (ARoot is TCustomForm) and Assigned(ARoot.Owner) then
+    Result := ARoot.Owner;
 end;
 
 function PropObj(const AObject: TObject; const AName: string): TObject;
@@ -1006,6 +1045,11 @@ begin
     not (AForm is TVclHelpChatConfirmDialog);
 end;
 
+function HelpChatVclIsWorkingForm(const AForm: TCustomForm): Boolean;
+begin
+  Result := IsEligibleForm(AForm);
+end;
+
 function HelpChatVclWorkingForm: TCustomForm;
 var
   I: Integer;
@@ -1108,9 +1152,52 @@ begin
     Result := '';
 end;
 
+// A control bound to a field by a link: the field, its source, its lookup
+// (the same as FireMonkey), and what the control adds.
+function DescribeBound(const AField: THelpChatVclField; const ALink: TComponent): Boolean;
+var
+  LControl: TControl;
+  LItems: TObject;
+begin
+  Result := HelpChatDescribeBoundField(AField, ALink);
+  if not Result then
+    Exit;
+  AField.Link := ALink;
+  LControl := AField.Control;
+  if LControl is TCustomEdit then
+  begin
+    AField.Secret := TCustomEditAccess(LControl).PasswordChar <> #0;
+    AField.Placeholder := TCustomEditAccess(LControl).TextHint;
+  end;
+  if AField.Kind = hfkLookup then
+    // described by the link
+  else if LControl is TCustomCheckBox then
+  begin
+    AField.Kind := hfkBoolean;
+    AField.OwnCaption := ControlCaption(LControl);
+  end
+  else
+  begin
+    LItems := PropObj(LControl, 'Items');
+    if (LItems is TStrings) and (TStrings(LItems).Count > 0) and
+      (AField.Kind in [hfkText, hfkInteger, hfkNumber]) then
+    begin
+      AField.Kind := hfkChoice;
+      AField.Choices := CleanItems(TStrings(LItems));
+      AField.ChoiceValues := RawItems(TStrings(LItems));
+      AField.ChoicesOnly := (LControl is TCustomComboBox) and
+        (TCustomComboBoxAccess(LControl).Style in [csDropDownList, csOwnerDrawFixed, csOwnerDrawVariable]);
+    end;
+  end;
+  AField.ReadOnly := AField.ReadOnly or PropBool(LControl, 'ReadOnly');
+end;
+
 function HelpChatVclCollectFields(const ARoot: TWinControl;
   const ASender: TObject): TObjectList<THelpChatVclField>;
 var
+  LLinks: TDictionary<TComponent, TComponent>;
+  LLink: TComponent;
+  LBound: Boolean;
   LFocus: TDictionary<TWinControl, string>;
   LFree: TList<TCustomLabel>;
   LOrder: TList;
@@ -1131,8 +1218,10 @@ begin
   LOrder := TList.Create;
   LGroups := TList<TWinControl>.Create;
   LIds := TStringList.Create;
+  LLinks := TDictionary<TComponent, TComponent>.Create;
   try
     LIds.CaseSensitive := False;
+    HelpChatScanBindings(BindingsOwner(ARoot), LLinks, nil);
     CollectLabels(ARoot, LFocus, LFree);
     // The tab order is the order of the form, the one the user fills it in.
     ARoot.GetTabOrderList(LOrder);
@@ -1141,14 +1230,21 @@ begin
       LControl := TWinControl(LOrder[I]);
       if not IsShown(LControl) or not IsEnabledChain(LControl, ARoot) or IsInsideChat(LControl) then
         Continue;
-      LAdapter := FindAdapter(LControl);
-      if LAdapter = nil then
-        Continue;
-      if LAdapter = TRadioButtonAdapter then
+      // A control a link binds is read through its field, before any
+      // adapter, as in FireMonkey.
+      LBound := LLinks.TryGetValue(LControl, LLink);
+      LAdapter := nil;
+      if not LBound then
       begin
-        if LGroups.Contains(LControl.Parent) then
+        LAdapter := FindAdapter(LControl);
+        if LAdapter = nil then
           Continue;
-        LGroups.Add(LControl.Parent);
+        if LAdapter = TRadioButtonAdapter then
+        begin
+          if LGroups.Contains(LControl.Parent) then
+            Continue;
+          LGroups.Add(LControl.Parent);
+        end;
       end;
       LField := THelpChatVclField.Create;
       try
@@ -1156,7 +1252,13 @@ begin
         LField.Adapter := LAdapter;
         LField.Id := LControl.Name;
         LField.Hint := Trim(GetLongHint(LControl.Hint));
-        LAdapter.Describe(LField);
+        if LBound then
+        begin
+          if not DescribeBound(LField, LLink) then
+            Continue; // a link to nothing: nothing to fill
+        end
+        else
+          LAdapter.Describe(LField);
         if LField.Id = '' then
           LField.Id := Format('field%d', [Result.Count + 1]);
         if LIds.IndexOf(LField.Id) >= 0 then
@@ -1192,6 +1294,7 @@ begin
       end;
     end;
   finally
+    LLinks.Free;
     LIds.Free;
     LGroups.Free;
     LOrder.Free;
@@ -1216,13 +1319,14 @@ begin
     LControl := AParent.Controls[I];
     if not IsShown(LControl) or IsInsideChat(LControl) then
       Continue;
-    // A source without a field: a grid, a navigator, a control grid.
+    // A source without a field: a grid, a navigator, a control grid - a
+    // TDataSource, or a bind source (a TBindNavigator).
     LSource := PropObj(LControl, 'DataSource');
-    if (LSource is TDataSource) and Assigned(TDataSource(LSource).DataSet) and
+    if Assigned(HelpChatSourceDataSet(LSource)) and
       not HasProp(LControl, 'DataField', [tkString, tkLString, tkWString, tkUString]) then
     begin
       LItem := Default(THelpChatDataList);
-      LItem.DataSet := TDataSource(LSource).DataSet;
+      LItem.DataSet := HelpChatSourceDataSet(LSource);
       LItem.Id := LControl.Name;
       if LItem.Id = '' then
         LItem.Id := HelpChatDataSetName(LItem.DataSet);
@@ -1249,6 +1353,52 @@ begin
     end;
     if LControl is TWinControl then
       CollectListControls(TWinControl(LControl), AList);
+  end;
+end;
+
+// The grids and the lists a LiveBindings link fills with a data set, shown
+// and outside the chat: a TStringGrid has no DataSource to tell it.
+procedure CollectBoundLists(const ARoot: TWinControl; var AList: TArray<THelpChatDataList>);
+var
+  LLinks: TList<TComponent>;
+  LLink: TComponent;
+  LControl: TObject;
+  LItem: THelpChatDataList;
+  LKnown: Boolean;
+  J: Integer;
+begin
+  LLinks := TList<TComponent>.Create;
+  try
+    HelpChatScanBindings(BindingsOwner(ARoot), nil, LLinks);
+    for LLink in LLinks do
+    begin
+      LControl := HelpChatBindingListControl(LLink);
+      if not (LControl is TControl) or not IsShown(TControl(LControl)) or
+        IsInsideChat(TControl(LControl)) or
+        not ((LControl = ARoot) or ARoot.ContainsControl(TControl(LControl))) then
+        Continue;
+      LItem := Default(THelpChatDataList);
+      LItem.DataSet := HelpChatBindingListDataSet(LLink);
+      if LItem.DataSet = nil then
+        Continue;
+      LItem.Id := TControl(LControl).Name;
+      if LItem.Id = '' then
+        LItem.Id := HelpChatDataSetName(LItem.DataSet);
+      LItem.Caption := HelpChatDataSetName(LItem.DataSet);
+      LKnown := False;
+      for J := 0 to High(AList) do
+        if AList[J].DataSet = LItem.DataSet then
+        begin
+          // A grid says more than a navigator: it is what the user reads.
+          if InheritsFromName(TControl(LControl), 'TCustomGrid') then
+            AList[J].Id := LItem.Id;
+          LKnown := True;
+        end;
+      if not LKnown then
+        AList := AList + [LItem];
+    end;
+  finally
+    LLinks.Free;
   end;
 end;
 
@@ -1385,20 +1535,43 @@ begin
 end;
 
 // True when some data-aware control under ARoot shows a data set that is
-// being edited.
+// being edited - a TDataSource or a bind source of its own.
 function AnyDataSetEditing(const ARoot: TWinControl): Boolean;
 var
   I: Integer;
-  LSource: TObject;
 begin
   Result := False;
   for I := 0 to ARoot.ControlCount - 1 do
   begin
-    LSource := PropObj(ARoot.Controls[I], 'DataSource');
-    if (LSource is TDataSource) and HelpChatIsEditing(TDataSource(LSource).DataSet) then
+    if HelpChatBindSourceEditing(PropObj(ARoot.Controls[I], 'DataSource')) then
       Exit(True);
     if (ARoot.Controls[I] is TWinControl) and AnyDataSetEditing(TWinControl(ARoot.Controls[I])) then
       Exit(True);
+  end;
+end;
+
+// True when a source some link of the form binds a control to is being
+// edited: the controls of LiveBindings have no DataSource of their own.
+function AnyBindingEditing(const ARoot: TWinControl): Boolean;
+var
+  LLinks: TDictionary<TComponent, TComponent>;
+  LLists: TList<TComponent>;
+  LLink: TComponent;
+begin
+  Result := False;
+  LLinks := TDictionary<TComponent, TComponent>.Create;
+  LLists := TList<TComponent>.Create;
+  try
+    HelpChatScanBindings(BindingsOwner(ARoot), LLinks, LLists);
+    for LLink in LLinks.Values do
+      if HelpChatBindSourceEditing(PropObj(LLink, 'DataSource')) then
+        Exit(True);
+    for LLink in LLists do
+      if HelpChatBindSourceEditing(PropObj(LLink, 'DataSource')) then
+        Exit(True);
+  finally
+    LLists.Free;
+    LLinks.Free;
   end;
 end;
 
@@ -1437,7 +1610,7 @@ begin
   if LSource is TDataSource then
     Result := HelpChatIsEditing(TDataSource(LSource).DataSet)
   else
-    Result := AnyDataSetEditing(ARoot);
+    Result := AnyDataSetEditing(ARoot) or AnyBindingEditing(ARoot);
 end;
 
 procedure CollectCommandControls(const AParent: TWinControl; const ARoot: TWinControl;
@@ -1451,6 +1624,8 @@ var
   LEditing: Boolean;
   LEnumName: string;
   LAction: TBasicAction;
+  LIsPost, LMoves: Boolean;
+  LBindSource: TObject;
 begin
   for I := 0 to AParent.ControlCount - 1 do
   begin
@@ -1486,13 +1661,48 @@ begin
         end;
       Continue;
     end;
+    // The navigator of the LiveBindings: its buttons are told by their index,
+    // never by their hint, a localized text of the RTL. Pressed as a click.
+    if InheritsFromName(LControl, 'TCustomBindNavigator') then
+    begin
+      LEditing := HelpChatBindSourceEditing(PropObj(LControl, 'DataSource'));
+      for J := 0 to TWinControl(LControl).ControlCount - 1 do
+      begin
+        LButton := TWinControl(LControl).Controls[J];
+        if not (LButton is TSpeedButton) or not LButton.Visible or not LButton.Enabled then
+          Continue;
+        if not HelpChatBindNavigateButton(LButton, LIndex, LIsPost, LMoves) then
+          Continue;
+        // Moving or inserting while a record is edited posts it.
+        if LEditing and LMoves then
+          Continue;
+        // TNavigateButton has the order and the names of TNavigateBtn.
+        LEnumName := GetEnumName(TypeInfo(TNavigateBtn), LIndex);
+        LCommand := THelpChatVclCommand.Create;
+        LCommand.Control := LButton;
+        LCommand.NavigatorButton := -1;
+        LCommand.Id := IfThen(LControl.Name <> '', LControl.Name, 'navigator') + '.' +
+          LowerCase(Copy(LEnumName, 3, MaxInt));
+        LCommand.Caption := HelpChatCleanCaption(GetShortHint(LButton.Hint));
+        if LCommand.Caption = '' then
+          LCommand.Caption := Copy(LEnumName, 3, MaxInt);
+        LCommand.IsSave := LIsPost;
+        AddCommand(AList, LCommand, ASender);
+      end;
+      Continue;
+    end;
     if (LControl is TCustomButton) or (LControl is TSpeedButton) or
       ((LControl is TToolButton) and not (TToolButton(LControl).Style in [tbsSeparator, tbsDivider])) then
     begin
       LAction := TControlAccess(LControl).Action;
       // Moving or inserting while a record is edited posts it: not offered,
-      // like the buttons of a navigator.
+      // like the buttons of a navigator - the data set actions and the
+      // bind navigator ones alike.
       if ActionMovesWhileEditing(LAction, ARoot) then
+        Continue;
+      LIsPost := False;
+      if HelpChatBindNavigateAction(LAction, LIsPost, LMoves, LBindSource) and LMoves and
+        HelpChatBindSourceEditing(LBindSource) then
         Continue;
       LCommand := THelpChatVclCommand.Create;
       LCommand.Control := LControl;
@@ -1512,7 +1722,7 @@ begin
       LCommand.Id := LControl.Name;
       if LCommand.Id = '' then
         LCommand.Id := 'button';
-      LCommand.IsSave := IsPostAction(LAction) or
+      LCommand.IsSave := IsPostAction(LAction) or LIsPost or
         ((LControl is TCustomButton) and
          (TCustomButtonAccess(LControl).ModalResult in [mrOk, mrYes, mrAll, mrYesToAll])) or
         HelpChatLooksLikeSave(LCommand.Caption, LControl.Name);
@@ -1580,6 +1790,8 @@ var
 begin
   Result := nil;
   CollectListControls(FRoot, Result);
+  // The grids and the lists a LiveBindings link fills with a data set.
+  CollectBoundLists(FRoot, Result);
   // The record of a form with no grid is a list of one too, to count and move.
   LFields := Fields;
   try

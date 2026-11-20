@@ -464,7 +464,7 @@ with DCPcrypt (an svn:external of the demo, no package of the library requires i
 <p><code>CRM Demo\BuildAllDemos.ps1</code> builds all four with every Delphi it finds, Win32 and
 Win64: twenty-four builds, and the FireMonkey ones are reported <code>N/A</code> below Delphi 12 rather
 than failed.</p>
-<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>612 tests</strong> that runs without
+<p><code>Test/Delphi13/HelpChatAITests.dproj</code> is a DUnitX suite of <strong>616 tests</strong> that runs without
 network: store, worker pool, cancellation, index scoring and the areas of a manual, Markdown
 safety, profiles and the configuration editor's controller, several assistants on real forms
 and the engine they share, the skills on real forms over an in-memory data set, the SSE parsing and
@@ -474,6 +474,16 @@ document - the last two of which write a real PDF with the WebView2 runtime of t
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>20 Nov 2026: ver. 2.1.0</p>
+<ul>
+<li>Actions and skills with a remote engine: the application declares them to its session, the model on the server calls them, and each call comes back to run in the application - its main thread, its confirmation dialog - with only the outcome going to the server. Nothing changes in the code that registers them; it needs the host channel</li>
+<li>Server: <code>ClientActions</code> (<code>&quot;ClientActions&quot;: false</code> in <code>helpchatai-server.json</code>) refuses the actions of the clients, and <code>AllowedActions</code> of the server's configuration narrows them, per profile</li>
+<li>Configuration editor: the hint of the provider key shows no character of a key of eight characters or fewer</li>
+<li>VCL skills read LiveBindings, as the FireMonkey ones do: a control a link binds is a field of its <code>TField</code>, a grid it fills is a list, and a <code>TBindNavigator</code> never offers <em>Post</em>, nor moves while a record is being edited</li>
+<li>The screen context is the form the user is working on, also when the chat has the focus (it was the host form), and it follows the user while the panel is open</li>
+<li>The language rule says it in so many words: reply in the language of the chat even when the user writes in another one</li>
+<li>CRM demos: the actions of the assistant are declared once, in <code>common\uCRMActions</code>, and what they do to the data is in the data module; each main form keeps only the visual part</li>
+</ul>
 <p>18 Nov 2026: ver. 2.0.0</p>
 <ul>
 <li>A review of the whole library before 2.0, with no new features: the defects it found are fixed, and the suite grew to 612 tests</li>

@@ -486,6 +486,118 @@ type
     property OnExecuted: THelpChatActionExecutedEvent read FOnExecuted write FOnExecuted;
   end;
 
+const
+  /// <summary>How many actions a client may declare to a relay.</summary>
+  HELPCHAT_RELAY_MAX_ACTIONS = 64;
+  /// <summary>The longest declaration (the JSON of the tools) a relay
+  /// takes.</summary>
+  HELPCHAT_RELAY_MAX_TOOLS_CHARS = 200000;
+  /// <summary>How long a relay waits for the client to answer a call: the
+  /// time the client's own broker waits for its host, plus the round trips.
+  /// The client must be the one that gives up first, so that what the model
+  /// is told is what the client knows.</summary>
+  HELPCHAT_RELAY_DEF_TIMEOUT_MS = HELPCHAT_DEF_ACTION_TIMEOUT_MS + 15000;
+
+type
+  /// <summary>
+  ///  The actions of an assistant whose engine is somewhere else: what a
+  ///  HelpChatAI server gives the model of a session in place of a broker.
+  ///  The client declares its actions (<see cref="SetTools" />: the
+  ///  <c>ToolsJson</c> of its own broker), a provider invokes one like any
+  ///  other, and the call waits here until the client took it
+  ///  (<see cref="TakeCallsJson" />), ran it on its own broker - where the
+  ///  handler, the confirmation and the main thread are - and answered
+  ///  (<see cref="Complete" />). Nothing of the application runs on the
+  ///  server. Reference counted, thread-safe.
+  /// </summary>
+  THelpChatActionRelay = class(TInterfacedObject, IHelpChatActionInvoker)
+  strict private
+    type
+      TCall = class
+      public
+        Id: string;
+        Name: string;
+        ArgsJson: string;
+        Result: string;
+        Outcome: THelpChatActionOutcome;
+        Delivered: Boolean;
+        Answered: Boolean;
+        Done: TEvent;
+        destructor Destroy; override;
+      end;
+    var
+      FLock: TCriticalSection;
+      FNames: TArray<string>;
+      FTools: TArray<string>;
+      FCalls: TList<TCall>;
+      FAllowed: TArray<string>;
+      FClosed: Boolean;
+      FTimeoutMs: Integer;
+      FResultMaxChars: Integer;
+    function GetAllowed: TArray<string>;
+    procedure SetAllowed(const Value: TArray<string>);
+    /// <summary>Called with the lock held.</summary>
+    function Offers(const AName: string): Boolean;
+  public
+    /// <summary>A relay with nothing declared.</summary>
+    constructor Create;
+    destructor Destroy; override;
+    /// <summary>What the client may do, as the <c>tools</c> array its broker
+    /// writes (name, description, input_schema); it replaces what was
+    /// declared before, and an empty text declares nothing. Only those three
+    /// members are kept, a name is letters, digits, "_" and "-" (64 at
+    /// most), a name declared twice counts once. False, with a short English
+    /// reason and the previous declaration still in force, for a text that
+    /// is not such an array, is longer than
+    /// <see cref="HELPCHAT_RELAY_MAX_TOOLS_CHARS" /> or declares more than
+    /// <see cref="HELPCHAT_RELAY_MAX_ACTIONS" /> actions: a client writes
+    /// this text, and it goes into the request of the model.</summary>
+    function SetTools(const AJson: string; out AError: string): Boolean;
+    // IHelpChatActionInvoker
+    function HasActions: Boolean;
+    function ToolsJson: string;
+    /// <summary>Queues the call and waits for the client: its answer, else
+    /// <c>aoTimeout</c> after <see cref="TimeoutMs" />, <c>aoCancelled</c>
+    /// when the reply was cancelled or the relay closed, <c>aoUnknown</c>
+    /// for a name that was not declared or is not allowed. A client that
+    /// took the call may still run it after this gave up: its answer is
+    /// then refused (<see cref="Complete" /> answers False).</summary>
+    function Invoke(const AName, AArgsJson: string;
+      const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
+    /// <summary>True while a call is waiting that no client took yet.</summary>
+    function HasUndelivered: Boolean;
+    /// <summary>The calls nobody took yet, as
+    /// <c>{"calls":[{"id","name","args"}]}</c> - <c>args</c> being the JSON
+    /// object the model wrote, as a string - and marks them taken: a call is
+    /// handed out once.</summary>
+    function TakeCallsJson: string;
+    /// <summary>The client answers a call. False when nobody is waiting for
+    /// it any more (it timed out, was cancelled, or was answered
+    /// already).</summary>
+    function Complete(const AId: string; const AOutcome: THelpChatActionOutcome;
+      const AResult: string): Boolean;
+    /// <summary>The client is gone: every waiting call is answered
+    /// <c>aoCancelled</c>, and so is every later one.</summary>
+    procedure Close;
+    /// <summary>The names the model may call (case apart); empty = all the
+    /// declared ones. What the configuration of the server says in
+    /// <c>AllowedActions</c>.</summary>
+    property Allowed: TArray<string> read GetAllowed write SetAllowed;
+    /// <summary>How long <see cref="Invoke" /> waits for the client.</summary>
+    property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs;
+    /// <summary>Longer results are cut before reaching the model: the client
+    /// cuts them too, and is not taken at its word.</summary>
+    property ResultMaxChars: Integer read FResultMaxChars write FResultMaxChars;
+  end;
+
+/// <summary>The outcome as it travels between a client and a server: done,
+/// denied, unknown, failed, timeout, cancelled.</summary>
+function HelpChatActionOutcomeName(const AOutcome: THelpChatActionOutcome): string;
+/// <summary>The outcome of that name (case apart); False for any other
+/// text.</summary>
+function HelpChatActionOutcomeFromName(const AName: string;
+  out AOutcome: THelpChatActionOutcome): Boolean;
+
 /// <summary>The actions every assistant of the application may use: register
 /// here what makes sense whichever form the user is on (open a screen, say,
 /// or search the customers), once. Each component consults it unless its
@@ -1508,6 +1620,403 @@ begin
     GSharedActionsRef := GSharedActions;
   end;
   Result := GSharedActions;
+end;
+
+{ Outcome names }
+
+const
+  OUTCOME_NAMES: array[THelpChatActionOutcome] of string = (
+    'done', 'denied', 'unknown', 'failed', 'timeout', 'cancelled');
+  // How often a waiting call looks at its cancellation token and its clock.
+  RELAY_WAIT_SLICE_MS = 100;
+
+function HelpChatActionOutcomeName(const AOutcome: THelpChatActionOutcome): string;
+begin
+  Result := OUTCOME_NAMES[AOutcome];
+end;
+
+function HelpChatActionOutcomeFromName(const AName: string;
+  out AOutcome: THelpChatActionOutcome): Boolean;
+var
+  L: THelpChatActionOutcome;
+begin
+  AOutcome := aoFailed;
+  for L := Low(THelpChatActionOutcome) to High(THelpChatActionOutcome) do
+    if SameText(Trim(AName), OUTCOME_NAMES[L]) then
+    begin
+      AOutcome := L;
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+function RelayNameIsValid(const AName: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := (AName <> '') and (Length(AName) <= 64);
+  if Result then
+    for I := 1 to Length(AName) do
+      case AName[I] of
+        'A'..'Z', 'a'..'z', '0'..'9', '_', '-': ;
+      else
+        Exit(False);
+      end;
+end;
+
+{ THelpChatActionRelay.TCall }
+
+destructor THelpChatActionRelay.TCall.Destroy;
+begin
+  Done.Free;
+  inherited;
+end;
+
+{ THelpChatActionRelay }
+
+constructor THelpChatActionRelay.Create;
+begin
+  inherited Create;
+  FLock := TCriticalSection.Create;
+  FCalls := TList<TCall>.Create;
+  FTimeoutMs := HELPCHAT_RELAY_DEF_TIMEOUT_MS;
+  FResultMaxChars := HELPCHAT_DEF_ACTION_RESULT_MAXCHARS;
+end;
+
+destructor THelpChatActionRelay.Destroy;
+begin
+  // Whoever waits holds a reference: nothing can be queued here.
+  FCalls.Free;
+  FLock.Free;
+  inherited;
+end;
+
+function THelpChatActionRelay.GetAllowed: TArray<string>;
+begin
+  FLock.Enter;
+  try
+    Result := Copy(FAllowed);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatActionRelay.SetAllowed(const Value: TArray<string>);
+begin
+  FLock.Enter;
+  try
+    FAllowed := Copy(Value);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatActionRelay.Offers(const AName: string): Boolean;
+var
+  LName: string;
+  LDeclared: Boolean;
+begin
+  LDeclared := False;
+  for LName in FNames do
+    if SameText(LName, AName) then
+    begin
+      LDeclared := True;
+      Break;
+    end;
+  if not LDeclared then
+    Exit(False);
+  if Length(FAllowed) = 0 then
+    Exit(True);
+  for LName in FAllowed do
+    if SameText(Trim(LName), AName) then
+      Exit(True);
+  Result := False;
+end;
+
+function THelpChatActionRelay.SetTools(const AJson: string; out AError: string): Boolean;
+var
+  LValue, LItem, LMember: TJSONValue;
+  LTool: TJSONObject;
+  LNames, LTools: TArray<string>;
+  LName, LDescription, LSeen: string;
+  LTwice: Boolean;
+begin
+  AError := '';
+  LNames := nil;
+  LTools := nil;
+  try
+    if Trim(AJson) <> '' then
+    begin
+      if Length(AJson) > HELPCHAT_RELAY_MAX_TOOLS_CHARS then
+      begin
+        AError := 'the declaration of the actions is too long';
+        Exit(False);
+      end;
+      LValue := TJSONObject.ParseJSONValue(AJson);
+      try
+        if not (LValue is TJSONArray) then
+        begin
+          AError := 'the actions are not a JSON array';
+          Exit(False);
+        end;
+        if TJSONArray(LValue).Count > HELPCHAT_RELAY_MAX_ACTIONS then
+        begin
+          AError := 'too many actions';
+          Exit(False);
+        end;
+        for LItem in TJSONArray(LValue) do
+        begin
+          if not (LItem is TJSONObject) then
+          begin
+            AError := 'an action is not a JSON object';
+            Exit(False);
+          end;
+          LName := '';
+          LMember := TJSONObject(LItem).GetValue('name');
+          if LMember is TJSONString then
+            LName := TJSONString(LMember).Value;
+          if not RelayNameIsValid(LName) then
+          begin
+            AError := 'an action has no valid name';
+            Exit(False);
+          end;
+          LDescription := '';
+          LMember := TJSONObject(LItem).GetValue('description');
+          if LMember is TJSONString then
+            LDescription := TJSONString(LMember).Value;
+          LMember := TJSONObject(LItem).GetValue('input_schema');
+          if not (LMember is TJSONObject) then
+          begin
+            AError := Format('the action "%s" has no input_schema', [LName]);
+            Exit(False);
+          end;
+          LTwice := False;
+          for LSeen in LNames do
+            if SameText(LSeen, LName) then
+              LTwice := True;
+          if LTwice then
+            Continue;
+          // Written again member by member: whatever else the client put
+          // in the object stays here.
+          LTool := TJSONObject.Create;
+          try
+            LTool.AddPair('name', LName);
+            LTool.AddPair('description', LDescription);
+            LTool.AddPair('input_schema', TJSONValue(LMember.Clone));
+            LNames := LNames + [LName];
+            LTools := LTools + [LTool.ToJSON];
+          finally
+            LTool.Free;
+          end;
+        end;
+      finally
+        LValue.Free;
+      end;
+    end;
+  except
+    on E: Exception do
+    begin
+      AError := 'the actions could not be read';
+      Exit(False);
+    end;
+  end;
+  FLock.Enter;
+  try
+    FNames := LNames;
+    FTools := LTools;
+  finally
+    FLock.Leave;
+  end;
+  Result := True;
+end;
+
+function THelpChatActionRelay.HasActions: Boolean;
+var
+  LName: string;
+begin
+  Result := False;
+  FLock.Enter;
+  try
+    if not FClosed then
+      for LName in FNames do
+        if Offers(LName) then
+          Exit(True);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatActionRelay.ToolsJson: string;
+var
+  I: Integer;
+begin
+  Result := '';
+  FLock.Enter;
+  try
+    if not FClosed then
+      for I := 0 to High(FNames) do
+        if Offers(FNames[I]) then
+        begin
+          if Result <> '' then
+            Result := Result + ',';
+          Result := Result + FTools[I];
+        end;
+  finally
+    FLock.Leave;
+  end;
+  Result := '[' + Result + ']';
+end;
+
+function THelpChatActionRelay.Invoke(const AName, AArgsJson: string;
+  const ACancel: IHelpChatCancelToken; out AResult: string): THelpChatActionOutcome;
+var
+  LCall: TCall;
+  LWatch: TStopwatch;
+  LGaveUp: THelpChatActionOutcome;
+begin
+  AResult := '';
+  try
+    FLock.Enter;
+    try
+      if FClosed then
+        Exit(aoCancelled);
+      if not Offers(AName) then
+        Exit(aoUnknown);
+      LCall := TCall.Create;
+      LCall.Id := TGUID.NewGuid.ToString.Replace('{', '').Replace('}', '').Replace('-', '').ToLower;
+      LCall.Name := AName;
+      LCall.ArgsJson := AArgsJson;
+      LCall.Done := TEvent.Create(nil, True, False, '');
+      FCalls.Add(LCall);
+    finally
+      FLock.Leave;
+    end;
+    LGaveUp := aoTimeout;
+    LWatch := TStopwatch.StartNew;
+    while LCall.Done.WaitFor(RELAY_WAIT_SLICE_MS) <> wrSignaled do
+    begin
+      if Assigned(ACancel) and ACancel.IsCancelled then
+      begin
+        LGaveUp := aoCancelled;
+        Break;
+      end;
+      if LWatch.ElapsedMilliseconds >= FTimeoutMs then
+        Break;
+    end;
+    // Under the lock Complete answers with: an answer that arrived between
+    // the last wait and here is the answer, not a timeout the model would
+    // retry for something already done.
+    FLock.Enter;
+    try
+      FCalls.Remove(LCall);
+      if LCall.Answered then
+      begin
+        Result := LCall.Outcome;
+        AResult := LCall.Result;
+      end
+      else
+        Result := LGaveUp;
+    finally
+      FLock.Leave;
+    end;
+    LCall.Free;
+    if (FResultMaxChars > 0) and (Length(AResult) > FResultMaxChars) then
+      AResult := Copy(AResult, 1, FResultMaxChars);
+  except
+    on E: Exception do
+    begin
+      AResult := E.Message;
+      Result := aoFailed;
+    end;
+  end;
+end;
+
+function THelpChatActionRelay.HasUndelivered: Boolean;
+var
+  LCall: TCall;
+begin
+  Result := False;
+  FLock.Enter;
+  try
+    for LCall in FCalls do
+      if not LCall.Delivered and not LCall.Answered then
+        Exit(True);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatActionRelay.TakeCallsJson: string;
+var
+  LRoot, LItem: TJSONObject;
+  LItems: TJSONArray;
+  LCall: TCall;
+begin
+  LRoot := TJSONObject.Create;
+  try
+    LItems := TJSONArray.Create;
+    LRoot.AddPair('calls', LItems);
+    FLock.Enter;
+    try
+      for LCall in FCalls do
+        if not LCall.Delivered and not LCall.Answered then
+        begin
+          LCall.Delivered := True;
+          LItem := TJSONObject.Create;
+          LItems.AddElement(LItem);
+          LItem.AddPair('id', LCall.Id);
+          LItem.AddPair('name', LCall.Name);
+          LItem.AddPair('args', LCall.ArgsJson);
+        end;
+    finally
+      FLock.Leave;
+    end;
+    Result := LRoot.ToJSON;
+  finally
+    LRoot.Free;
+  end;
+end;
+
+function THelpChatActionRelay.Complete(const AId: string;
+  const AOutcome: THelpChatActionOutcome; const AResult: string): Boolean;
+var
+  LCall: TCall;
+begin
+  Result := False;
+  FLock.Enter;
+  try
+    for LCall in FCalls do
+      if (LCall.Id = AId) and not LCall.Answered then
+      begin
+        LCall.Outcome := AOutcome;
+        LCall.Result := AResult;
+        LCall.Answered := True;
+        LCall.Done.SetEvent;
+        Exit(True);
+      end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatActionRelay.Close;
+var
+  LCall: TCall;
+begin
+  FLock.Enter;
+  try
+    FClosed := True;
+    for LCall in FCalls do
+      if not LCall.Answered then
+      begin
+        LCall.Outcome := aoCancelled;
+        LCall.Result := '';
+        LCall.Answered := True;
+        LCall.Done.SetEvent;
+      end;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 initialization

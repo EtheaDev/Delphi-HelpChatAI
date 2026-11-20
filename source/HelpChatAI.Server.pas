@@ -128,6 +128,8 @@ type
     FAssistantIcon: string;
     FEnabledCommands: THelpChatCommands;
     FActions: IHelpChatActionInvoker;
+    FRelay: THelpChatActionRelay;
+    FRelayRef: IHelpChatActionInvoker;
     FCreatedAt: TDateTime;
     FLastAccess: TDateTime;
     FEngine: THelpChatEngine;
@@ -175,10 +177,21 @@ type
     /// they go with every question and command, so that an engine shared by
     /// several assistants runs the actions of the one that was asked. nil =
     /// those of the engine (<c>THelpChatEngine.Actions</c>: what a console
-    /// server sets, and what a remote session gets - actions are local for
-    /// now).</summary>
+    /// server sets). A remote session gets the ones its client declared,
+    /// <see cref="SetClientActions" />.</summary>
     procedure SetActions(const AActions: IHelpChatActionInvoker);
     function GetActions: IHelpChatActionInvoker;
+    /// <summary>The actions a remote client declared for this session
+    /// (<c>POST /api/actions</c>): they become the actions of the session,
+    /// through a relay that sends each call back to the client, narrowed to
+    /// <c>AAllowed</c> (empty = all). An empty declaration takes them away.
+    /// False with the reason when the text cannot be read, or the session
+    /// ended.</summary>
+    function SetClientActions(const AToolsJson: string; const AAllowed: TArray<string>;
+      out AError: string): Boolean;
+    /// <summary>The relay of those actions; nil until a client declared
+    /// some. It lives as long as the session.</summary>
+    function ClientActions: THelpChatActionRelay;
     /// <summary>Where this client listens for the commands of its page, and with
     /// which secret; empty = the page talks to the server it came from.</summary>
     procedure SetUiEndpoint(const ABase, AToken: string);
@@ -298,6 +311,10 @@ type
     /// <summary>True when there is a host in this process that can print a
     /// document and ask the user where to put it.</summary>
     function HasPdfHost: Boolean; virtual;
+    /// <summary>Whether a client may declare actions of its own to its
+    /// session (<c>POST /api/actions</c>). False here: the host of a local
+    /// server hands its broker over directly.</summary>
+    function AcceptsClientActions: Boolean; virtual;
     /// <summary>The longest body the request for <c>AUri</c> may have:
     /// <c>HELPCHAT_SERVER_MAX_BODY_BYTES</c>, or the size of an attachment
     /// plus a margin for the endpoint that takes one.</summary>
@@ -533,8 +550,61 @@ begin
 end;
 
 procedure THelpChatServerSession.MarkEnded;
+var
+  LRelay: THelpChatActionRelay;
 begin
-  FEnded := True;
+  FLock.Enter;
+  try
+    FEnded := True;
+    LRelay := FRelay;
+  finally
+    FLock.Leave;
+  end;
+  // A reply still running must not wait for a client that left.
+  if Assigned(LRelay) then
+    LRelay.Close;
+end;
+
+function THelpChatServerSession.SetClientActions(const AToolsJson: string;
+  const AAllowed: TArray<string>; out AError: string): Boolean;
+var
+  LRelay: THelpChatActionRelay;
+  LRef: IHelpChatActionInvoker;
+begin
+  FLock.Enter;
+  try
+    if FEnded then
+    begin
+      AError := 'the session ended';
+      Exit(False);
+    end;
+    if not Assigned(FRelay) then
+    begin
+      FRelay := THelpChatActionRelay.Create;
+      FRelayRef := FRelay;
+    end;
+    LRelay := FRelay;
+    LRef := FRelayRef;
+  finally
+    FLock.Leave;
+  end;
+  LRelay.Allowed := AAllowed;
+  Result := LRelay.SetTools(AToolsJson, AError);
+  if Result then
+    if LRelay.HasActions then
+      SetActions(LRef)
+    else
+      SetActions(nil);
+end;
+
+function THelpChatServerSession.ClientActions: THelpChatActionRelay;
+begin
+  FLock.Enter;
+  try
+    Result := FRelay;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 procedure THelpChatServerSession.Touch;
@@ -1134,6 +1204,8 @@ var
   LLanguage: THelpChatLanguage;
   LJson: TJSONObject;
   LEngine: THelpChatEngine;
+  LRelay: THelpChatActionRelay;
+  LOutcome: THelpChatActionOutcome;
 begin
   // The engine of this session: on a remote server, the one of its profile.
   LEngine := EngineOf(ASession);
@@ -1186,6 +1258,11 @@ begin
   else if ADocument.StartsWith(HELPCHAT_API_POLL) and not LIsPost then
   begin
     LId := ADocument.Substring(HELPCHAT_API_POLL.Length);
+    // The model called an action of this client: the page that polls is
+    // told, and tells its host.
+    LRelay := ASession.ClientActions;
+    if Assigned(LRelay) and LRelay.HasUndelivered then
+      AResponseInfo.CustomHeaders.Values[HELPCHAT_ACTIONS_HEADER] := '1';
     WriteHtml(AResponseInfo, LEngine.RenderMessageHtml(LKey, LId));
   end
 
@@ -1364,6 +1441,49 @@ begin
       WriteStatus(AResponseInfo, 404);
   end
 
+  else if (ADocument = HELPCHAT_API_ACTIONS) and LIsPost then
+  begin
+    // Not 403: that is what a client reads as "the session is gone".
+    if not AcceptsClientActions then
+      WriteStatus(AResponseInfo, 405)
+    else if ASession.SetClientActions(FormField(LBody, HELPCHAT_FIELD_ACTIONS_TOOLS),
+              LEngine.Settings.ResolveAllowedActions, LValue) then
+      WriteHtml(AResponseInfo, '')
+    else
+    begin
+      LJson := TJSONObject.Create;
+      try
+        LJson.AddPair('error', LValue);
+        AResponseInfo.ResponseNo := 400;
+        WriteJson(AResponseInfo, LJson.ToJSON);
+      finally
+        LJson.Free;
+      end;
+    end;
+  end
+
+  else if (ADocument = HELPCHAT_API_ACTIONS_PENDING) and not LIsPost then
+  begin
+    LRelay := ASession.ClientActions;
+    if Assigned(LRelay) then
+      WriteJson(AResponseInfo, LRelay.TakeCallsJson)
+    else
+      WriteJson(AResponseInfo, '{"calls":[]}');
+  end
+
+  else if (ADocument = HELPCHAT_API_ACTIONS_RESULT) and LIsPost then
+  begin
+    LRelay := ASession.ClientActions;
+    if not HelpChatActionOutcomeFromName(FormField(LBody, 'outcome'), LOutcome) then
+      WriteStatus(AResponseInfo, 400)
+    else if Assigned(LRelay) and LRelay.Complete(FormField(LBody, 'id'), LOutcome,
+              FormField(LBody, 'result')) then
+      WriteHtml(AResponseInfo, '')
+    else
+      // Nobody waits for it any more: it timed out or the reply was stopped.
+      WriteStatus(AResponseInfo, 410);
+  end
+
   else if ADocument.StartsWith(HELPCHAT_API_UI) and LIsPost then
   begin
     LId := ADocument.Substring(HELPCHAT_API_UI.Length).Trim(['/']).ToLower;
@@ -1375,6 +1495,11 @@ begin
 
   else
     WriteStatus(AResponseInfo, 404);
+end;
+
+function THelpChatHttpServerBase.AcceptsClientActions: Boolean;
+begin
+  Result := False;
 end;
 
 function THelpChatHttpServerBase.CanSelectModel(const AEngine: THelpChatEngine): Boolean;

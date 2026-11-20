@@ -7,6 +7,7 @@ uses
   FireDAC.VCLUI.Wait,
   uDataMod in '..\..\common\uDataMod.pas' {DM: TDataModule},
   uProposalReport in '..\..\common\uProposalReport.pas',
+  uCRMActions in '..\..\common\uCRMActions.pas',
   uAppSecret in '..\..\common\uAppSecret.pas',
   uLicenseActivation in '..\source\uLicenseActivation.pas' {LicenseActivationForm},
   uMainForm in '..\source\uMainForm.pas' {MainForm},

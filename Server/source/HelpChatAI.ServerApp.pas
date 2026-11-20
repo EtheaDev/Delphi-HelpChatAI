@@ -253,6 +253,7 @@ begin
   try
     FServer.Port := LRoot.GetValue<Integer>('Port', FServer.Port);
     FServer.BindIP := LRoot.GetValue<string>('BindIP', FServer.BindIP);
+    FServer.ClientActions := LRoot.GetValue<Boolean>('ClientActions', FServer.ClientActions);
     if LRoot.TryGetValue<TJSONArray>('Keys', LKeys) then
       for LKey in LKeys do
         if Trim(LKey.Value) <> '' then
@@ -289,6 +290,7 @@ begin
   try
     LRoot.AddPair('Port', TJSONNumber.Create(HELPCHAT_REMOTE_DEF_PORT));
     LRoot.AddPair('BindIP', '0.0.0.0');
+    LRoot.AddPair('ClientActions', TJSONBool.Create(True));
     LKeys := TJSONArray.Create;
     LKeys.Add('change-this-key');
     LRoot.AddPair('Keys', LKeys);

@@ -274,7 +274,8 @@ begin
   LSettings := THelpChatSettings.Create;
   try
     LRule := LSettings.ResolveLanguageRule(hclItalian);
-    Assert.AreEqual('The language of this chat is Italian. Reply in Italian.', LRule);
+    Assert.AreEqual('The language of this chat is Italian. Reply in Italian, even when the ' +
+      'user writes in another language.', LRule);
   finally
     LSettings.Free;
   end;

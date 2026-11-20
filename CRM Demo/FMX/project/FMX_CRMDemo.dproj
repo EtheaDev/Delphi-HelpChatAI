@@ -132,6 +132,7 @@
             <DesignClass>TDataModule</DesignClass>
         </DCCReference>
         <DCCReference Include="..\..\common\uProposalReport.pas"/>
+        <DCCReference Include="..\..\common\uCRMActions.pas"/>
         <DCCReference Include="..\..\common\uAppSecret.pas"/>
         <DCCReference Include="..\source\uLicenseActivationFmx.pas">
             <Form>LicenseActivationFormFmx</Form>
