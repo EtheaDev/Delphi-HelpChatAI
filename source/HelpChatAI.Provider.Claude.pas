@@ -303,7 +303,8 @@ type
     /// the localized "HTTP status" sentence in the language of
     /// <c>ASettings</c> (which may be nil). Never raises.</summary>
     class function ExtractApiError(const ARaw: string; const AStatus: Integer;
-      const AStatusText: string; const ASettings: THelpChatSettings): string; static;
+      const AStatusText: string; const ASettings: THelpChatSettings;
+      const AUrl: string = ''): string; static;
   end;
 
 implementation
@@ -965,11 +966,11 @@ begin
 end;
 
 class function THelpChatClaudeProvider.ExtractApiError(const ARaw: string;
-  const AStatus: Integer; const AStatusText: string; const ASettings: THelpChatSettings): string;
+  const AStatus: Integer; const AStatusText: string; const ASettings: THelpChatSettings;
+  const AUrl: string): string;
 var
   LValue: TJSONValue;
   LErr: TJSONObject;
-  LLang: THelpChatLanguage;
 begin
   Result := '';
   if Trim(ARaw) <> '' then
@@ -992,13 +993,7 @@ begin
       end;
   end;
   if Result = '' then
-  begin
-    if Assigned(ASettings) then
-      LLang := ASettings.Language
-    else
-      LLang := hclAuto;
-    Result := HelpChatMsgFmt(hcmApiError, [HelpChatServiceName(ASettings, 'claude'), AStatus, AStatusText], LLang);
-  end;
+    Result := HelpChatApiErrorText(ASettings, 'claude', AStatus, AStatusText, AUrl);
 end;
 
 function THelpChatClaudeProvider.PostRound(const ABody: string;
@@ -1057,7 +1052,7 @@ begin
       // redirect is an error too: it was not followed.
       if LResponse.StatusCode >= 300 then
         raise EHelpChatError.Create(ExtractApiError(Result.Raw, LResponse.StatusCode,
-          LResponse.StatusText, Settings));
+          LResponse.StatusText, Settings, LUrl));
       if Result.Error <> '' then
         raise EHelpChatClaudeStreamError.Create(Result.Error);
     except

@@ -625,6 +625,14 @@ begin
       THelpChatClaudeProvider.ExtractApiError('<html>oops</html>', 500, 'Server Error', LSettings));
     Assert.AreEqual('Errore API Claude (HTTP 503 Busy).',
       THelpChatClaudeProvider.ExtractApiError('', 503, 'Busy', LSettings));
+    // With the address called: the provider that answered, the endpoint of
+    // another service and the model asked for, all in one sentence (#6).
+    Assert.AreEqual('Errore API Claude (HTTP 404 Not Found) da ' +
+      'https://generativelanguage.googleapis.com/v1beta/v1/messages, modello ' +
+      LSettings.Claude.ResolveModel + '.',
+      THelpChatClaudeProvider.ExtractApiError('', 404, 'Not Found', LSettings,
+        'https://generativelanguage.googleapis.com/v1beta/v1/messages?alt=sse'),
+      'the query is left out');
   finally
     LSettings.Free;
   end;

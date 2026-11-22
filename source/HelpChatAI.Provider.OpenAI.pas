@@ -336,7 +336,8 @@ type
     /// the localized "HTTP status" sentence in the language of
     /// <c>ASettings</c> (which may be nil). Never raises.</summary>
     class function ExtractApiError(const ARaw: string; const AStatus: Integer;
-      const AStatusText: string; const ASettings: THelpChatSettings): string; static;
+      const AStatusText: string; const ASettings: THelpChatSettings;
+      const AUrl: string = ''): string; static;
   end;
 
 /// <summary>True when AUrl names this machine (<c>localhost</c>, 127.x,
@@ -1231,10 +1232,10 @@ begin
 end;
 
 class function THelpChatOpenAIProvider.ExtractApiError(const ARaw: string;
-  const AStatus: Integer; const AStatusText: string; const ASettings: THelpChatSettings): string;
+  const AStatus: Integer; const AStatusText: string; const ASettings: THelpChatSettings;
+  const AUrl: string): string;
 var
   LValue: TJSONValue;
-  LLang: THelpChatLanguage;
 begin
   Result := '';
   if Trim(ARaw) <> '' then
@@ -1255,13 +1256,7 @@ begin
       end;
   end;
   if Result = '' then
-  begin
-    if Assigned(ASettings) then
-      LLang := ASettings.Language
-    else
-      LLang := hclAuto;
-    Result := HelpChatMsgFmt(hcmApiError, [HelpChatServiceName(ASettings, 'openai'), AStatus, AStatusText], LLang);
-  end;
+    Result := HelpChatApiErrorText(ASettings, 'openai', AStatus, AStatusText, AUrl);
 end;
 
 procedure THelpChatOpenAIProvider.Post(const ABody, AUrl: string;
@@ -1319,7 +1314,7 @@ begin
     // A redirect is an error too: it was not followed.
     if LResponse.StatusCode >= 300 then
       raise EHelpChatError.Create(ExtractApiError(AStream.Raw, LResponse.StatusCode,
-        LResponse.StatusText, Settings));
+        LResponse.StatusText, Settings, AUrl));
     if AStream.Error <> '' then
       raise EHelpChatError.Create(AStream.Error);
   finally

@@ -69,6 +69,7 @@ uses
   System.Classes,
   System.SyncObjs,
   System.Generics.Collections,
+  System.JSON,
   HelpChatAI.Types,
   HelpChatAI.Messages;
 
@@ -106,8 +107,12 @@ const
     'Call it again with the complete arguments.';
 
 type
-  /// <summary>Type of a parameter, as declared to the model.</summary>
-  THelpChatActionParamKind = (apkString, apkInteger, apkNumber, apkBoolean);
+  /// <summary>Type of a parameter, as declared to the model. An object or an
+  /// array reaches the handler as its JSON text (<c>AsString</c>,
+  /// <c>AsJson</c>); <see cref="THelpChatActionParam.Schema" /> may say what
+  /// is inside it.</summary>
+  THelpChatActionParamKind = (apkString, apkInteger, apkNumber, apkBoolean,
+    apkObject, apkArray);
 
   /// <summary>One parameter of an action, as the model is told about it:
   /// the description is all the model knows of it, and its first words are
@@ -121,10 +126,24 @@ type
     Kind: THelpChatActionParamKind;
     /// <summary>False for a parameter the model may leave out.</summary>
     Required: Boolean;
+    /// <summary>Optional: the JSON Schema of the parameter, as text - the
+    /// properties of an object, the items of an array, an enum. When it is
+    /// one JSON object it is declared to the model in place of the bare type
+    /// (the description is added unless it has one); empty, or not an
+    /// object, and the type of <c>Kind</c> is declared as before. Keep to
+    /// what every provider takes: type, description, properties, required,
+    /// items, enum.</summary>
+    Schema: string;
     /// <summary>A parameter, a required string unless said otherwise.</summary>
     class function Create(const AName, ADescription: string;
       const AKind: THelpChatActionParamKind = apkString;
-      const ARequired: Boolean = True): THelpChatActionParam; static;
+      const ARequired: Boolean = True): THelpChatActionParam; overload; static;
+    /// <summary>A parameter with a JSON Schema of its own
+    /// (<see cref="Schema" />): an object whose fields the model is told,
+    /// an array of them.</summary>
+    class function Create(const AName, ADescription: string;
+      const AKind: THelpChatActionParamKind; const ASchema: string;
+      const ARequired: Boolean = True): THelpChatActionParam; overload; static;
   end;
 
   THelpChatAction = class;
@@ -156,6 +175,10 @@ type
     /// <summary>true/1/yes or false/0/no, case apart; ADefault for anything
     /// else.</summary>
     function AsBoolean(const AName: string; const ADefault: Boolean = False): Boolean;
+    /// <summary>The value parsed as JSON: the object or the array the model
+    /// sent, or one it sent as a string holding it (models do both); nil
+    /// when missing or not JSON. The caller frees it.</summary>
+    function AsJson(const AName: string): TJSONValue;
     /// <summary>Names actually received.</summary>
     function Names: TArray<string>;
     /// <summary>"name=value, name=value", on one line, for a log or a status
@@ -633,7 +656,6 @@ function HelpChatActionArgsAreWhole(const AArgsJson: string): Boolean;
 implementation
 
 uses
-  System.JSON,
   System.DateUtils,
   System.Diagnostics;
 
@@ -732,6 +754,8 @@ begin
     apkInteger: Result := 'integer';
     apkNumber:  Result := 'number';
     apkBoolean: Result := 'boolean';
+    apkObject:  Result := 'object';
+    apkArray:   Result := 'array';
   else
     Result := 'string';
   end;
@@ -746,6 +770,15 @@ begin
   Result.Description := ADescription;
   Result.Kind := AKind;
   Result.Required := ARequired;
+  Result.Schema := '';
+end;
+
+class function THelpChatActionParam.Create(const AName, ADescription: string;
+  const AKind: THelpChatActionParamKind; const ASchema: string;
+  const ARequired: Boolean): THelpChatActionParam;
+begin
+  Result := Create(AName, ADescription, AKind, ARequired);
+  Result.Schema := ASchema;
 end;
 
 { THelpChatActionArgs }
@@ -775,7 +808,11 @@ begin
         // A null is a parameter left out - models write one for every
         // optional parameter they do not use - and its Value is the text
         // 'null', which an action would have read as data.
-        if not (LPair.JsonValue is TJSONNull) then
+        // An object or an array is kept as its JSON text: its Value is empty,
+        // and the action would have read nothing at all.
+        if (LPair.JsonValue is TJSONObject) or (LPair.JsonValue is TJSONArray) then
+          FValues.AddOrSetValue(LPair.JsonString.Value.ToLower, LPair.JsonValue.ToJSON)
+        else if not (LPair.JsonValue is TJSONNull) then
           FValues.AddOrSetValue(LPair.JsonString.Value.ToLower, LPair.JsonValue.Value);
   finally
     LValue.Free;
@@ -808,7 +845,7 @@ begin
   if TryStrToInt(LText, Result) then
     Exit;
   // 3.0 and 1e2 are whole numbers too, and some models write them so.
-  if TryStrToFloat(LText, LFloat, TFormatSettings.Invariant) and (Frac(LFloat) = 0) and
+  if TryStrToFloat(LText, LFloat, HelpChatInvariantFormat) and (Frac(LFloat) = 0) and
      (Abs(LFloat) <= MaxInt) then
     Result := Trunc(LFloat)
   else
@@ -820,7 +857,7 @@ var
   LText: string;
 begin
   LText := Trim(AsString(AName)).Replace(',', '.');
-  Result := StrToFloatDef(LText, ADefault, TFormatSettings.Invariant);
+  Result := StrToFloatDef(LText, ADefault, HelpChatInvariantFormat);
 end;
 
 function THelpChatActionArgs.AsBoolean(const AName: string; const ADefault: Boolean): Boolean;
@@ -834,6 +871,21 @@ begin
     Result := False
   else
     Result := ADefault;
+end;
+
+function THelpChatActionArgs.AsJson(const AName: string): TJSONValue;
+var
+  LText: string;
+begin
+  Result := nil;
+  LText := Trim(AsString(AName));
+  if (LText = '') or not CharInSet(LText[1], ['{', '[']) then
+    Exit;
+  try
+    Result := TJSONObject.ParseJSONValue(LText);
+  except
+    Result := nil; // a string that only looks like JSON: no value, no exception
+  end;
 end;
 
 function THelpChatActionArgs.Names: TArray<string>;
@@ -998,6 +1050,7 @@ end;
 function THelpChatAction.ToToolJson: string;
 var
   LRoot, LSchema, LProperties, LParam: TJSONObject;
+  LCustom: TJSONValue;
   LRequired: TJSONArray;
   I: Integer;
 begin
@@ -1013,9 +1066,24 @@ begin
     LRequired := TJSONArray.Create;
     for I := Low(FParams) to High(FParams) do
     begin
-      LParam := TJSONObject.Create;
-      LParam.AddPair('type', ParamKindName(FParams[I].Kind));
-      LParam.AddPair('description', FParams[I].Description);
+      LParam := nil;
+      if Trim(FParams[I].Schema) <> '' then
+      begin
+        LCustom := TJSONObject.ParseJSONValue(FParams[I].Schema);
+        if LCustom is TJSONObject then
+          LParam := TJSONObject(LCustom)
+        else
+          LCustom.Free; // not an object: the bare type, as without a schema
+      end;
+      if LParam = nil then
+      begin
+        LParam := TJSONObject.Create;
+        LParam.AddPair('type', ParamKindName(FParams[I].Kind));
+      end
+      else if LParam.GetValue('type') = nil then
+        LParam.AddPair('type', ParamKindName(FParams[I].Kind));
+      if LParam.GetValue('description') = nil then
+        LParam.AddPair('description', FParams[I].Description);
       LProperties.AddPair(FParams[I].Name, LParam);
       if FParams[I].Required then
         LRequired.Add(FParams[I].Name);

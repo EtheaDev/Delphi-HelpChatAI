@@ -15,6 +15,7 @@ type
     [Test] procedure Config_HasTokenAndLabels;
     [Test] procedure Page_IsComplete_NoPlaceholdersLeft;
     [Test] procedure Page_EscapesLabels;
+    [Test] procedure ContextLine_TopOrBottom_AndSettingsInJson;
     [Test] procedure Page_ThemeIsInjectedAfterTheStylesheet;
     [Test] procedure Assistant_EmptyNameFollowsTheLanguage;
     [Test] procedure Page_CarriesTheAssistantNameAndIcon;
@@ -26,6 +27,8 @@ implementation
 uses
   System.SysUtils,
   System.JSON,
+  HelpChatAI.Types,
+  HelpChatAI.Settings,
   HelpChatAI.Messages,
   HelpChatAI.Theme;
 
@@ -120,6 +123,45 @@ begin
   Assert.Contains(LPage, 'hx-post="https://help.example.com/chat/api/send"');
   Assert.Contains(LPage, '"apiBase":"https://help.example.com/chat"');
   Assert.Contains(LPage, 'placeholder="Ask a question about the application..."');
+end;
+
+procedure TPanelTests.ContextLine_TopOrBottom_AndSettingsInJson;
+var
+  LPage, LTop, LBottom: string;
+  LContext: THelpChatContext;
+  LSettings: THelpChatSettings;
+begin
+  LPage := THelpChatPanel.RenderPage(THelpChatPanelOptions.Default);
+  Assert.Contains(LPage, '<div id="hc-context" class="hc-chat-context" hidden></div>',
+    'the page carries the line, hidden');
+  LContext := Default(THelpChatContext);
+  LContext.ScreenLabel := 'Leads <1>';
+  LContext.ScreenType := 'TMainForm';
+  Assert.AreEqual(LPage, THelpChatPanel.WithContextLine(LPage, cpHide, LContext));
+  // Above the question box: in the footer, before the form.
+  LBottom := THelpChatPanel.WithContextLine(LPage, cpShowBottom, LContext);
+  Assert.Contains(LBottom, '>Leads &lt;1&gt; · TMainForm</div>', 'escaped');
+  Assert.IsTrue(LBottom.IndexOf('Leads &lt;1&gt;') > LBottom.IndexOf('hc-chat-footer'));
+  // Under the header: before the conversation, and gone from the footer.
+  LTop := THelpChatPanel.WithContextLine(LPage, cpShowTop, LContext);
+  Assert.Contains(LTop, 'hc-chat-context hc-chat-context-top');
+  Assert.IsTrue(LTop.IndexOf('Leads &lt;1&gt;') < LTop.IndexOf('<main id="hc-body"'));
+  Assert.IsFalse(LTop.Contains('<div id="hc-context" class="hc-chat-context" hidden></div>'),
+    'moved, not copied');
+  Assert.AreEqual(LTop.IndexOf('id="hc-context"'), LTop.LastIndexOf('id="hc-context"'),
+    'one line only');
+  // The setting, as a configuration file writes it.
+  LSettings := THelpChatSettings.Create;
+  try
+    Assert.AreEqual(Ord(cpHide), Ord(LSettings.ShowContext));
+    LSettings.LoadFromJSON('{"ShowContext": "top"}');
+    Assert.AreEqual(Ord(cpShowTop), Ord(LSettings.ShowContext));
+    LSettings.LoadFromJSON('{"ShowContext": "cpShowBottom"}');
+    Assert.AreEqual(Ord(cpShowBottom), Ord(LSettings.ShowContext), 'the identifier too');
+    Assert.Contains(LSettings.SaveToJSON, '"ShowContext": "bottom"');
+  finally
+    LSettings.Free;
+  end;
 end;
 
 procedure TPanelTests.Assistant_EmptyNameFollowsTheLanguage;

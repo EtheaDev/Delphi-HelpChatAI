@@ -47,6 +47,9 @@
   <footer class="hc-chat-footer">
     <!-- What is attached to the next question; empty and hidden until then -->
     <div id="hc-attachments" class="hc-chat-attachments" hidden></div>
+    <!-- The screen context the next question carries: only when the host
+         shows it (ShowContext), window.hcShowContext(text, hint) -->
+    <div id="hc-context" class="hc-chat-context" hidden></div>
     <form id="hc-form" hx-post="{{API_BASE}}/api/send" hx-target="#hc-body" hx-swap="beforeend" autocomplete="off">
       <!-- Shown only when the engine accepts documents and the provider reads them -->
       <input type="file" id="hc-file" multiple hidden>

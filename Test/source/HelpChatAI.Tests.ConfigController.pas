@@ -113,6 +113,7 @@ uses
   System.IOUtils,
   System.JSON,
   HelpChatAI.Types,
+  HelpChatAI.Messages,
   HelpChatAI.Theme,
   HelpChatAI.Commands,
   HelpChatAI.Skills.Screen; // registers the four screen skills
@@ -347,10 +348,12 @@ begin
     Assert.AreEqual(IntToStr(HELPCHAT_MODEL_DEF_MAXTOKENS), LEntry.Value);
     LEntry := EntryOf(LEntries, 'Languages');
     Assert.AreEqual(Ord(cvkLanguages), Ord(LEntry.Kind));
-    Assert.AreEqual(6, Length(LEntry.Choices), 'one tick per language');
+    Assert.AreEqual(Integer(Length(HelpChatLanguageList(HELPCHAT_ALL_LANGUAGES))),
+      Integer(Length(LEntry.Choices)), 'one tick per language');
     LEntry := EntryOf(LEntries, 'Language');
     Assert.AreEqual('auto', LEntry.Choices[0]);
-    Assert.AreEqual(7, Length(LEntry.Choices), 'auto and the six languages');
+    Assert.AreEqual(Integer(Length(HelpChatLanguageList(HELPCHAT_ALL_LANGUAGES))) + 1,
+      Integer(Length(LEntry.Choices)), 'auto and every language');
     Assert.AreEqual(Ord(cvkChoice), Ord(EntryOf(LEntries, 'SelectedModel').Kind));
     Assert.AreEqual('Claude', EntryOf(LEntries, 'SelectedModel').Choices[0],
       'the models of the catalogue in force');
@@ -850,7 +853,7 @@ begin
     // Now goes with the question (claude), next to the excerpts.
     Assert.AreEqual('NowRule', LEntries[13].Path);
     Assert.AreEqual('Claude.GroundingMaxPages', LEntries[14].Path);
-    Assert.AreEqual('Gemini.GroundingMaxChars', LEntries[High(LEntries)].Path);
+    Assert.AreEqual('Gemini.GroundingExcerptWindow', LEntries[High(LEntries)].Path);
     // The other pages keep the order of the names.
     LEntries := THelpChatConfigController.EntriesOfPage(LController.Entries, ccpSettings);
     Assert.AreEqual('AllowedActions', LEntries[0].Path);

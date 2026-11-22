@@ -349,7 +349,8 @@ uses
   System.Types,
   System.JSON,
   System.NetEncoding,
-  System.IOUtils;
+  System.IOUtils,
+  HelpChatAI.Types;
 {$ENDIF}
 
 function HelpChatPdfFileName(const ATitle: string): string;
@@ -1337,7 +1338,7 @@ var
 begin
   // A band lives inside the margin, so the margin has to make room for it:
   // MarginTopMm stays what the text is given.
-  LFmt := TFormatSettings.Invariant;
+  LFmt := HelpChatInvariantFormat;
   LTop := FPage.MarginTopMm;
   if FPage.HeaderHtml.Trim <> '' then
     LTop := LTop + FPage.BandMm;

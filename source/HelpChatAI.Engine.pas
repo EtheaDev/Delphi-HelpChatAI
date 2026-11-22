@@ -464,6 +464,7 @@ begin
   FRetriever := FDocIndex; // keeps it alive
   FDocIndex.BaseUrl := FSettings.DocBaseUrl;
   FDocIndex.ExcerptMaxChars := FSettings.ActiveModel.GroundingMaxChars;
+  FDocIndex.ExcerptWindow := FSettings.ActiveModel.GroundingExcerptWindow;
   // The part of the manual this assistant is the expert of.
   FDocIndex.Areas := FSettings.ResolveDocAreas;
   LIndexFile := FSettings.ResolveDocIndexFile;
@@ -778,7 +779,7 @@ begin
       LRoot.AddPair('Language', FChosenLanguage);
     try
       TDirectory.CreateDirectory(TPath.GetDirectoryName(StateFile));
-      TFile.WriteAllText(StateFile, LRoot.Format(2), TEncoding.UTF8);
+      TFile.WriteAllText(StateFile, HelpChatJsonFormat(LRoot), TEncoding.UTF8);
     except
       // A read-only profile must not break the switch: it is just not remembered.
     end;
@@ -889,7 +890,10 @@ begin
   FSettings.Log(llInfo, lsInfo, lcEngine, Format('Model switched from %s to %s',
     [LPrevious, FSettings.ActiveModelName]));
   if Assigned(FDocIndex) then
+  begin
     FDocIndex.ExcerptMaxChars := FSettings.ActiveModel.GroundingMaxChars;
+    FDocIndex.ExcerptWindow := FSettings.ActiveModel.GroundingExcerptWindow;
+  end;
   FChosenModel := FSettings.ActiveModelName;
   SaveState;
 end;

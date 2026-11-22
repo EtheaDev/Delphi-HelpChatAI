@@ -11,13 +11,14 @@
     BuildAllPackages.ps1 builds them in the right order.
 
 .PARAMETER DelphiVersion
-    Delphi version: D10.4, D11, D12 or D13 (default: D13). The package
-    folders of this project are named Delphi10.4 ... Delphi13.
+    Delphi version: D10.2, D10.3, D10.4, D11, D12 or D13 (default: D13). The
+    package folders of this project are named Delphi10.2 ... Delphi13; 10.2
+    and 10.3 have the engine and the server only.
 
 .PARAMETER BDSRoot
     Root folder of RAD Studio installations.
     Default: C:\BDS\Studio
-    The script appends the version-specific subfolder (21.0 ... 37.0).
+    The script appends the version-specific subfolder (19.0 ... 37.0).
 
 .PARAMETER Platform
     Target platform: Win32 or Win64 (default: Win32). Design-time packages
@@ -42,7 +43,7 @@
 #>
 
 param(
-    [ValidateSet("D10.4", "D11", "D12", "D13")]
+    [ValidateSet("D10.2", "D10.3", "D10.4", "D11", "D12", "D13")]
     [string]$DelphiVersion = "D13",
 
     [string]$BDSRoot = "C:\BDS\Studio",
@@ -79,6 +80,8 @@ $ErrorActionPreference = "Stop"
 
 # Map Delphi version to BDS version subfolder
 $bdsVersionMap = @{
+    "D10.2" = "19.0"
+    "D10.3" = "20.0"
     "D10.4" = "21.0"
     "D11"   = "22.0"
     "D12"   = "23.0"

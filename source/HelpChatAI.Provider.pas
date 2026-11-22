@@ -519,6 +519,15 @@ type
 /// provider.</summary>
 function HelpChatServiceName(const ASettings: THelpChatSettings; const AProvider: string): string;
 
+/// <summary>The sentence of a refused request whose body carries no message
+/// of the service, in the language of <c>ASettings</c> (which may be nil):
+/// the service, the HTTP status and, when known, the address called -
+/// without its query - and the model asked for. "Claude API error (HTTP 404)
+/// from https://generativelanguage.googleapis.com/..." tells a provider
+/// pointed at the endpoint of another service.</summary>
+function HelpChatApiErrorText(const ASettings: THelpChatSettings; const AProvider: string;
+  const AStatus: Integer; const AStatusText, AUrl: string): string;
+
 var
   /// <summary>
   ///  A diagnostic hook: when assigned, the providers that read the usage of
@@ -638,7 +647,7 @@ begin
   else
     LSign := '+';
   Result := Format('%s (UTC%s%.2d:%.2d)', [FormatDateTime('dddd, d mmmm yyyy, hh:nn', Now,
-    TFormatSettings.Invariant), LSign, Abs(LOffset.Hours), Abs(LOffset.Minutes)]);
+    HelpChatInvariantFormat), LSign, Abs(LOffset.Hours), Abs(LOffset.Minutes)]);
 end;
 
 function HelpChatModelIsConfigured(const ASettings: THelpChatSettings;
@@ -776,6 +785,35 @@ begin
     LProvider := LClass.Create(nil, nil, nil);
     Result := LProvider.SupportsDocuments;
   end;
+end;
+
+function HelpChatApiErrorText(const ASettings: THelpChatSettings; const AProvider: string;
+  const AStatus: Integer; const AStatusText, AUrl: string): string;
+var
+  LLang: THelpChatLanguage;
+  LSection: THelpChatModelSettings;
+  LWhere, LModel: string;
+  P: Integer;
+begin
+  LLang := hclAuto;
+  LModel := '';
+  if Assigned(ASettings) then
+  begin
+    LLang := ASettings.Language;
+    LSection := ASettings.ModelFor(AProvider);
+    if LSection <> nil then
+      LModel := LSection.ResolveModel;
+  end;
+  LWhere := Trim(AUrl);
+  P := LWhere.IndexOf('?');
+  if P >= 0 then
+    LWhere := LWhere.Substring(0, P);
+  if (LWhere <> '') and (LModel <> '') then
+    Result := HelpChatMsgFmt(hcmApiErrorAt, [HelpChatServiceName(ASettings, AProvider),
+      AStatus, AStatusText, LWhere, LModel], LLang)
+  else
+    Result := HelpChatMsgFmt(hcmApiError, [HelpChatServiceName(ASettings, AProvider),
+      AStatus, AStatusText], LLang);
 end;
 
 function HelpChatServiceName(const ASettings: THelpChatSettings; const AProvider: string): string;

@@ -49,6 +49,10 @@ unit Vcl.HelpChatAI.Panel;
 
 {$I HelpChatAI.inc}
 
+{$IFNDEF D10_4+}
+  {$MESSAGE ERROR 'The HelpChat VCL components require Delphi 10.4 Sydney or later (the engine compiles from 10.2)'}
+{$ENDIF}
+
 interface
 
 uses

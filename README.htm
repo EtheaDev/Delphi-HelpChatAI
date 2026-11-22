@@ -332,8 +332,11 @@ packages and adds source paths.</p>
 <code>dclHelpChatAIFmx</code>, from Delphi 12), then add <code>source</code> and <code>Ext/MarkdownProcessor/source</code> to the library path.</li>
 </ul>
 <p><code>packages/BuildAllPackages.ps1</code> builds them from a command line, every installed version or
-the ones named with <code>-DelphiVersion D13,D12</code>; <code>BuildAllPackagesD13.ps1</code> (and D12, D11, D10.4)
-does one version.</p>
+the ones named with <code>-DelphiVersion D13,D12</code>; <code>BuildAllPackagesD13.ps1</code> (and D12, D11, D10.4,
+D10.3, D10.2) does one version.</p>
+<p>On Delphi 10.2 and 10.3 only the engine and the server can be used: <code>packages/Delphi10.2</code> and
+<code>packages/Delphi10.3</code> hold <code>HelpChatAI</code> and <code>HelpChatAIServer</code>, for an application that drives
+the engine from code - with a user interface of its own, or as a server.</p>
 <p>Ship <code>WebView2Loader.dll</code> (<code>Redist/WebView2/x86|x64</code>) next to your executable; the WebView2
 runtime itself is already part of Windows 11 and of every machine with Edge.</p>
 <h2 id="installation-with-dpm-delphi-package-manager">Installation with DPM (Delphi Package Manager)</h2>
@@ -351,9 +354,9 @@ runtime itself is already part of Windows 11 and of every machine with Edge.</p>
 </thead>
 <tbody>
 <tr>
-<td>Engine (RTL only)</td>
-<td>Delphi 10.4 Sydney → 13 Florence</td>
-<td>packages built with each compiler</td>
+<td>Engine (RTL only) and server</td>
+<td>Delphi 10.2 Tokyo → 13 Florence</td>
+<td>packages built with each compiler from 10.3 on; 10.2 is not verified</td>
 </tr>
 <tr>
 <td>VCL (<code>TEdgeBrowser</code>)</td>
@@ -369,7 +372,8 @@ runtime itself is already part of Windows 11 and of every machine with Edge.</p>
 </table>
 <p>FireMonkey compiles for macOS, iOS and Android, but only Windows has been tried so far.</p>
 <h2 id="packages">Packages</h2>
-<p>One folder per Delphi version, the same <code>.dpk</code> for all of them.</p>
+<p>One folder per Delphi version, the same <code>.dpk</code> for all of them from 10.4 on; 10.2 and 10.3 have
+only the two engine packages, with their own library suffix (<code>250</code>, <code>260</code>).</p>
 <table>
 <thead>
 <tr>
@@ -474,6 +478,19 @@ document - the last two of which write a real PDF with the WebView2 runtime of t
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>22 Nov 2026: ver. 2.2.0</p>
+<ul>
+<li>The screen context follows the user by itself while the panel is open: built at every idle turn (the focus, then <code>OnGetContext</code>) and given to the chat as soon as it changes, and built again before every question; on Windows through a thread hook, so an application that assigns <code>Application.OnIdle</code> does not switch it off (<code>AutoCaptureContext</code>)</li>
+<li><code>RefreshContext</code> on both components: tells the engine what the screen shows now, without opening the panel or moving the focus (#4)</li>
+<li><code>Settings.ShowContext</code>: the panel shows the context the next question carries, under the header or above the question box; on the Appearance page of the configuration editor, with its preview</li>
+<li>CRM demos: the start-up is queued with <code>TThread.ForceQueue</code> instead of taking <code>Application.OnIdle</code>, and the context line is on</li>
+<li>Panel: the question box goes back to one line when it is emptied (an empty box kept the height of a placeholder that wrapped)</li>
+<li>The engine and the server compile from Delphi 10.2 Tokyo (packages for 10.2 and 10.3, verified on 10.3); the components still need 10.4 (VCL) and 12 (FMX)</li>
+<li>Norwegian, Swedish and Danish (<code>no</code>, <code>sv</code>, <code>da</code>): every string translated and a flag each; not offered by default, <code>Languages</code> names them; <code>nb</code> is understood as <code>no</code></li>
+<li><code>GroundingExcerptWindow</code> in each model section: the characters kept around each term found in a long page, 600 as before; raise it to keep whole code samples (#5)</li>
+<li>Actions: <code>apkObject</code> and <code>apkArray</code> parameters, with a JSON Schema of their own, and <code>AsJson</code> to read them; an object no longer reads as an empty string (#8, a patch by drcrck)</li>
+<li>An API error without a message of the service names the address called and the model: a provider sent to the endpoint of another service shows at a glance (#6)</li>
+</ul>
 <p>20 Nov 2026: ver. 2.1.0</p>
 <ul>
 <li>Actions and skills with a remote engine: the application declares them to its session, the model on the server calls them, and each call comes back to run in the application - its main thread, its confirmation dialog - with only the outcome going to the server. Nothing changes in the code that registers them; it needs the host channel</li>

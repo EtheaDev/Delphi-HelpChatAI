@@ -24,6 +24,7 @@ type
     [Test] procedure Search_CommonWordDoesNotBuryTheRightPage;
     [Test] procedure Search_HintOutweighsAGenericQuestion;
     [Test] procedure Excerpt_WindowsAroundHits_WithinBudget;
+    [Test] procedure Excerpt_WiderWindow_KeepsTheWholeSample;
     [Test] procedure LoadFromJSON_KeywordsArrayOrString;
     [Test] procedure CountOccurrences;
     [Test] procedure Load_Fixture;
@@ -182,6 +183,27 @@ begin
   FIndex.ExcerptMaxChars := 0;
   LPages := FRetriever.Search('bande fisse', '', 1);
   Assert.AreEqual('', LPages[0].Excerpt);
+end;
+
+procedure TDocIndexTests.Excerpt_WiderWindow_KeepsTheWholeSample;
+var
+  LText: string;
+  LPages: TArray<THelpChatDocPage>;
+begin
+  // A long page with a code sample right after the term that found it: the
+  // default window cuts the sample half-way, a wider one keeps it whole.
+  LText := DupeString('Generic introduction text of the page. ', 100) +
+    'Xylograph example: ' + DupeString('LValue := LValue + 1; ', 35) + 'EndOfSample. ' +
+    DupeString('Closing text of no interest. ', 100);
+  FIndex.AddPage('Samples', 's.html', 'summary', LText);
+  FIndex.ExcerptMaxChars := 3000;
+  Assert.AreEqual(HELPCHAT_EXCERPT_WINDOW, FIndex.ExcerptWindow, 'the default');
+  LPages := FRetriever.Search('xylograph', '', 1);
+  Assert.Contains(LPages[0].Excerpt, 'Xylograph example');
+  Assert.DoesNotContain(LPages[0].Excerpt, 'EndOfSample', 'cut by 600 characters');
+  FIndex.ExcerptWindow := 2000;
+  LPages := FRetriever.Search('xylograph', '', 1);
+  Assert.Contains(LPages[0].Excerpt, 'EndOfSample', 'kept whole by 2000');
 end;
 
 procedure TDocIndexTests.LoadFromJSON_KeywordsArrayOrString;

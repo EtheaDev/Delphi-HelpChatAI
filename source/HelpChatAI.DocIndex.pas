@@ -78,7 +78,8 @@ const
   HELPCHAT_DEFAULT_MAX_PAGES = 3;
   /// <summary>Default size of the excerpt returned per page (characters).</summary>
   HELPCHAT_DEF_EXCERPT_MAX_CHARS = 2000;
-  /// <summary>Characters of context kept around each matching term.</summary>
+  /// <summary>Default characters of context kept around each matching term
+  /// (<c>ExcerptWindow</c>).</summary>
   HELPCHAT_EXCERPT_WINDOW = 600;
 
 type
@@ -129,6 +130,7 @@ type
     FLoadedFrom: string;
     FLastError: string;
     FExcerptMaxChars: Integer;
+    FExcerptWindow: Integer;
     FAreas: TArray<string>;
     FAreaFilter: string;
     procedure SetBaseUrl(const Value: string);
@@ -149,10 +151,11 @@ type
     function ScoreEntry(const AEntry: TScoredEntry; const ATokens: TArray<string>): Integer;
     /// <summary>The passages of a page around the first occurrence of each
     /// token, overlapping windows merged, in the order of the page, within
-    /// <c>AMaxChars</c>. The whole text when it fits, its beginning when no
-    /// token is found in the body (a page that matched on its title).</summary>
+    /// <c>AMaxChars</c>, each window <c>AWindow</c> characters around its
+    /// token. The whole text when it fits, its beginning when no token is
+    /// found in the body (a page that matched on its title).</summary>
     function BuildExcerpt(const AEntry: TScoredEntry; const ATokens: TArray<string>;
-      const AMaxChars: Integer): string;
+      const AMaxChars, AWindow: Integer): string;
   public
     constructor Create;
     destructor Destroy; override;
@@ -235,6 +238,11 @@ type
     /// ellipsis, so the model sees the passage that answers rather than the
     /// beginning of a long page.</summary>
     property ExcerptMaxChars: Integer read FExcerptMaxChars write FExcerptMaxChars;
+    /// <summary>Characters of text kept around each matching term when a page
+    /// is longer than <c>ExcerptMaxChars</c>: half before it, half after.
+    /// Larger keeps a whole code sample, smaller fits more passages; 0 or
+    /// less means <c>HELPCHAT_EXCERPT_WINDOW</c>.</summary>
+    property ExcerptWindow: Integer read FExcerptWindow write FExcerptWindow;
     /// <summary>The areas of the manual this index answers from: a page
     /// belongs to the areas its entry names (<c>"areas"</c>, written by the
     /// index builder from the sub-folder or the front matter), and a page of
@@ -285,6 +293,7 @@ begin
   inherited Create;
   FLock := TCriticalSection.Create;
   FExcerptMaxChars := HELPCHAT_DEF_EXCERPT_MAX_CHARS;
+  FExcerptWindow := HELPCHAT_EXCERPT_WINDOW;
 end;
 
 destructor THelpChatDocIndex.Destroy;
@@ -403,7 +412,7 @@ begin
 end;
 
 function THelpChatDocIndex.BuildExcerpt(const AEntry: TScoredEntry;
-  const ATokens: TArray<string>; const AMaxChars: Integer): string;
+  const ATokens: TArray<string>; const AMaxChars, AWindow: Integer): string;
 type
   TWindow = record
     Start, Stop: Integer; // 0-based, Stop exclusive
@@ -425,7 +434,10 @@ begin
     Exit(AEntry.Text);
   // ToLower keeps the length for the alphabets we care about, so offsets found
   // in LText address Text; every access is bounds-checked anyway.
-  LHalf := HELPCHAT_EXCERPT_WINDOW div 2;
+  if AWindow > 0 then
+    LHalf := AWindow div 2
+  else
+    LHalf := HELPCHAT_EXCERPT_WINDOW div 2;
   LWindows := TList<TWindow>.Create;
   try
     for LToken in ATokens do
@@ -800,7 +812,8 @@ var
   LScores: TArray<Integer>;
   LRanking: TArray<Double>;
   LUsed: TArray<Boolean>;
-  LMax, LBestIdx, I, J, T, LDf, LTitleHits, LKeywordHits, LBodyHits, LExcerptChars: Integer;
+  LMax, LBestIdx, I, J, T, LDf, LTitleHits, LKeywordHits, LBodyHits, LExcerptChars,
+    LExcerptWindow: Integer;
   LBestRank, LIdf, LWeight: Double;
   LPages: TList<THelpChatDocPage>;
   LPage: THelpChatDocPage;
@@ -813,6 +826,7 @@ begin
     LEntries := VisibleEntries;
     LBase := FBaseUrl;
     LExcerptChars := FExcerptMaxChars;
+    LExcerptWindow := FExcerptWindow;
   finally
     FLock.Leave;
   end;
@@ -891,7 +905,8 @@ begin
       LPage.Title := LEntries[LBestIdx].Title;
       LPage.Url := HelpChatJoinUrl(LBase, LEntries[LBestIdx].Url);
       LPage.Summary := LEntries[LBestIdx].Summary;
-      LPage.Excerpt := BuildExcerpt(LEntries[LBestIdx], LTokens, LExcerptChars);
+      LPage.Excerpt := BuildExcerpt(LEntries[LBestIdx], LTokens, LExcerptChars,
+        LExcerptWindow);
       LPage.Score := LScores[LBestIdx];
       LPages.Add(LPage);
     end;

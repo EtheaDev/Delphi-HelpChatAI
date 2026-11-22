@@ -1,12 +1,12 @@
 ﻿{******************************************************************************}
 {                                                                              }
-{       HelpChatAI: an in-app AI Help Chat component for Delphi (VCL and FMX)    }
-{       Design-time package: registers TVclHelpChatAI in the palette.            }
+{       HelpChatAI: an in-app AI Help Chat component for Delphi (VCL and FMX)  }
+{       Design-time package: registers TVclHelpChatAI in the palette.          }
 {                                                                              }
 {       Copyright (c) 2026 (Ethea S.r.l.)                                      }
 {       Author: Carlo Barazzetta                                               }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {       Licensed under the Apache License, Version 2.0                         }
 {                                                                              }

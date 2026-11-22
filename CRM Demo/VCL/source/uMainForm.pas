@@ -241,8 +241,12 @@ type
     // The activation window is open: another change of model does not open
     // a second one.
     FAskingKey: Boolean;
-    FRanOnce: Boolean;
-    procedure AppIdle(Sender: TObject; var Done: Boolean);
+    // StartUp ran: the database is there.
+    FStarted: Boolean;
+    /// <summary>What needs the application running (the database, the
+    /// assistant): queued from FormCreate, it runs when the message loop
+    /// starts.</summary>
+    procedure StartUp;
     procedure UpdateNavButtons;
     /// <summary>What the assistant may do in this application, and nothing
     /// else: each action declares name, description and parameters, and the
@@ -496,7 +500,8 @@ begin
   // application the active page is always the right answer - but only on
   // this window: when the user is working on the lead or on the proposal,
   // the component already chose that one (ScreenType), even with the chat
-  // in front.
+  // in front. While the chat is open this runs at every idle turn, which is
+  // how a change of page shows in the chat at once: it must stay quick.
   if (AContext.ScreenType = ClassName) and (PageControl.ActivePage <> nil) then
   begin
     AContext.ScreenName := PageControl.ActivePage.Name;
@@ -995,46 +1000,43 @@ begin
   end;
 end;
 
-procedure TMainForm.AppIdle(Sender: TObject; var Done: Boolean);
+procedure TMainForm.StartUp;
 begin
-  if not FRanOnce then
-  begin
-    FRanOnce := True;
+  FStarted := True;
 
-    DM.InitializeDatabase;
+  DM.InitializeDatabase;
 
-    ScaleBoundGridColumns(Self);
-    ScaleBoundGridColumns(LeadsForm);
+  ScaleBoundGridColumns(Self);
+  ScaleBoundGridColumns(LeadsForm);
 
-    // The assistant: the index of the manual is in Help\help-index.json, the
-    // path in the DFM is relative to the executable. From here on F1 opens
-    // the chat on the page of the active screen (HelpKeyword of the tabs and
-    // of the windows) and the bubble at the bottom right opens it with the
-    // context of the window the user is on.
-    RegisterHelpActions;
-    HelpChatLogOpen('VCL_CRMDemo');
-    // What happens, never what the user writes: "LogLevel" in a
-    // helpchatai.json raises it (detail, debug) without recompiling.
-    HelpChat.Settings.LogLevel := llInfo;
-    HelpChat.OnLogEvent := HelpChatLog;
-    {$IFDEF MULTIAGENT}
-    ConfigureGeneralAssistant(HelpChat);
-    {$ENDIF}
-    HelpChat.Active := True;
-    {$IFDEF MULTIAGENT}
-    // The second assistant, on the lead window: after the first, whose
-    // provider, models, manual and key handler it copies.
-    CreateSalesAssistant(HelpChat, LeadsForm);
-    {$ENDIF}
-    AskForApiKeyIfMissing;
+  // The assistant: the index of the manual is in Help\help-index.json, the
+  // path in the DFM is relative to the executable. From here on F1 opens
+  // the chat on the page of the active screen (HelpKeyword of the tabs and
+  // of the windows) and the bubble at the bottom right opens it with the
+  // context of the window the user is on.
+  RegisterHelpActions;
+  HelpChatLogOpen('VCL_CRMDemo');
+  // What happens, never what the user writes: "LogLevel" in a
+  // helpchatai.json raises it (detail, debug) without recompiling.
+  HelpChat.Settings.LogLevel := llInfo;
+  HelpChat.OnLogEvent := HelpChatLog;
+  {$IFDEF MULTIAGENT}
+  ConfigureGeneralAssistant(HelpChat);
+  {$ENDIF}
+  HelpChat.Active := True;
+  {$IFDEF MULTIAGENT}
+  // The second assistant, on the lead window: after the first, whose
+  // provider, models, manual and key handler it copies.
+  CreateSalesAssistant(HelpChat, LeadsForm);
+  {$ENDIF}
+  AskForApiKeyIfMissing;
 
-    DashboardButton.SetFocus;
-  end;
+  DashboardButton.SetFocus;
 end;
 
 procedure TMainForm.FormActivate(Sender: TObject);
 begin
-  if FRanOnce then
+  if FStarted then
   begin
     if LeadsBindSourceDB.DataSet.State = TDataSetState.dsEdit then
       LeadsBindSourceDB.DataSet.Post;
@@ -1048,7 +1050,10 @@ var
   LWork: TRect;
   LWidth, LHeight: Integer;
 begin
-  Application.OnIdle := AppIdle;
+  // Once the message loop runs: queued, not Application.OnIdle, which is one
+  // slot for the whole application and takes the idle away from every
+  // TApplicationEvents.
+  TThread.ForceQueue(nil, StartUp);
   // Maximized here, after the restored bounds are centred on the work area:
   // the default position cascades, so after a few starts "Restore" put the
   // window past the right edge, and poScreenCenter does nothing to a form

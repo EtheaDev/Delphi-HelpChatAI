@@ -215,10 +215,8 @@ type
     // The activation window is open: another switch of model does not open
     // a second one.
     FAskingKey: Boolean;
-    FStarted: Boolean;
     procedure SetMenuCompact(ACompact: Boolean);
     procedure ApplyDarkStyle;
-    procedure AppIdle(Sender: TObject; var Done: Boolean);
     procedure StartUp;
     procedure RegisterHelpActions;
     /// <summary>Last resort: the model the assistant is about to use needs a
@@ -296,23 +294,15 @@ begin
   ThemeCombo.ItemIndex := 2;
   ThemeComboChange(ThemeCombo);
   // The database is created on first use, so the application has to be
-  // running before any of this works - same as the VCL demo.
-  Application.OnIdle := AppIdle;
-end;
-
-procedure TMainFormFmx.AppIdle(Sender: TObject; var Done: Boolean);
-begin
-  StartUp;
+  // running before any of this works - same as the VCL demo. Queued, not
+  // Application.OnIdle, which belongs to the whole application.
+  TThread.ForceQueue(nil, StartUp);
 end;
 
 procedure TMainFormFmx.StartUp;
 var
   LDataSet: TDataSet;
 begin
-  if FStarted then
-    Exit;
-  FStarted := True;
-
   DM.InitializeDatabase;
 
   // Open, like the side menu of the VCL demo.
@@ -593,6 +583,8 @@ begin
   // unit carries the keyword as a constant and this is where it is read.
   // The form is the one the component chose (ScreenType), not
   // Screen.ActiveForm: with the chat in front, that is the chat's window.
+  // While the chat is open this runs at every idle turn, which is how a
+  // change of page shows in the chat at once: it must stay quick.
   if AContext.ScreenType = TLeadsFormFmx.ClassName then
   begin
     AContext.ScreenName := 'LeadDetail';

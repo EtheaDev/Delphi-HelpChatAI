@@ -271,6 +271,7 @@ type
     /// <c>/api/pdf</c>, since the document would be built where there is no
     /// screen to save it from.</summary>
     procedure SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
+    procedure SetContextSource(const ASource: THelpChatContextSource);
 
     /// <summary>True once a conversation is open on the server. It says what
     /// this side believes: a session the server expired or lost in a restart
@@ -375,7 +376,9 @@ begin
   try
     LClient.ConnectionTimeout := ATimeoutMs;
     LClient.ResponseTimeout := ATimeoutMs;
+    {$IFDEF D10_4+}   // THTTPClient.SendTimeout arrived in 10.4
     LClient.SendTimeout := ATimeoutMs;
+    {$ENDIF}
     LClient.HandleRedirects := False;
     LClient.CustomHeaders[HELPCHAT_KEY_HEADER] := AAppKey;
     if AToken <> '' then
@@ -1101,6 +1104,12 @@ end;
 function THelpChatRemoteTransport.GetEngine: THelpChatEngine;
 begin
   Result := nil;
+end;
+
+procedure THelpChatRemoteTransport.SetContextSource(const ASource: THelpChatContextSource);
+begin
+  // Ignored: the page posts the question to the server, which never asks
+  // the application. The context reaches it through SetContext only.
 end;
 
 procedure THelpChatRemoteTransport.SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);

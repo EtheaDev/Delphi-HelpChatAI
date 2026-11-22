@@ -3,7 +3,7 @@
 min dpm client version: 1.0.0
 metadata:
   id: EtheaDev.HelpChatAI
-  version: 2.1.0
+  version: 2.2.0
   description: 'In-app AI help assistant for VCL and FireMonkey applications: F1 opens a chat that answers from your own documentation, knows the screen the user is on and can run the actions of the application (Claude, OpenAI, Gemini or the offline docsearch provider).'
   authors:
     - Carlo Barazzetta
@@ -25,6 +25,21 @@ metadata:
 variables:
   packagesource: /packages/Delphi$compilermajornoprefix$
 targetPlatforms:
+  # Delphi 10.2 and 10.3: the engine and the server only (no VCL/FMX component)
+  - compiler: delphi10.2
+    platforms:
+      - win32
+      - win64
+    template: engine
+    variables:
+      packagesource: /packages/Delphi10.2
+  - compiler: delphi10.3
+    platforms:
+      - win32
+      - win64
+    template: engine
+    variables:
+      packagesource: /packages/Delphi10.3
   - compiler: delphi10.4
     platforms:
       - win32
@@ -110,3 +125,23 @@ templates:
         platforms: [Win32]
       - src: Redist/WebView2/x64/WebView2Loader.dll
         platforms: [Win64]
+  - name: engine
+    dependencies:
+      - id: EtheaDev.MarkdownProcessor
+        version: '[2.1.2,)'
+      - id: Indy.System
+        version: bundled
+      - id: Indy.Core
+        version: bundled
+      - id: Indy.Protocols
+        version: bundled
+    source:
+      - src: /source/*.pas
+      - src: /source/*.inc
+      - src: /source/*.res
+        copyToLib: true
+      - src: $packageSource$/*.dpk
+      - src: $packageSource$/*.dproj
+    build:
+      - project: $packageSource$/HelpChatAI.dproj
+      - project: $packageSource$/HelpChatAIServer.dproj

@@ -274,7 +274,7 @@ begin
   LTail := '';
   while (LUrl <> '') and CharInSet(LUrl[LUrl.Length], ['.', ',', ';', ':', '!', '?', ')', ']', #39, '"']) do
   begin
-    if (LUrl[LUrl.Length] = ')') and (LUrl.CountChar('(') >= LUrl.CountChar(')')) then
+    if (LUrl[LUrl.Length] = ')') and (HelpChatCountChar(LUrl, '(') >= HelpChatCountChar(LUrl, ')')) then
       Break;
     LTail := LUrl[LUrl.Length] + LTail;
     LUrl := LUrl.Substring(0, LUrl.Length - 1);

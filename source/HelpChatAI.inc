@@ -24,42 +24,31 @@
 {                                                                              }
 {******************************************************************************}
 
-// Compiler version defines. Supported: VCL from Delphi 10.4, FMX from Delphi 12.
+// Compiler version defines. Supported: the engine and the server from Delphi
+// 10.2 Tokyo, the VCL components from 10.4 Sydney, FMX from 12 Athens. The
+// components say so themselves (Vcl.HelpChatAI, Vcl.HelpChatAI.Panel,
+// FMX.HelpChatAI): the engine units must not, or an application of 10.2 or
+// 10.3 that uses only the engine could not build.
 
-// Delphi 10.4 Sydney
-{$IFDEF VER340}
+{$IF CompilerVersion >= 32}  // Delphi 10.2 Tokyo
+  {$DEFINE D10_2+}
+{$IFEND}
+{$IF CompilerVersion >= 33}  // Delphi 10.3 Rio
+  {$DEFINE D10_3+}
+{$IFEND}
+{$IF CompilerVersion >= 34}  // Delphi 10.4 Sydney
   {$DEFINE D10_4+}
-{$ENDIF}
-
-// Delphi 11 Alexandria
-{$IFDEF VER350}
-  {$DEFINE D10_4+}
+{$IFEND}
+{$IF CompilerVersion >= 35}  // Delphi 11 Alexandria
   {$DEFINE D11+}
-{$ENDIF}
-
-// Delphi 12 Athens
-{$IFDEF VER360}
-  {$DEFINE D10_4+}
-  {$DEFINE D11+}
+{$IFEND}
+{$IF CompilerVersion >= 36}  // Delphi 12 Athens
   {$DEFINE D12+}
-{$ENDIF}
-
-// Delphi 13 Florence
-{$IFDEF VER370}
-  {$DEFINE D10_4+}
-  {$DEFINE D11+}
-  {$DEFINE D12+}
-  {$DEFINE D13+}
-{$ENDIF}
-
-// Newer, unknown compiler: assume a superset of the latest supported version.
-{$IF CompilerVersion > 37}
-  {$DEFINE D10_4+}
-  {$DEFINE D11+}
-  {$DEFINE D12+}
+{$IFEND}
+{$IF CompilerVersion >= 37}  // Delphi 13 Florence
   {$DEFINE D13+}
 {$IFEND}
 
-{$IFNDEF D10_4+}
-  {$MESSAGE ERROR 'HelpChat requires Delphi 10.4 Sydney or later'}
+{$IFNDEF D10_2+}
+  {$MESSAGE ERROR 'The HelpChat engine requires Delphi 10.2 Tokyo or later'}
 {$ENDIF}

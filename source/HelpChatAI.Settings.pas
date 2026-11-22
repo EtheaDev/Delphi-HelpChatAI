@@ -77,6 +77,9 @@ const
   HELPCHAT_MODEL_DEF_MAXTOKENS = 4096;
   HELPCHAT_MODEL_DEF_GROUNDING = 3;
   HELPCHAT_MODEL_DEF_GROUNDING_CHARS = 2000;
+  /// <summary>Characters kept around each matching term of a long page: the
+  /// <c>HELPCHAT_EXCERPT_WINDOW</c> of <c>HelpChatAI.DocIndex</c>.</summary>
+  HELPCHAT_MODEL_DEF_GROUNDING_WINDOW = 600;
   HELPCHAT_MODEL_DEF_CONNECTTIMEOUTMS = 15000;
   HELPCHAT_MODEL_DEF_RESPONSETIMEOUTMS = 120000;
   /// <summary>Model call, actions, model call again: how many times at most.
@@ -310,6 +313,7 @@ type
     FMaxTokens: Integer;
     FGroundingMaxPages: Integer;
     FGroundingMaxChars: Integer;
+    FGroundingExcerptWindow: Integer;
     FBaseUrl: string;
     FConnectTimeoutMs: Integer;
     FResponseTimeoutMs: Integer;
@@ -416,6 +420,11 @@ type
     /// <summary>Characters of page text injected per page: the passages around
     /// the matching terms (0 = summary only).</summary>
     property GroundingMaxChars: Integer read FGroundingMaxChars write FGroundingMaxChars default HELPCHAT_MODEL_DEF_GROUNDING_CHARS;
+    /// <summary>Characters of text kept around each matching term when a page
+    /// is longer than <c>GroundingMaxChars</c>: larger keeps a whole code
+    /// sample, smaller fits more passages (0 = the default).</summary>
+    property GroundingExcerptWindow: Integer read FGroundingExcerptWindow
+      write FGroundingExcerptWindow default HELPCHAT_MODEL_DEF_GROUNDING_WINDOW;
     /// <summary>Empty = the default endpoint of this provider. This is the one
     /// setting that points a provider at another service altogether.</summary>
     property BaseUrl: string read FBaseUrl write FBaseUrl stored IsBaseUrlStored;
@@ -790,6 +799,7 @@ type
     FOnBuildSystemPrompt: THelpChatBuildPromptEvent;
     FPromptSender: TObject;
     FLogLevel: THelpChatLogLevel;
+    FShowContext: THelpChatContextPosition;
     FOnLog: THelpChatLogEvent;
     FLogSender: TObject;
     FLogKey: string;
@@ -1185,6 +1195,15 @@ type
     /// "debug": support can raise it in a configuration file.</summary>
     property LogLevel: THelpChatLogLevel read FLogLevel write FLogLevel
       default HELPCHAT_DEF_LOG_LEVEL;
+    /// <summary>Where the panel shows the screen context the next question
+    /// carries - label, form, focused control, keyword - updated whenever it
+    /// changes: on a line under the header (<c>cpShowTop</c>), above the
+    /// question box (<c>cpShowBottom</c>), or not at all (<c>cpHide</c>). A
+    /// developer's aid to see whether the application tells the chat where
+    /// the user is; in JSON "hide", "top", "bottom", so a configuration file
+    /// can turn it on without building the application again.</summary>
+    property ShowContext: THelpChatContextPosition read FShowContext write FShowContext
+      default cpHide;
     /// <summary>JSON documentation index for docsearch and Claude grounding.</summary>
     property DocIndexFile: string read FDocIndexFile write FDocIndexFile;
     /// <summary>The areas of the manual this assistant knows, separated by
@@ -1510,6 +1529,7 @@ begin
   FMaxTokens := HELPCHAT_MODEL_DEF_MAXTOKENS;
   FGroundingMaxPages := HELPCHAT_MODEL_DEF_GROUNDING;
   FGroundingMaxChars := HELPCHAT_MODEL_DEF_GROUNDING_CHARS;
+  FGroundingExcerptWindow := HELPCHAT_MODEL_DEF_GROUNDING_WINDOW;
   FConnectTimeoutMs := HELPCHAT_MODEL_DEF_CONNECTTIMEOUTMS;
   FResponseTimeoutMs := HELPCHAT_MODEL_DEF_RESPONSETIMEOUTMS;
   FMaxToolRounds := HELPCHAT_MODEL_DEF_MAXTOOLROUNDS;
@@ -1530,6 +1550,7 @@ begin
     FMaxTokens := LSource.FMaxTokens;
     FGroundingMaxPages := LSource.FGroundingMaxPages;
     FGroundingMaxChars := LSource.FGroundingMaxChars;
+    FGroundingExcerptWindow := LSource.FGroundingExcerptWindow;
     FBaseUrl := LSource.FBaseUrl;
     FConnectTimeoutMs := LSource.FConnectTimeoutMs;
     FResponseTimeoutMs := LSource.FResponseTimeoutMs;
@@ -1669,6 +1690,7 @@ begin
   FMaxTokens := JsonInt(AObject, 'MaxTokens', FMaxTokens);
   FGroundingMaxPages := JsonInt(AObject, 'GroundingMaxPages', FGroundingMaxPages);
   FGroundingMaxChars := JsonInt(AObject, 'GroundingMaxChars', FGroundingMaxChars);
+  FGroundingExcerptWindow := JsonInt(AObject, 'GroundingExcerptWindow', FGroundingExcerptWindow);
   // 1.7: the prompt is the assistant's, not the provider's. Saying so beats
   // ignoring the key: a prompt silently dropped is an expert that is not one.
   if JsonFind(AObject, 'SystemPrompt') <> nil then
@@ -1692,6 +1714,7 @@ begin
   AObject.AddPair('MaxTokens', TJSONNumber.Create(FMaxTokens));
   AObject.AddPair('GroundingMaxPages', TJSONNumber.Create(FGroundingMaxPages));
   AObject.AddPair('GroundingMaxChars', TJSONNumber.Create(FGroundingMaxChars));
+  AObject.AddPair('GroundingExcerptWindow', TJSONNumber.Create(FGroundingExcerptWindow));
   AObject.AddPair('BaseUrl', IfThen(IsBaseUrlStored, FBaseUrl, ''));
   AObject.AddPair('ConnectTimeoutMs', TJSONNumber.Create(FConnectTimeoutMs));
   AObject.AddPair('ResponseTimeoutMs', TJSONNumber.Create(FResponseTimeoutMs));
@@ -2669,6 +2692,7 @@ begin
       FSearchTermsPrompt := LSource.FSearchTermsPrompt;
       FTranslateSearch := LSource.FTranslateSearch;
       FLogLevel := LSource.FLogLevel;
+      FShowContext := LSource.FShowContext;
       FOnLog := LSource.FOnLog;
       FLogSender := LSource.FLogSender;
       FLogKey := LSource.FLogKey;
@@ -2989,6 +3013,8 @@ begin
   FSearchTermsPrompt := JsonStr(AObject, 'SearchTermsPrompt', FSearchTermsPrompt);
   FTranslateSearch := JsonBool(AObject, 'TranslateSearch', FTranslateSearch);
   FLogLevel := HelpChatConfigToLogLevel(JsonStr(AObject, 'LogLevel', ''), FLogLevel);
+  FShowContext := HelpChatConfigToContextPosition(JsonStr(AObject, 'ShowContext', ''),
+    FShowContext);
   FLanguageRule := JsonStr(AObject, 'LanguageRule', FLanguageRule);
   FDocLanguageRule := JsonStr(AObject, 'DocLanguageRule', FDocLanguageRule);
   FExpertiseIntro := JsonStr(AObject, 'ExpertiseIntro', FExpertiseIntro);
@@ -3068,6 +3094,7 @@ begin
     LRoot.AddPair('DocLanguage', LanguageToConfig(FDocLanguage));
     LRoot.AddPair('TranslateSearch', TJSONBool.Create(FTranslateSearch));
     LRoot.AddPair('LogLevel', HelpChatLogLevelToConfig(FLogLevel));
+    LRoot.AddPair('ShowContext', HelpChatContextPositionToConfig(FShowContext));
     LRoot.AddPair('Greeting', FGreeting);
     LRoot.AddPair('DocIndexFile', FDocIndexFile);
     LRoot.AddPair('DocAreas', FDocAreas);
@@ -3100,7 +3127,7 @@ begin
     LPdf := TJSONObject.Create;
     LRoot.AddPair('Pdf', LPdf);
     FPdf.SaveToJSONObject(LPdf);
-    Result := LRoot.Format(2);
+    Result := HelpChatJsonFormat(LRoot);
   finally
     LRoot.Free;
   end;
@@ -3186,7 +3213,9 @@ begin
   Result := nil;
   // Shared user defaults (the key), then the application defaults, then the
   // per-application user file on top.
-  for LFile in [SharedUserConfigFile, AppConfigFile, UserConfigFile] do
+  // No for-in over an array of strings written in place: 10.2 and 10.3
+  // refuse it.
+  for LFile in TArray<string>.Create(SharedUserConfigFile, AppConfigFile, UserConfigFile) do
     if LoadFromFile(LFile) then
       Result := Result + [LFile];
 end;

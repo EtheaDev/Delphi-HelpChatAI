@@ -70,6 +70,10 @@ type
   /// user.</summary>
   THelpChatPdfRequestEvent = reference to procedure(const ADoc: THelpChatPrintableDoc);
 
+  /// <summary>Builds the screen context of this moment, on the main thread:
+  /// what a transport asks just before a question is answered.</summary>
+  THelpChatContextSource = reference to function: THelpChatContext;
+
   /// <summary>What a component asks of the thing that serves its panel. Two
   /// implementations: <c>THelpChatLocalServer</c> (the engine in this process,
   /// one session) and <c>THelpChatRemoteTransport</c> (a HelpChatAI server). A
@@ -145,6 +149,14 @@ type
     /// thread. Nothing is delivered when the engine is remote: the document
     /// would be built on the server and there is no channel back yet.</summary>
     procedure SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
+    /// <summary>Who builds the context of this moment. A local server asks
+    /// it, on the main thread, when a question arrives, and goes on with the
+    /// last context it was given when the main thread does not run it in
+    /// time (<c>HELPCHAT_CONTEXT_WAIT_MS</c>): a screen that changed without
+    /// anybody saying so is caught before the model reads it. A remote
+    /// transport ignores it - the question goes from the page to the
+    /// server, never through the application.</summary>
+    procedure SetContextSource(const ASource: THelpChatContextSource);
   end;
 
 implementation

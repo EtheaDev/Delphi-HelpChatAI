@@ -28,8 +28,9 @@
     version.
 
 .PARAMETER DelphiVersion
-    One or more versions (D10.4, D11, D12, D13), or "All" (default) for every
-    one of them.
+    One or more versions (D10.2, D10.3, D10.4, D11, D12, D13), or "All"
+    (default) for every one of them. D10.2 and D10.3 build the engine and the
+    server only.
 
 .PARAMETER BDSRoot
     Root folder of RAD Studio installations (default: C:\BDS\Studio).
@@ -95,14 +96,15 @@ foreach ($s in @($BuildScript, $MdpBuildScript)) {
     }
 }
 
-$AllVersions = @("D10.4", "D11", "D12", "D13")
-$bdsVersionMap = @{ "D10.4" = "21.0"; "D11" = "22.0"; "D12" = "23.0"; "D13" = "37.0" }
+# 10.2 and 10.3 have the engine and the server only: the VCL components need 10.4
+$AllVersions = @("D10.2", "D10.3", "D10.4", "D11", "D12", "D13")
+$bdsVersionMap = @{ "D10.2" = "19.0"; "D10.3" = "20.0"; "D10.4" = "21.0"; "D11" = "22.0"; "D12" = "23.0"; "D13" = "37.0" }
 # "D12,D13" arrives as one string through powershell -File: split it here
 $DelphiVersion = @($DelphiVersion | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($DelphiVersion -contains "All") { $Versions = $AllVersions } else { $Versions = $DelphiVersion }
 foreach ($ver in $Versions) {
     if ($AllVersions -notcontains $ver) {
-        Write-Error "Unknown Delphi version '$ver'. Use D10.4, D11, D12, D13 or All."
+        Write-Error "Unknown Delphi version '$ver'. Use D10.2, D10.3, D10.4, D11, D12, D13 or All."
         exit 1
     }
 }
@@ -168,7 +170,7 @@ foreach ($ver in $Versions) {
     $win64DesignTime = @("D12", "D13") -contains $ver
 
     foreach ($plat in $Platforms) {
-        # The MarkdownProcessor names its folders D10.4 ... D13, like $ver.
+        # The MarkdownProcessor names its folders D10.2 ... D13, like $ver.
         Invoke-Step $ver "MarkdownProcessor.dproj" $plat {
             & $MdpBuildScript -DelphiVersion $ver -BDSRoot $BDSRoot -Platform $plat -Config $Config -Project "MarkdownProcessor.dproj" -Target $Target
         }

@@ -526,11 +526,13 @@ type
   end;
 
 const
-  CATALOGUE_ITEMS: array[0..82] of TCatalogueItem = (
+  CATALOGUE_ITEMS: array[0..86] of TCatalogueItem = (
     (Path: 'AssistantName'; Caption: 'Name of the assistant'; Kind: cvkText;
       Pages: [ccpAppearance, ccpPrompt]; Hint: 'What the panel calls it and how the prompt opens; prevails over the property of the component'),
     (Path: 'Greeting'; Caption: 'Greeting'; Kind: cvkText;
       Pages: [ccpAppearance]; Hint: 'The first bubble; empty = the localized one'),
+    (Path: 'ShowContext'; Caption: 'Screen context line'; Kind: cvkChoice;
+      Pages: [ccpAppearance]; Hint: 'hide, top or bottom: the screen context the next question carries, shown in the panel'),
     (Path: 'Expertise'; Caption: 'Field of expertise'; Kind: cvkMemo;
       Pages: [ccpPrompt]; Hint: 'What it knows beyond the manual ("general accounting"): opens the system prompt'),
     (Path: 'Instructions'; Caption: 'Instructions'; Kind: cvkMemo;
@@ -639,6 +641,8 @@ const
       Pages: [ccpSettings, ccpPrompt]; Hint: 'Excerpts sent with a question; 0 = none'),
     (Path: 'Claude.GroundingMaxChars'; Caption: 'Claude: length of an excerpt'; Kind: cvkNumber;
       Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters'),
+    (Path: 'Claude.GroundingExcerptWindow'; Caption: 'Claude: text around a match'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters, kept around each term found in a long page'),
     (Path: 'Claude.ConnectTimeoutMs'; Caption: 'Claude: connection timeout'; Kind: cvkNumber;
       Pages: [ccpSettings]; Hint: 'In milliseconds'),
     (Path: 'Claude.ResponseTimeoutMs'; Caption: 'Claude: response timeout'; Kind: cvkNumber;
@@ -661,6 +665,8 @@ const
       Pages: [ccpSettings, ccpPrompt]; Hint: 'Excerpts sent with a question; 0 = none'),
     (Path: 'OpenAI.GroundingMaxChars'; Caption: 'OpenAI: length of an excerpt'; Kind: cvkNumber;
       Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters'),
+    (Path: 'OpenAI.GroundingExcerptWindow'; Caption: 'OpenAI: text around a match'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters, kept around each term found in a long page'),
     (Path: 'OpenAI.ConnectTimeoutMs'; Caption: 'OpenAI: connection timeout'; Kind: cvkNumber;
       Pages: [ccpSettings]; Hint: 'In milliseconds'),
     (Path: 'OpenAI.ResponseTimeoutMs'; Caption: 'OpenAI: response timeout'; Kind: cvkNumber;
@@ -687,6 +693,8 @@ const
       Pages: [ccpSettings, ccpPrompt]; Hint: 'Excerpts sent with a question; 0 = none'),
     (Path: 'Gemini.GroundingMaxChars'; Caption: 'Gemini: length of an excerpt'; Kind: cvkNumber;
       Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters'),
+    (Path: 'Gemini.GroundingExcerptWindow'; Caption: 'Gemini: text around a match'; Kind: cvkNumber;
+      Pages: [ccpSettings, ccpPrompt]; Hint: 'In characters, kept around each term found in a long page'),
     (Path: 'Gemini.ConnectTimeoutMs'; Caption: 'Gemini: connection timeout'; Kind: cvkNumber;
       Pages: [ccpSettings]; Hint: 'In milliseconds'),
     (Path: 'Gemini.ResponseTimeoutMs'; Caption: 'Gemini: response timeout'; Kind: cvkNumber;
@@ -704,13 +712,13 @@ const
   /// the expertise, the instructions, the language of the reply, the
   /// language of the manual, then the excerpts the grounding of each
   /// provider decides. A setting not listed goes after them.</summary>
-  PROMPT_ORDER: array[0..19] of string = ('AssistantName', 'IdentityRule', 'Expertise',
+  PROMPT_ORDER: array[0..22] of string = ('AssistantName', 'IdentityRule', 'Expertise',
     'ExpertiseIntro', 'SystemPrompt', 'ExpertiseRule', 'Instructions', 'Language',
     'LanguageRule', 'DocLanguage', 'DocLanguageRule', 'TranslateSearch', 'SearchTermsPrompt',
     'NowRule',
-    'Claude.GroundingMaxPages', 'Claude.GroundingMaxChars',
-    'OpenAI.GroundingMaxPages', 'OpenAI.GroundingMaxChars',
-    'Gemini.GroundingMaxPages', 'Gemini.GroundingMaxChars');
+    'Claude.GroundingMaxPages', 'Claude.GroundingMaxChars', 'Claude.GroundingExcerptWindow',
+    'OpenAI.GroundingMaxPages', 'OpenAI.GroundingMaxChars', 'OpenAI.GroundingExcerptWindow',
+    'Gemini.GroundingMaxPages', 'Gemini.GroundingMaxChars', 'Gemini.GroundingExcerptWindow');
   /// <summary>The texts of the prompt whose default is a constant of the
   /// library: a file or a form that does not name them follows it.</summary>
   PROMPT_TEXTS: array[0..7] of string = ('SystemPrompt', 'IdentityRule', 'NowRule',
@@ -1197,7 +1205,7 @@ begin
   try
     if TPath.GetDirectoryName(LFile) <> '' then
       TDirectory.CreateDirectory(TPath.GetDirectoryName(LFile));
-    TFile.WriteAllText(LFile, FDoc.Format(2), TEncoding.UTF8);
+    TFile.WriteAllText(LFile, HelpChatJsonFormat(FDoc), TEncoding.UTF8);
     FModified := False;
     Result := True;
   except
@@ -1521,7 +1529,9 @@ begin
       else if SameText(APath, 'OpenAI.Api') then
         Result := ['responses', 'chat']
       else if SameText(APath, 'LogLevel') then
-        Result := ['none', 'info', 'detail', 'debug'];
+        Result := ['none', 'info', 'detail', 'debug']
+      else if SameText(APath, 'ShowContext') then
+        Result := ['hide', 'top', 'bottom'];
     cvkSet:
       if SameText(APath, 'Skills') then
         Result := HelpChatSkillNames;
@@ -1871,6 +1881,7 @@ begin
   begin
     FFragments.Add(LowerCase(LSection + '.GroundingMaxPages'), LExcerpts);
     FFragments.Add(LowerCase(LSection + '.GroundingMaxChars'), LExcerpts);
+    FFragments.Add(LowerCase(LSection + '.GroundingExcerptWindow'), LExcerpts);
   end;
 end;
 
@@ -1925,6 +1936,7 @@ var
   LLang: THelpChatLanguage;
   LFile, LBody: string;
   LAnswer: THelpChatMessage;
+  LContext: THelpChatContext;
 begin
   AStyleSheetError := '';
   try
@@ -1974,6 +1986,13 @@ begin
     LBody := LBody + '<div class="hc-chat-msg hc-chat-system"><div class="hc-chat-bubble">' +
       HelpChatHelpAnswerHtml(ACommands, LLang) + '</div></div>';
     Result := THelpChatPanel.PreviewPage(LOptions, LBody);
+    // The line of ShowContext, with the screen the sample answer is about.
+    LContext := Default(THelpChatContext);
+    LContext.ScreenLabel := 'Customers';
+    LContext.ScreenType := 'TCustomersForm';
+    LContext.FocusedControl := 'NameEdit';
+    LContext.HelpKeyword := 'Customers';
+    Result := THelpChatPanel.WithContextLine(Result, LSettings.ShowContext, LContext);
   finally
     LSettings.Free;
   end;

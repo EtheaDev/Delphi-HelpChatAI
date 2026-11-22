@@ -54,6 +54,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Attachments,
   HelpChatAI.Theme;
@@ -390,6 +391,12 @@ type
     /// nowhere.</summary>
     class function PreviewPage(const AOptions: THelpChatPanelOptions;
       const ABodyHtml: string): string; static;
+    /// <summary>AHtml, a page of <c>RenderPage</c>, with its line of the
+    /// screen context showing AContext where APosition says - what
+    /// <c>window.hcShowContext</c> does at run time, written into the page
+    /// for a preview that has no host to call it.</summary>
+    class function WithContextLine(const AHtml: string;
+      const APosition: THelpChatContextPosition; const AContext: THelpChatContext): string; static;
     /// <summary>The stylesheet a printable document is built with: the file
     /// the application named in <c>PdfStyleSheet</c>, or the built-in one when
     /// it did not. A named file that is not there raises, exactly like a named
@@ -425,8 +432,7 @@ uses
   System.IOUtils,
   System.JSON,
   System.NetEncoding,
-  System.Types,
-  HelpChatAI.Types;
+  System.Types;
 
 { THelpChatPanelOptions }
 
@@ -659,6 +665,30 @@ begin
   Result := Result.Substring(0, LStart) +
     '<main id="hc-body" class="hc-chat-body">' + ABodyHtml +
     Result.Substring(LEnd);
+end;
+
+class function THelpChatPanel.WithContextLine(const AHtml: string;
+  const APosition: THelpChatContextPosition; const AContext: THelpChatContext): string;
+const
+  EMPTY_LINE = '<div id="hc-context" class="hc-chat-context" hidden></div>';
+var
+  LLine: string;
+  P: Integer;
+begin
+  Result := AHtml;
+  if (APosition = cpHide) or not Result.Contains(EMPTY_LINE) then
+    Exit;
+  LLine := '<div id="hc-context" class="hc-chat-context';
+  if APosition = cpShowTop then
+    LLine := LLine + ' hc-chat-context-top';
+  LLine := LLine + '" title="' + TNetEncoding.HTML.Encode(AContext.SummaryFields) + '">' +
+    TNetEncoding.HTML.Encode(AContext.Summary) + '</div>';
+  if APosition = cpShowBottom then
+    Exit(StringReplace(Result, EMPTY_LINE, LLine, []));
+  Result := StringReplace(Result, EMPTY_LINE, '', []);
+  P := Result.IndexOf('</header>');
+  if P >= 0 then
+    Result := Result.Insert(P + Length('</header>'), LLine);
 end;
 
 class function THelpChatPanel.PrintCss(const AStyleSheetFile: string): string;

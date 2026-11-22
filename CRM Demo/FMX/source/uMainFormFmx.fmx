@@ -4082,6 +4082,7 @@ object MainFormFmx: TMainFormFmx
     Top = 140
   end
   object HelpChat: TFmxHelpChatAI
+    Settings.ShowContext = cpShowBottom
     Settings.Provider = 'claude'
     Settings.Expertise = 
       'B2B sales and customer relationship management: leads and the sa' +
@@ -4100,6 +4101,7 @@ object MainFormFmx: TMainFormFmx
         Provider = 'openai'
       end>
     Settings.Language = hclEnglish
+    Settings.Languages = [hclEnglish, hclItalian, hclSpanish, hclFrench, hclGerman, hclPortuguese, hclNorwegian, hclSwedish, hclDanish]
     Settings.DocLanguage = hclEnglish
     Settings.DocIndexFile = '..\..\Help\help-index.json'
     Settings.Skills = 'forms, commands, records, pages'

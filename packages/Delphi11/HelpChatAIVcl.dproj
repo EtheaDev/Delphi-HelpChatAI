@@ -59,7 +59,6 @@
         <DCC_Optimize>false</DCC_Optimize>
         <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
         <DCC_DebugInfoInExe>true</DCC_DebugInfoInExe>
-        <DCC_RemoteDebug>true</DCC_RemoteDebug>
         <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
         <DCC_RangeChecking>true</DCC_RangeChecking>
     </PropertyGroup>
@@ -83,12 +82,12 @@
         <DCCReference Include="IndyProtocols.dcp"/>
         <DCCReference Include="HelpChatAI.dcp"/>
         <DCCReference Include="HelpChatAIServer.dcp"/>
-                <DCCReference Include="..\..\source\Vcl.HelpChatAI.Bubble.pas"/>
-                <DCCReference Include="..\..\source\Vcl.HelpChatAI.ConfirmDialog.pas">
-                    <Form>VclHelpChatConfirmDialog</Form>
-                </DCCReference>
-                <DCCReference Include="..\..\source\Vcl.HelpChatAI.Voice.pas"/>
-<DCCReference Include="..\..\source\Vcl.HelpChatAI.Panel.pas"/>
+        <DCCReference Include="..\..\source\Vcl.HelpChatAI.Bubble.pas"/>
+        <DCCReference Include="..\..\source\Vcl.HelpChatAI.ConfirmDialog.pas">
+           <Form>VclHelpChatConfirmDialog</Form>
+        </DCCReference>
+        <DCCReference Include="..\..\source\Vcl.HelpChatAI.Voice.pas"/>
+        <DCCReference Include="..\..\source\Vcl.HelpChatAI.Panel.pas"/>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.pas"/>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.Theme.pas"/>
         <DCCReference Include="..\..\source\Vcl.HelpChatAI.Skills.pas"/>

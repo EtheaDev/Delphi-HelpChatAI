@@ -6,7 +6,7 @@
 {       Copyright (c) 2026 (Ethea S.r.l.)                                      }
 {       Author: Carlo Barazzetta                                               }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {       Licensed under the Apache License, Version 2.0                         }
 {                                                                              }

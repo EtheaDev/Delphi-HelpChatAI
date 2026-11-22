@@ -46,6 +46,8 @@ type
     [Test] procedure Cancel_ReturnsBubble;
     [Test] procedure Unknown_Is404;
     [Test] procedure UiCommand_ReachesHandler_OnMainThread;
+    [Test] procedure Send_AsksTheHostForTheContextOfThisMoment;
+    [Test] procedure Send_HostTooBusy_GoesOnWithTheLastContext;
     [Test] procedure FormField_Decoding;
     [Test] procedure Stop_Start_Again;
     [Test] procedure Page_CarriesTheHostTheme;
@@ -415,6 +417,70 @@ begin
   Assert.AreEqual('close', LGot, 'lower-cased command');
   Assert.IsTrue(LOnMainThread, 'delivered on the main thread');
   FServer.SetOnUiCommand(nil);
+end;
+
+procedure TServerTests.Send_AsksTheHostForTheContextOfThisMoment;
+var
+  LContext: THelpChatContext;
+  LOnMainThread, LDone: Boolean;
+  LStatus, I: Integer;
+begin
+  // The screen changed and nobody told the chat: the question asks.
+  LContext := Default(THelpChatContext);
+  LContext.ScreenLabel := 'Dashboard';
+  FTransport.SetContext(LContext);
+  LOnMainThread := False;
+  FTransport.SetContextSource(
+    function: THelpChatContext
+    begin
+      LOnMainThread := TThread.CurrentThread.ThreadID = MainThreadID;
+      Result := Default(THelpChatContext);
+      Result.ScreenLabel := 'Leads';
+    end);
+  // The question comes from the page, on a thread of its own, while the
+  // main thread runs its loop - here, CheckSynchronize.
+  LDone := False;
+  LStatus := 0;
+  TThread.CreateAnonymousThread(
+    procedure
+    begin
+      LStatus := Post(HELPCHAT_API_SEND, 'message=hello').StatusCode;
+      LDone := True;
+    end).Start;
+  for I := 1 to 500 do
+  begin
+    CheckSynchronize(10);
+    if LDone then
+      Break;
+  end;
+  Assert.IsTrue(LDone, 'answered');
+  Assert.AreEqual(200, LStatus);
+  Assert.IsTrue(LOnMainThread, 'built on the main thread');
+  Assert.AreEqual('Leads', FTransport.GetContext.ScreenLabel, 'the context of this moment');
+  FTransport.SetContextSource(nil);
+end;
+
+procedure TServerTests.Send_HostTooBusy_GoesOnWithTheLastContext;
+var
+  LContext: THelpChatContext;
+begin
+  // The main thread is the one waiting for the answer, and runs nothing:
+  // after HELPCHAT_CONTEXT_WAIT_MS the question goes on with what it had.
+  LContext := Default(THelpChatContext);
+  LContext.ScreenLabel := 'Dashboard';
+  FTransport.SetContext(LContext);
+  FTransport.SetContextSource(
+    function: THelpChatContext
+    begin
+      Result := Default(THelpChatContext);
+      Result.ScreenLabel := 'Leads';
+    end);
+  Assert.AreEqual(200, Post(HELPCHAT_API_SEND, 'message=hello').StatusCode);
+  Assert.AreEqual('Dashboard', FTransport.GetContext.ScreenLabel);
+  FTransport.SetContextSource(nil);
+  // What was queued for the main thread finds its token dead.
+  CheckSynchronize(10);
+  Assert.AreEqual('Dashboard', FTransport.GetContext.ScreenLabel);
 end;
 
 // The document is built by the engine and handed to the host on the main

@@ -607,7 +607,7 @@ begin
     LOption := TSearchOption.soAllDirectories
   else
     LOption := TSearchOption.soTopDirectoryOnly;
-  LFiles := TDirectory.GetFiles(LSource, '*.md', LOption);
+  LFiles := HelpChatStringArray(TDirectory.GetFiles(LSource, '*.md', LOption));
   TArray.Sort<string>(LFiles, TIStringComparer.Ordinal);
 
   // Table of contents: titles and breadcrumbs, keyed by relative file name.
@@ -726,7 +726,7 @@ begin
       LArray.AddElement(LItem);
     end;
     if APretty then
-      Result := LArray.Format(2)
+      Result := HelpChatJsonFormat(LArray)
     else
       Result := LArray.ToJSON;
   finally
@@ -825,7 +825,7 @@ begin
   end;
   // The name as the folder spells it: the builder matches it case-insensitively
   // anyway, but what is shown has to be what is there.
-  LToc := TDirectory.GetFiles(Result.SourceFolder, HELPCHAT_INDEXBUILDER_DEF_TOCFILE);
+  LToc := HelpChatStringArray(TDirectory.GetFiles(Result.SourceFolder, HELPCHAT_INDEXBUILDER_DEF_TOCFILE));
   if Length(LToc) > 0 then
     Result.TocFile := TPath.GetFileName(LToc[0]);
   Result.OutputExists := TFile.Exists(Result.OutputFile);

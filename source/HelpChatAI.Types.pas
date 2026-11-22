@@ -39,11 +39,13 @@ interface
 uses
   System.SysUtils,
   System.Classes,
-  System.Character;
+  System.Types,
+  System.Character,
+  System.JSON;
 
 const
   /// <summary>Library version (major.minor.release).</summary>
-  HELPCHAT_VERSION = '2.1.0';
+  HELPCHAT_VERSION = '2.2.0';
 
 type
   /// <summary>Author of a chat message.</summary>
@@ -102,7 +104,23 @@ type
     /// <summary>What biases the documentation search: the HelpKeyword alone when
     /// present (the precise anchor), else the screen label. Never the class name.</summary>
     function SearchHint: string;
+    /// <summary>The context on one line, for a developer: label (else name),
+    /// type, focused control, keyword, help context - the parts that are
+    /// empty left out, joined by a middle dot. What <c>ShowContext</c>
+    /// shows above the question box.</summary>
+    function Summary: string;
+    /// <summary>Which field each part of <see cref="Summary" /> is, in the
+    /// same order: "ScreenLabel · ScreenType · FocusedControl".</summary>
+    function SummaryFields: string;
+    /// <summary>True when AOther says the same, field by field: what decides
+    /// whether a context built at an idle turn is news.</summary>
+    function SameAs(const AOther: THelpChatContext): Boolean;
   end;
+
+  /// <summary>Where the panel shows the screen context the next question
+  /// carries (<c>ShowContext</c>): nowhere, on a line under its header, or
+  /// on a line above the question box.</summary>
+  THelpChatContextPosition = (cpHide, cpShowTop, cpShowBottom);
 
   /// <summary>Callback invoked by a streaming provider for each produced token.</summary>
   THelpChatTokenProc = reference to procedure(const AToken: string);
@@ -201,6 +219,30 @@ type
     function Search(const AQuery, AHint: string; const AMaxPages: Integer): TArray<THelpChatDocPage>;
   end;
 
+/// <summary>How a configuration file writes a position of the context line:
+/// "hide", "top", "bottom".</summary>
+function HelpChatContextPositionToConfig(const APosition: THelpChatContextPosition): string;
+/// <summary>The position a configuration names ("top"; case ignored, the
+/// identifier "cpShowTop" too); ADefault for anything else.</summary>
+function HelpChatConfigToContextPosition(const AValue: string;
+  const ADefault: THelpChatContextPosition): THelpChatContextPosition;
+
+{ What the engine takes from the RTL of 10.3 and later, which Delphi 10.2
+  Tokyo does not have: the native call from 10.3, a version of ours below. }
+
+/// <summary>Culture-neutral format settings, '.' as decimal separator:
+/// <c>TFormatSettings.Invariant</c>.</summary>
+function HelpChatInvariantFormat: TFormatSettings;
+/// <summary>How many times AChar occurs in AText: <c>string.CountChar</c>.</summary>
+function HelpChatCountChar(const AText: string; const AChar: Char): Integer;
+/// <summary>AValue as JSON text indented by two spaces:
+/// <c>TJSONValue.Format(2)</c>.</summary>
+function HelpChatJsonFormat(const AValue: TJSONValue): string;
+/// <summary>A list of names as <c>TArray&lt;string&gt;</c>: what
+/// <c>TDirectory.GetFiles</c> returns from 10.3, a <c>TStringDynArray</c>
+/// before.</summary>
+function HelpChatStringArray(const AValues: TStringDynArray): TArray<string>;
+
 /// <summary>Joins a base URL and a relative path with exactly one slash.</summary>
 function HelpChatJoinUrl(const ABase, ARelative: string): string;
 
@@ -217,6 +259,155 @@ function HelpChatEncodeUrlPath(const APath: string): string;
 function HelpChatDecodeUrlPath(const APath: string): string;
 
 implementation
+
+{$IFNDEF D10_3+}
+var
+  GInvariantFormat: TFormatSettings;
+{$ENDIF}
+
+function HelpChatInvariantFormat: TFormatSettings;
+begin
+  {$IFDEF D10_3+}
+  Result := TFormatSettings.Invariant;
+  {$ELSE}
+  Result := GInvariantFormat;
+  {$ENDIF}
+end;
+
+function HelpChatCountChar(const AText: string; const AChar: Char): Integer;
+{$IFNDEF D10_3+}
+var
+  C: Char;
+{$ENDIF}
+begin
+  {$IFDEF D10_3+}
+  Result := AText.CountChar(AChar);
+  {$ELSE}
+  Result := 0;
+  for C in AText do
+    if C = AChar then
+      Inc(Result);
+  {$ENDIF}
+end;
+
+function HelpChatJsonFormat(const AValue: TJSONValue): string;
+{$IFNDEF D10_3+}
+var
+  LText: string;
+  LSb: TStringBuilder;
+  I, LLevel: Integer;
+  C: Char;
+  LInString, LEscaped: Boolean;
+
+  procedure NewLine;
+  begin
+    LSb.Append(sLineBreak);
+    LSb.Append(' ', LLevel * 2);
+  end;
+{$ENDIF}
+begin
+  {$IFDEF D10_3+}
+  Result := AValue.Format(2);
+  {$ELSE}
+  // ToJSON writes no blank outside strings: a new line after { [ and , and
+  // before } ], an empty object or array kept on one line.
+  LText := AValue.ToJSON;
+  LSb := TStringBuilder.Create(Length(LText) * 2);
+  try
+    LLevel := 0;
+    LInString := False;
+    LEscaped := False;
+    for I := 1 to Length(LText) do
+    begin
+      C := LText[I];
+      if LInString then
+      begin
+        LSb.Append(C);
+        if LEscaped then
+          LEscaped := False
+        else if C = '\' then
+          LEscaped := True
+        else if C = '"' then
+          LInString := False;
+        Continue;
+      end;
+      case C of
+        '"':
+          begin
+            LInString := True;
+            LSb.Append(C);
+          end;
+        '{', '[':
+          begin
+            LSb.Append(C);
+            Inc(LLevel);
+            if (I < Length(LText)) and not CharInSet(LText[I + 1], ['}', ']']) then
+              NewLine;
+          end;
+        '}', ']':
+          begin
+            Dec(LLevel);
+            if (I > 1) and not CharInSet(LText[I - 1], ['{', '[']) then
+              NewLine;
+            LSb.Append(C);
+          end;
+        ',':
+          begin
+            LSb.Append(C);
+            NewLine;
+          end;
+        ':':
+          LSb.Append(': ');
+      else
+        LSb.Append(C);
+      end;
+    end;
+    Result := LSb.ToString;
+  finally
+    LSb.Free;
+  end;
+  {$ENDIF}
+end;
+
+function HelpChatStringArray(const AValues: TStringDynArray): TArray<string>;
+{$IFNDEF D10_3+}
+var
+  I: Integer;
+{$ENDIF}
+begin
+  {$IFDEF D10_3+}
+  Result := AValues;
+  {$ELSE}
+  SetLength(Result, Length(AValues));
+  for I := 0 to High(AValues) do
+    Result[I] := AValues[I];
+  {$ENDIF}
+end;
+
+const
+  CONTEXT_POSITION_NAMES: array[THelpChatContextPosition] of string = ('hide', 'top', 'bottom');
+
+function HelpChatContextPositionToConfig(const APosition: THelpChatContextPosition): string;
+begin
+  Result := CONTEXT_POSITION_NAMES[APosition];
+end;
+
+function HelpChatConfigToContextPosition(const AValue: string;
+  const ADefault: THelpChatContextPosition): THelpChatContextPosition;
+var
+  LValue: string;
+  P: THelpChatContextPosition;
+begin
+  LValue := LowerCase(Trim(AValue));
+  if LValue.StartsWith('cp') then
+    LValue := LValue.Substring(2);
+  if LValue.StartsWith('show') then
+    LValue := LValue.Substring(4);
+  for P := Low(THelpChatContextPosition) to High(THelpChatContextPosition) do
+    if LValue = CONTEXT_POSITION_NAMES[P] then
+      Exit(P);
+  Result := ADefault;
+end;
 
 function HelpChatEncodeUrlPath(const APath: string): string;
 const
@@ -349,6 +540,61 @@ begin
     Result := ScreenLabel;
 end;
 
+const
+  CONTEXT_SUMMARY_SEPARATOR = ' '#$00B7' ';
+
+procedure AddContextPart(var AText, AFields: string; const AValue, AField: string);
+begin
+  if AValue = '' then
+    Exit;
+  if AText <> '' then
+  begin
+    AText := AText + CONTEXT_SUMMARY_SEPARATOR;
+    AFields := AFields + CONTEXT_SUMMARY_SEPARATOR;
+  end;
+  AText := AText + AValue;
+  AFields := AFields + AField;
+end;
+
+function ContextSummary(const AContext: THelpChatContext; const AFields: Boolean): string;
+var
+  LText, LFields: string;
+begin
+  LText := '';
+  LFields := '';
+  if AContext.ScreenLabel <> '' then
+    AddContextPart(LText, LFields, AContext.ScreenLabel, 'ScreenLabel')
+  else
+    AddContextPart(LText, LFields, AContext.ScreenName, 'ScreenName');
+  AddContextPart(LText, LFields, AContext.ScreenType, 'ScreenType');
+  AddContextPart(LText, LFields, AContext.FocusedControl, 'FocusedControl');
+  AddContextPart(LText, LFields, AContext.HelpKeyword, 'HelpKeyword');
+  if AContext.HelpContext <> 0 then
+    AddContextPart(LText, LFields, '#' + IntToStr(AContext.HelpContext), 'HelpContext');
+  if AFields then
+    Result := LFields
+  else
+    Result := LText;
+end;
+
+function THelpChatContext.Summary: string;
+begin
+  Result := ContextSummary(Self, False);
+end;
+
+function THelpChatContext.SummaryFields: string;
+begin
+  Result := ContextSummary(Self, True);
+end;
+
+function THelpChatContext.SameAs(const AOther: THelpChatContext): Boolean;
+begin
+  Result := (UserName = AOther.UserName) and (ScreenName = AOther.ScreenName) and
+    (ScreenLabel = AOther.ScreenLabel) and (ScreenType = AOther.ScreenType) and
+    (HelpKeyword = AOther.HelpKeyword) and (HelpContext = AOther.HelpContext) and
+    (FocusedControl = AOther.FocusedControl);
+end;
+
 { THelpChatCancelToken }
 
 function THelpChatCancelToken.IsCancelled: Boolean;
@@ -370,5 +616,17 @@ procedure THelpChatCancelToken.Cancel;
 begin
   AtomicExchange(FCancelled, 1);
 end;
+
+{$IFNDEF D10_3+}
+initialization
+  GInvariantFormat := TFormatSettings.Create('en-US');
+  GInvariantFormat.DecimalSeparator := '.';
+  GInvariantFormat.ThousandSeparator := ',';
+  GInvariantFormat.DateSeparator := '/';
+  GInvariantFormat.TimeSeparator := ':';
+  GInvariantFormat.ListSeparator := ',';
+  GInvariantFormat.ShortDateFormat := 'MM/dd/yyyy';
+  GInvariantFormat.LongTimeFormat := 'HH:mm:ss';
+{$ENDIF}
 
 end.

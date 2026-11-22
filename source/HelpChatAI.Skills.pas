@@ -7,7 +7,7 @@
 {       Copyright (c) 2026 (Ethea S.r.l.)                                      }
 {       Author: Carlo Barazzetta                                               }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {       Licensed under the Apache License, Version 2.0                         }
 {       you may not use this file except in compliance with the License.       }
@@ -282,7 +282,7 @@ function HelpChatSkillCut(const AValue: string): string;
 implementation
 
 uses
-  System.StrUtils, System.DateUtils, System.Math;
+  System.StrUtils, System.DateUtils, System.Math, HelpChatAI.Types;
 
 var
   GSkills: TList<THelpChatSkillClass>;
@@ -617,7 +617,7 @@ var
   LText: string;
 begin
   LText := Trim(AText);
-  Result := TryStrToFloat(LText, AValue, TFormatSettings.Invariant) or
+  Result := TryStrToFloat(LText, AValue, HelpChatInvariantFormat) or
     TryStrToFloat(LText, AValue);
 end;
 
@@ -629,7 +629,7 @@ begin
   LText := Trim(AText);
   if AKind = hfkTime then
   begin
-    Result := TryStrToTime(LText, AValue, TFormatSettings.Invariant) or TryStrToTime(LText, AValue);
+    Result := TryStrToTime(LText, AValue, HelpChatInvariantFormat) or TryStrToTime(LText, AValue);
     if Result then
       AValue := TimeOf(AValue);
     Exit;
@@ -654,7 +654,7 @@ end;
 
 function HelpChatFormatNumber(const AValue: Double): string;
 begin
-  Result := FloatToStr(AValue, TFormatSettings.Invariant);
+  Result := FloatToStr(AValue, HelpChatInvariantFormat);
 end;
 
 function HelpChatMatchChoice(const AChoices: TArray<string>; const AText: string): Integer;

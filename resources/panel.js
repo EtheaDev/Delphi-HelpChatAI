@@ -490,7 +490,15 @@
   });
 
   // ---- keyboard and buttons --------------------------------------------------
+  // The box grows with the text, up to 120 px. Empty, it goes back to the
+  // height of one line: Chromium counts the placeholder in scrollHeight, so a
+  // placeholder that wraps (a narrow panel, the stop button beside the box)
+  // kept an empty box two lines tall.
   function autosize() {
+    if (!input.value) {
+      input.style.height = '';
+      return;
+    }
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
   }
@@ -991,6 +999,7 @@
   function findLang(value) {
     var n = String(value || '').trim().toLowerCase(), i, l;
     if (!n) return null;
+    if (n === 'nb') n = 'no';   // Bokmal: the code Windows gives Norwegian
     for (i = 0; i < langs.items.length; i++) {
       l = langs.items[i];
       if (l.code === n || l.name.toLowerCase() === n || l.english.toLowerCase() === n) return l;
@@ -1189,6 +1198,30 @@
   // A line of system text in the conversation (the host reports a failure).
   window.hcSystem = function (text) { if (text) showSystem(String(text)); };
   window.hcFocus = function () { if (docIsOpen()) docBody.focus(); else focusInput(); };
+  // The screen context the host is about to send with the next question, as
+  // one line (ShowContext): under the header ('top') or above the question
+  // box ('bottom'); an empty text hides it. The hint says which part is which.
+  window.hcShowContext = function (text, hint, where) {
+    var line = document.getElementById('hc-context');
+    if (!line) return;
+    placeContextLine(line, where);
+    line.textContent = text ? String(text) : '';
+    line.title = hint ? String(hint) : '';
+    line.hidden = !text;
+  };
+  function placeContextLine(line, where) {
+    var top = where === 'top';
+    if (top) {
+      var header = document.querySelector('.hc-chat-header');
+      if (header && line.previousElementSibling !== header)
+        header.parentNode.insertBefore(line, header.nextSibling);
+    } else {
+      var footer = document.querySelector('.hc-chat-footer');
+      var form = document.getElementById('hc-form');
+      if (footer && form && line.parentNode !== footer) footer.insertBefore(line, form);
+    }
+    line.classList.toggle('hc-chat-context-top', top);
+  }
   window.hcOpenDoc = function (page) { if (page) openDoc(String(page), '', 'new'); };
   // {"--hc-bg":"#...", ..., "color-scheme":"dark"}: the host pushes its colours
   // when its style changes; an empty object restores the stylesheet defaults.

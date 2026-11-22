@@ -202,8 +202,12 @@ To do it by hand instead:
 `dclHelpChatAIFmx`, from Delphi 12), then add `source` and `Ext/MarkdownProcessor/source` to the library path.
 
 `packages/BuildAllPackages.ps1` builds them from a command line, every installed version or
-the ones named with `-DelphiVersion D13,D12`; `BuildAllPackagesD13.ps1` (and D12, D11, D10.4)
-does one version.
+the ones named with `-DelphiVersion D13,D12`; `BuildAllPackagesD13.ps1` (and D12, D11, D10.4,
+D10.3, D10.2) does one version.
+
+On Delphi 10.2 and 10.3 only the engine and the server can be used: `packages/Delphi10.2` and
+`packages/Delphi10.3` hold `HelpChatAI` and `HelpChatAIServer`, for an application that drives
+the engine from code - with a user interface of its own, or as a server.
 
 Ship `WebView2Loader.dll` (`Redist/WebView2/x86|x64`) next to your executable; the WebView2
 runtime itself is already part of Windows 11 and of every machine with Edge.
@@ -222,7 +226,7 @@ DPM downloads the package, builds it for the Delphi version and the platforms of
 
 | Framework | Versions | Verified |
 |---|---|---|
-| Engine (RTL only) | Delphi 10.4 Sydney → 13 Florence | packages built with each compiler |
+| Engine (RTL only) and server | Delphi 10.2 Tokyo → 13 Florence | packages built with each compiler from 10.3 on; 10.2 is not verified |
 | VCL (`TEdgeBrowser`) | Delphi 10.4 → 13 | built on all four, run on 13 |
 | FMX (`TWebBrowser`) | Delphi 12 → 13 | built on both, run on Windows |
 
@@ -230,7 +234,8 @@ FireMonkey compiles for macOS, iOS and Android, but only Windows has been tried 
 
 ## Packages
 
-One folder per Delphi version, the same `.dpk` for all of them.
+One folder per Delphi version, the same `.dpk` for all of them from 10.4 on; 10.2 and 10.3 have
+only the two engine packages, with their own library suffix (`250`, `260`).
 
 | Package | Requires | Contents |
 |---|---|---|
@@ -285,6 +290,18 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 ```
 
 ## Release Notes ##
+
+22 Nov 2026: ver. 2.2.0
+- The screen context follows the user by itself while the panel is open: built at every idle turn (the focus, then `OnGetContext`) and given to the chat as soon as it changes, and built again before every question; on Windows through a thread hook, so an application that assigns `Application.OnIdle` does not switch it off (`AutoCaptureContext`)
+- `RefreshContext` on both components: tells the engine what the screen shows now, without opening the panel or moving the focus (#4)
+- `Settings.ShowContext`: the panel shows the context the next question carries, under the header or above the question box; on the Appearance page of the configuration editor, with its preview
+- CRM demos: the start-up is queued with `TThread.ForceQueue` instead of taking `Application.OnIdle`, and the context line is on
+- Panel: the question box goes back to one line when it is emptied (an empty box kept the height of a placeholder that wrapped)
+- The engine and the server compile from Delphi 10.2 Tokyo (packages for 10.2 and 10.3, verified on 10.3); the components still need 10.4 (VCL) and 12 (FMX)
+- Norwegian, Swedish and Danish (`no`, `sv`, `da`): every string translated and a flag each; not offered by default, `Languages` names them; `nb` is understood as `no`
+- `GroundingExcerptWindow` in each model section: the characters kept around each term found in a long page, 600 as before; raise it to keep whole code samples (#5)
+- Actions: `apkObject` and `apkArray` parameters, with a JSON Schema of their own, and `AsJson` to read them; an object no longer reads as an empty string (#8, a patch by drcrck)
+- An API error without a message of the service names the address called and the model: a provider sent to the endpoint of another service shows at a glance (#6)
 
 20 Nov 2026: ver. 2.1.0
 - Actions and skills with a remote engine: the application declares them to its session, the model on the server calls them, and each call comes back to run in the application - its main thread, its confirmation dialog - with only the outcome going to the server. Nothing changes in the code that registers them; it needs the host channel

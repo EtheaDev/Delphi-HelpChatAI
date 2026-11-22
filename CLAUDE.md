@@ -31,6 +31,11 @@ packages/Delphi13/       HelpChatAI, HelpChatAIServer, HelpChatAIVcl, HelpChatAI
                          dclHelpChatAIFmx (design) + groupproj
 packages/Delphi12/       the same six, for Delphi 12
 packages/Delphi11/, packages/Delphi10.4/   the four VCL and engine ones (FMX is Delphi 12+)
+packages/Delphi10.3/, packages/Delphi10.2/   HelpChatAI and HelpChatAIServer only: the engine
+                         compiles from 10.2, the components need 10.4. Their .dpk carry
+                         {$LIBSUFFIX '260'} / '250' (AUTO is 10.4+), so they are the one
+                         exception to "the same .dpk everywhere"; 10.3 is built here, 10.2
+                         is not installed on this machine
 packages/*.ps1           the command-line builds, shaped like those of the MarkdownProcessor:
                          BuildPackages.ps1 (one project, one version), BuildAllPackages.ps1
                          (every package in order, MarkdownProcessor first through its own
@@ -49,7 +54,7 @@ Images/                  the icons as SVG and the PNGs rendered from them (compo
                          delphi-helpchat_24/32.bmp are the flattened ones Delphi 10.4 needs,
                          and HelpChatAI-Box.svg/_256.png is where Setup\HelpChatSetup.ico
                          comes from; providers/ (lobe-icons) and flags/ (circle-flags, one
-                         per language: gb for English, pt for Portuguese) are the SVGs of
+                         per language: gb for English, pt for Portuguese, se for Swedish, dk for Danish) are the SVGs of
                          HelpChatAI.Providers.res
 Setup/                   Setup.iss, BuildSetup.bat and HelpChatSetup.ico, the icon of the
                          installer and of the uninstaller; InnoSetupScripts is an svn:external
@@ -126,8 +131,17 @@ Test/data/               the fixtures: a synthetic help-index.json, and encoding
 resources/               HTML/CSS/JS of the panel (M3)
 ```
 
-Folder naming per Delphi version is `Delphi10.4`, `Delphi11`, `Delphi12`, `Delphi13` (not
-`D12`). Compiler-version defines live in `source/HelpChatAI.inc` (`D10_4+`, `D11+`, `D12+`, `D13+`).
+Folder naming per Delphi version is `Delphi10.2` ... `Delphi13` (not `D12`). Compiler-version
+defines live in `source/HelpChatAI.inc` (`D10_2+`, `D10_3+`, `D10_4+`, `D11+`, `D12+`, `D13+`,
+from `CompilerVersion`); it refuses anything before 10.2, and the components refuse what is
+older than theirs (`Vcl.HelpChatAI`, `Vcl.HelpChatAI.Panel`: 10.4; `FMX.HelpChatAI`: 12) - the
+engine units must not, or an engine-only application of 10.2/10.3 could not build. **What the
+engine takes from the RTL of 10.3+ goes through `HelpChatAI.Types`**: `HelpChatInvariantFormat`
+(not `TFormatSettings.Invariant`), `HelpChatCountChar` (not `string.CountChar`),
+`HelpChatJsonFormat` (not `TJSONValue.Format(2)`), `HelpChatStringArray` (around
+`TDirectory.GetFiles`, a `TStringDynArray` in 10.2); and no `for ... in [a, b]` over strings.
+`THTTPClient.SendTimeout` is `{$IFDEF D10_4+}`. Check an engine change with
+`packages\BuildAllPackagesD10.3.ps1`.
 
 ## Build and test (Delphi 13 = BDS 37.0, `C:\BDS\Studio\37.0`)
 
@@ -330,9 +344,14 @@ the edit on every version, not on the one that happens to be open.
   see them all. The page asks for the list again on `focus`, because the application may
   register a key while it is open. So a catalogue may name every service an application
   supports: each user sees the ones they have a key for.
-- **The language is the engine's too, and the user picks it the same way.** Six of them
+- **The language is the engine's too, and the user picks it the same way.** Nine of them
   (`THelpChatLanguage`, new members **at the end**: a DFM stores the identifier, a
-  configuration file the code). `Settings.Language` is the language of the chat - the strings
+  configuration file the code). Norwegian (`no`, bokmål), Swedish and Danish (2.2) are in
+  `HELPCHAT_ALL_LANGUAGES` but **not** in the default of `Settings.Languages`, which stays the
+  first six: a flag menu does not grow under existing applications, and an application names
+  them. `nb` (what Windows calls bokmål) is read as Norwegian too, `no` is what is written.
+  Their translations were reviewed in a second pass (r237: a Delphi unit is "unit-en", not
+  "enheten"; a screen of the application is "skärmbilden", not "skärmen", the monitor). `Settings.Language` is the language of the chat - the strings
   of the panel and of the engine, and the language the model is told to reply in, **whatever
   language the question is in** (`LanguageRule`: until 1.12 the model followed a user who
   clearly wrote in another language; now the user who wants Italian answers picks Italian);
@@ -532,12 +551,29 @@ the edit on every version, not on the one that happens to be open.
   (`HelpChatVclWorkingForm` / `HelpChatFmxWorkingForm`): with the chat in front, the form the
   user left for it, and the control that form keeps focused (`FLastFocus` for a panel in a
   `Container` of that very form) - it used to fall back to the host form, so "where am I?"
-  asked from a lead window answered with the main form. And it is **pushed again while the
-  panel is open** (VCL: `TrackFocus` on idle when focus form or control changed; FMX: on
-  `TFormActivateMessage`, queued, because the skills note the last form in the same message),
-  not only by `Open`. An `OnGetContext` that rewrites the screen must check
-  `AContext.ScreenType` first, never `Screen.ActiveForm`, which is then the chat (both demos
-  did).
+  asked from a lead window answered with the main form. An `OnGetContext` that rewrites the
+  screen must check `AContext.ScreenType` first, never `Screen.ActiveForm`, which is then the
+  chat (both demos did). **It follows the user by itself** (2.2, `AutoCaptureContext`, default
+  True): while the panel is open, at every idle turn the component builds it - focus, then
+  `OnGetContext` - and pushes it when it is not `SameAs` the last one pushed (`FPushedContext`).
+  So `OnGetContext` runs at every idle turn, and must stay quick. The idle turn is a thread
+  hook, `WH_FOREGROUNDIDLE`, in both coordinators under `{$IFDEF MSWINDOWS}` (FMX elsewhere:
+  `TIdleMessage`, a hook for mobile still to find): `Application.OnIdle` is one slot, the
+  VCL `TMultiCaster` takes it in the `initialization` of `Vcl.AppEvnts`, and an application
+  that assigns it directly - the CRM demo did, in `FormCreate` - took the idle away from every
+  `TApplicationEvents`, ours included, silently. The FMX unit declares the four hook calls
+  itself: `Winapi.Windows` there hides the FireMonkey `TBitmap`. A first version compared a
+  signature of form, frame, pages and tabs (a set property): dropped, because what matters is
+  the resulting context, `OnGetContext` included. **Before every question** the local server
+  asks again (`IHelpChatTransport.SetContextSource`, `FreshenContext` on the HTTP thread:
+  queued to the main thread with a life token, waited for `HELPCHAT_CONTEXT_WAIT_MS`, else the
+  last one); a remote transport ignores it, the question never passes through the
+  application. `RefreshContext` (issue #4) pushes it now, no `BringToFront`, no focus.
+  `Settings.ShowContext` (`cpHide`/`cpShowTop`/`cpShowBottom`, JSON "hide"/"top"/"bottom")
+  shows it in the panel: `window.hcShowContext(text, hint, where)` moves one element
+  (`#hc-context`) under the header or into the footer, the component calls it at every push and
+  on page ready, and the configuration editor draws it in the Appearance preview
+  (`THelpChatPanel.WithContextLine`) with a sample context.
 - **F1 goes through the Delphi help system (VCL).** `THelpChatHelpViewer` (`HelpChatAI.HelpViewer`,
   RTL: ICustomHelpViewer + IExtendedHelpViewer registered via `System.HelpIntfs.RegisterViewer`)
   receives keyword and context requests; the `TApplicationEvents.OnMessage` F1 handler only
@@ -1058,7 +1094,11 @@ the edit on every version, not on the one that happens to be open.
   pages that have some - a flat manual keeps its index byte for byte. `Settings.DocAreas`
   ("Orders, Customers", an array in JSON) goes to `THelpChatDocIndex.Areas` at `Start`;
   `VisibleEntries` keeps the pages of those areas and the pages of none, **before** the scoring,
-  so the idf is the area's. `Count` is still the whole index; `Search` and `Pages` are the
+  so the idf is the area's. The excerpt of a long page is made of windows of
+  `GroundingExcerptWindow` characters around the first hit of each stem (2.2, issue #5: 600,
+  `HELPCHAT_EXCERPT_WINDOW`, used to be fixed and cut code samples in half); the engine copies
+  it to `THelpChatDocIndex.ExcerptWindow` next to `ExcerptMaxChars`, at `Start` and at a
+  switch of model, and `Search` snapshots both under the lock. `Count` is still the whole index; `Search` and `Pages` are the
   area's. `DocFolder` stays the root, so a link across areas still opens in the panel.
 - **An assistant does what its form registers, plus what the application shares, minus what its
   profile forbids.** `HelpChatSharedActions` (`HelpChatAI.Actions`) is a broker of definitions
@@ -1075,6 +1115,16 @@ the edit on every version, not on the one that happens to be open.
   watching the cancellation token; the component marshals with `TThread.Queue` and calls
   `ExecutePending`. Nothing in this path may raise into the provider: every outcome is a
   `THelpChatActionOutcome` turned into a sentence for the model.
+- **A structured parameter is declared with its schema, and read as JSON.** (2.2, issue #8,
+  a patch by drcrck) `apkObject`/`apkArray` are at the end of `THelpChatActionParamKind`;
+  `THelpChatActionParam.Schema` (JSON Schema as text) replaces the bare type when it is one
+  JSON object, `type` and `description` added when missing - anything else is ignored. The
+  args keep an object or an array as its JSON text (its `Value` is empty, so `AsString` was
+  ''), and `AsJson` parses it, also from a string holding JSON (caller frees). Checked live:
+  Claude, Responses, Chat Completions and Gemini, with a schema and without (Gemini took
+  `{"type":"object"}` with no properties as a parameter). The skills still declare `values`
+  as a string and read `RawJson`: switching them is a change of what the model reads, for
+  the benchmark to decide.
 - **An action asks unless told otherwise.** `AConfirm` defaults to True in both `Add`; an
   action that changes nothing (`open_screen`) or asks in its own way (`export_pdf`, whose
   save dialog is the confirmation) passes False explicitly. In the VCL the question goes

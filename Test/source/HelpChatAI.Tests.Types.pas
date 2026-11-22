@@ -15,6 +15,7 @@ type
     [Test] procedure Message_IsCompleted;
     [Test] procedure CancelToken_StartsClear_ThenCancels;
     [Test] procedure Context_IsEmpty;
+    [Test] procedure Context_Summary_NamesTheFieldsItShows;
     [Test] procedure Context_DisplayName_PrefersLabel;
     [Test] procedure Context_SearchHint_JoinsKeywords;
     [Test] procedure JoinUrl_ExactlyOneSlash;
@@ -76,6 +77,25 @@ begin
   Assert.IsTrue(LContext.IsEmpty);
   LContext.HelpContext := 42;
   Assert.IsFalse(LContext.IsEmpty);
+end;
+
+procedure TTypesTests.Context_Summary_NamesTheFieldsItShows;
+var
+  LContext: THelpChatContext;
+begin
+  LContext := Default(THelpChatContext);
+  Assert.AreEqual('', LContext.Summary);
+  LContext.ScreenName := 'LeadsTab';
+  LContext.ScreenType := 'TMainForm';
+  Assert.AreEqual('LeadsTab · TMainForm', LContext.Summary, 'no label: the name');
+  Assert.AreEqual('ScreenName · ScreenType', LContext.SummaryFields);
+  LContext.ScreenLabel := 'Leads';
+  LContext.FocusedControl := 'LeadsGrid';
+  LContext.HelpKeyword := 'Leads';
+  LContext.HelpContext := 110;
+  Assert.AreEqual('Leads · TMainForm · LeadsGrid · Leads · #110', LContext.Summary);
+  Assert.AreEqual('ScreenLabel · ScreenType · FocusedControl · HelpKeyword · HelpContext',
+    LContext.SummaryFields);
 end;
 
 procedure TTypesTests.Context_DisplayName_PrefersLabel;

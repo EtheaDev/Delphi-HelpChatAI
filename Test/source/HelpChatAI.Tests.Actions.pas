@@ -93,6 +93,8 @@ type
     [Test] procedure ToolsJson_EmptyWhenDisabledOrEmpty;
     [Test] procedure Args_ReadsTypesAndMissingOnes;
     [Test] procedure Args_MalformedJsonIsNoArguments;
+    [Test] procedure Args_AnObjectOrAnArray_IsKeptAsJson;
+    [Test] procedure ToolsJson_ObjectAndArrayParams_CarryTheirSchema;
     [Test] procedure Invoke_RunsOnTheHostThread_AndReturnsTheResult;
     [Test] procedure Invoke_UnknownActionIsToldSo;
     [Test] procedure Invoke_TimesOutWhenNobodyExecutes;
@@ -443,6 +445,86 @@ begin
     Assert.AreEqual(0, Integer(Length(LArgs.Names)));
   finally
     LArgs.Free;
+  end;
+end;
+
+procedure TActionsTests.Args_AnObjectOrAnArray_IsKeptAsJson;
+var
+  LArgs: THelpChatActionArgs;
+  LValue: TJSONValue;
+begin
+  LArgs := THelpChatActionArgs.Create(
+    '{"values":{"name":"Rossi","qty":3},"lines":[1,2],"text":"Rossi","wrapped":"{\"a\":1}"}');
+  try
+    // Read as text, an object used to be empty: it is its JSON now.
+    Assert.AreEqual('{"name":"Rossi","qty":3}', LArgs.AsString('values'));
+    Assert.AreEqual('[1,2]', LArgs.AsString('lines'));
+    LValue := LArgs.AsJson('values');
+    try
+      Assert.IsTrue(LValue is TJSONObject);
+      Assert.AreEqual('Rossi', TJSONObject(LValue).GetValue<string>('name'));
+      Assert.AreEqual(3, TJSONObject(LValue).GetValue<Integer>('qty'));
+    finally
+      LValue.Free;
+    end;
+    LValue := LArgs.AsJson('lines');
+    try
+      Assert.IsTrue(LValue is TJSONArray);
+      Assert.AreEqual(2, TJSONArray(LValue).Count);
+    finally
+      LValue.Free;
+    end;
+    // An object sent as a string holding it - models do that too.
+    LValue := LArgs.AsJson('wrapped');
+    try
+      Assert.IsTrue(LValue is TJSONObject);
+    finally
+      LValue.Free;
+    end;
+    Assert.IsNull(LArgs.AsJson('text'), 'plain text is no JSON');
+    Assert.IsNull(LArgs.AsJson('missing'));
+  finally
+    LArgs.Free;
+  end;
+end;
+
+procedure TActionsTests.ToolsJson_ObjectAndArrayParams_CarryTheirSchema;
+var
+  LTools: TJSONArray;
+  LProps, LValues, LTags, LPlain: TJSONObject;
+begin
+  FBroker.Add('fill_order', 'Fills the order.',
+    [THelpChatActionParam.Create('values', 'The fields of the order.', apkObject,
+       '{"type":"object","properties":{"customer":{"type":"string"},' +
+       '"qty":{"type":"integer"}},"required":["customer"]}'),
+     THelpChatActionParam.Create('tags', 'Tags to add.', apkArray,
+       '{"items":{"type":"string"}}', False),
+     THelpChatActionParam.Create('extra', 'Anything else.', apkObject, False),
+     THelpChatActionParam.Create('broken', 'A schema that is not one.', apkObject,
+       '[1,2]', False)],
+    procedure(const AArgs: THelpChatActionArgs; var AResult: string)
+    begin
+    end);
+  LTools := TJSONObject.ParseJSONValue(FBroker.ToolsJson) as TJSONArray;
+  try
+    LProps := (LTools.Items[0] as TJSONObject).GetValue<TJSONObject>('input_schema.properties');
+    LValues := LProps.GetValue<TJSONObject>('values');
+    Assert.AreEqual('object', LValues.GetValue<string>('type'));
+    Assert.AreEqual('The fields of the order.', LValues.GetValue<string>('description'),
+      'the description is added to a schema that has none');
+    Assert.AreEqual('integer', LValues.GetValue<string>('properties.qty.type'));
+    Assert.AreEqual('customer', LValues.GetValue<TJSONArray>('required').Items[0].Value);
+    LTags := LProps.GetValue<TJSONObject>('tags');
+    Assert.AreEqual('array', LTags.GetValue<string>('type'), 'the kind fills a missing type');
+    Assert.AreEqual('string', LTags.GetValue<string>('items.type'));
+    LPlain := LProps.GetValue<TJSONObject>('extra');
+    Assert.AreEqual('object', LPlain.GetValue<string>('type'));
+    Assert.AreEqual(2, LPlain.Count, 'no schema: type and description only');
+    LPlain := LProps.GetValue<TJSONObject>('broken');
+    Assert.AreEqual('object', LPlain.GetValue<string>('type'), 'a schema that is no object is ignored');
+    Assert.AreEqual(2, LPlain.Count);
+  finally
+    LTools.Free;
   end;
 end;
 

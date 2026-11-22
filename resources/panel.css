@@ -304,6 +304,16 @@ body {
 .hc-chat-attachments {
   display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px;
 }
+/* The screen context of the next question (ShowContext): one quiet line,
+   above the question box or, with hc-chat-context-top, under the header */
+.hc-chat-context {
+  margin: 0 0 6px; padding: 0 2px; font-size: 11px; color: var(--hc-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hc-chat-context.hc-chat-context-top {
+  flex: 0 0 auto; margin: 0; padding: 3px 12px; background: var(--hc-surface);
+  border-bottom: 1px solid var(--hc-border);
+}
 .hc-chat-chip {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
   padding: 4px 4px 4px 8px; border: 1px solid var(--hc-border); border-radius: 10px;

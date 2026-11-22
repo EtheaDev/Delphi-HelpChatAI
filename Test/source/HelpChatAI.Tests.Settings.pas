@@ -346,6 +346,7 @@ begin
     LSource.Claude.MaxTokens := 555;
     LSource.Claude.GroundingMaxPages := 1;
     LSource.Claude.GroundingMaxChars := 1234;
+    LSource.Claude.GroundingExcerptWindow := 1500;
     LSource.SystemPrompt := 'Sei Bob.';
     LSource.Expertise := 'Contabilità generale';
     LSource.Instructions := 'Esperto di ordini.';
@@ -401,6 +402,7 @@ begin
     Assert.AreEqual(555, LCopy.Claude.MaxTokens);
     Assert.AreEqual(1, LCopy.Claude.GroundingMaxPages);
     Assert.AreEqual(1234, LCopy.Claude.GroundingMaxChars);
+    Assert.AreEqual(1500, LCopy.Claude.GroundingExcerptWindow);
     Assert.AreEqual('Sei Bob.', LCopy.SystemPrompt);
     Assert.AreEqual('Contabilità generale', LCopy.Expertise);
     Assert.AreEqual('Esperto di ordini.', LCopy.Instructions);

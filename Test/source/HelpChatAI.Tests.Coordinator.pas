@@ -40,6 +40,7 @@ uses
   System.Classes,
   Vcl.Forms,
   DUnitX.TestFramework,
+  HelpChatAI.Types,
   Vcl.HelpChatAI;
 
 type
@@ -48,6 +49,9 @@ type
   strict private
     FConfigFile: string;
     FForms: TList;
+    FShownNode: string;
+    /// <summary>OnGetContext of a host whose tree shows FShownNode.</summary>
+    procedure TreeContext(Sender: TObject; var AContext: THelpChatContext);
     function NewForm(const AName: string): TForm;
     function NewAssistant(const AOwner: TComponent): TVclHelpChatAI;
     /// <summary>Activates AForm as the user would, and says whether Windows
@@ -86,6 +90,8 @@ type
     procedure SelectLanguage_IsWhatEveryAssistantOfTheProfileAnswers;
     [Test]
     procedure Actions_OfAnAssistantThatWentAway_AnswerAtOnce;
+    [Test]
+    procedure RefreshContext_TellsTheEngineWithoutOpeningThePanel;
   end;
 
 implementation
@@ -426,6 +432,30 @@ begin
   LTick := GetTickCount;
   Assert.AreEqual(Ord(aoCancelled), Ord(LActions.Invoke('create_order', '{}', nil, LResult)));
   Assert.IsTrue(GetTickCount - LTick < 2000, 'answered at once, not after the timeout');
+end;
+
+procedure TCoordinatorTests.TreeContext(Sender: TObject; var AContext: THelpChatContext);
+begin
+  AContext.ScreenLabel := FShownNode;
+end;
+
+procedure TCoordinatorTests.RefreshContext_TellsTheEngineWithoutOpeningThePanel;
+var
+  LAssistant: TVclHelpChatAI;
+begin
+  // A panel docked in the host, and a tree whose selection changes under the
+  // same focus: nothing tells the component, so the host does.
+  LAssistant := NewAssistant(NewForm('Scheduler'));
+  LAssistant.OnGetContext := TreeContext;
+  LAssistant.Active := True;
+  FShownNode := 'Event 1';
+  LAssistant.RefreshContext;
+  Assert.AreEqual('Event 1', LAssistant.Transport.GetContext.ScreenLabel);
+  FShownNode := 'Event 2';
+  LAssistant.RefreshContext;
+  Assert.AreEqual('Event 2', LAssistant.Transport.GetContext.ScreenLabel,
+    'the next question is about the node shown now');
+  Assert.IsFalse(LAssistant.IsPanelVisible, 'and the panel was never opened');
 end;
 
 initialization

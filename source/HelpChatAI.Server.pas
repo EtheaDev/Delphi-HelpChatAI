@@ -98,6 +98,11 @@ const
   /// application. A larger one is refused with 413 from its headers, before
   /// a byte of it is read - and before anybody is asked who they are.</summary>
   HELPCHAT_SERVER_MAX_BODY_BYTES = 1024 * 1024;
+  /// <summary>How long a question waits for the main thread to build the
+  /// context of this moment (<c>SetContextSource</c>): past it, the last
+  /// context given is used. A main thread busy for longer is not a reason
+  /// to hold the question.</summary>
+  HELPCHAT_CONTEXT_WAIT_MS = 1500;
   /// <summary>What a request that carries an attachment may be larger than
   /// <c>Settings.Attachments.MaxSizeKB</c> by.</summary>
   HELPCHAT_SERVER_ATTACH_MARGIN_BYTES = 64 * 1024;
@@ -311,6 +316,10 @@ type
     /// <summary>True when there is a host in this process that can print a
     /// document and ask the user where to put it.</summary>
     function HasPdfHost: Boolean; virtual;
+    /// <summary>Brings the context of ASession up to date just before a
+    /// question is answered: nothing here, the host of a local server is
+    /// asked (<c>SetContextSource</c>).</summary>
+    procedure FreshenContext(const ASession: THelpChatServerSession); virtual;
     /// <summary>Whether a client may declare actions of its own to its
     /// session (<c>POST /api/actions</c>). False here: the host of a local
     /// server hands its broker over directly.</summary>
@@ -402,10 +411,11 @@ type
     FActions: IHelpChatActionInvoker;
     FOnUiCommand: THelpChatUiCommandEvent;
     FOnPdfRequest: THelpChatPdfRequestEvent;
+    FContextSource: THelpChatContextSource;
     /// <summary>One per handler in force: a call queued for a handler that
     /// was replaced or taken away since - the component deactivated, or is
     /// gone - finds its token dead and does nothing.</summary>
-    FUiLife, FPdfLife: IHelpChatLifeToken;
+    FUiLife, FPdfLife, FContextLife: IHelpChatLifeToken;
   strict protected
     function SessionByToken(const AToken: string): THelpChatServerSession; override;
     function HostMayRunAnyCommand: Boolean; override;
@@ -414,6 +424,7 @@ type
     function HandlePdfRequest(const ASession: THelpChatServerSession;
       const AKind, AId: string): Boolean; override;
     function HasPdfHost: Boolean; override;
+    procedure FreshenContext(const ASession: THelpChatServerSession); override;
   public
     constructor Create(const AEngine: THelpChatEngine; const AOwnsEngine: Boolean = False); override;
     destructor Destroy; override;
@@ -438,6 +449,7 @@ type
     function GetEngine: THelpChatEngine;
     procedure SetOnUiCommand(const AHandler: THelpChatUiCommandEvent);
     procedure SetOnPdfRequest(const AHandler: THelpChatPdfRequestEvent);
+    procedure SetContextSource(const ASource: THelpChatContextSource);
 
     /// <summary>Secret required in the token header (generated at Start).</summary>
     function Token: string;
@@ -1162,6 +1174,11 @@ begin
   Result := False;
 end;
 
+procedure THelpChatHttpServerBase.FreshenContext(const ASession: THelpChatServerSession);
+begin
+  // Nobody to ask: a remote server keeps what its client posted.
+end;
+
 procedure THelpChatHttpServerBase.LogCommand(const AEngine: THelpChatEngine;
   const AKey, AName, AArgs, AOutcome: string; const AFromHost: Boolean;
   const AAnswer: string);
@@ -1231,8 +1248,9 @@ begin
       Exit;
     end;
     LMessage := FormField(LBody, HELPCHAT_FIELD_MESSAGE);
-    // The screen context is the native one; a client may still send its own
-    // fields, which win when present.
+    // The screen context is the native one, of this moment when the host can
+    // say it; a client may still send its own fields, which win when present.
+    FreshenContext(ASession);
     LContext := ASession.GetContext;
     LValue := FormField(LBody, 'screenName');
     if LValue <> '' then
@@ -1598,6 +1616,8 @@ begin
     FUiLife.Kill;
   if Assigned(FPdfLife) then
     FPdfLife.Kill;
+  if Assigned(FContextLife) then
+    FContextLife.Kill;
   FreeAndNil(FSession);
   FreeAndNil(FLock);
   inherited;
@@ -1811,6 +1831,101 @@ begin
   finally
     FLock.Leave;
   end;
+end;
+
+procedure THelpChatLocalServer.SetContextSource(const ASource: THelpChatContextSource);
+begin
+  FLock.Enter;
+  try
+    if Assigned(FContextLife) then
+      FContextLife.Kill;
+    FContextLife := THelpChatLifeToken.Create;
+    FContextSource := ASource;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+type
+  /// <summary>One request of the context to the main thread. Reference
+  /// counted: the closure queued for the main thread holds it too, so a
+  /// question that stopped waiting leaves it to whoever touches it last.</summary>
+  IContextRequest = interface
+    procedure Answer(const AContext: THelpChatContext);
+    function Wait(const AMs: Cardinal; out AContext: THelpChatContext): Boolean;
+  end;
+
+  TContextRequest = class(TInterfacedObject, IContextRequest)
+  strict private
+    FEvent: TEvent;
+    FContext: THelpChatContext;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Answer(const AContext: THelpChatContext);
+    function Wait(const AMs: Cardinal; out AContext: THelpChatContext): Boolean;
+  end;
+
+constructor TContextRequest.Create;
+begin
+  inherited Create;
+  FEvent := TEvent.Create(nil, True, False, '');
+end;
+
+destructor TContextRequest.Destroy;
+begin
+  FEvent.Free;
+  inherited;
+end;
+
+procedure TContextRequest.Answer(const AContext: THelpChatContext);
+begin
+  FContext := AContext;
+  FEvent.SetEvent;
+end;
+
+function TContextRequest.Wait(const AMs: Cardinal; out AContext: THelpChatContext): Boolean;
+begin
+  // The event orders the write of the context before this read.
+  Result := FEvent.WaitFor(AMs) = wrSignaled;
+  if Result then
+    AContext := FContext;
+end;
+
+procedure THelpChatLocalServer.FreshenContext(const ASession: THelpChatServerSession);
+var
+  LSource: THelpChatContextSource;
+  LLife: IHelpChatLifeToken;
+  LRequest: IContextRequest;
+  LContext: THelpChatContext;
+begin
+  FLock.Enter;
+  try
+    LSource := FContextSource;
+    LLife := FContextLife;
+  finally
+    FLock.Leave;
+  end;
+  if not Assigned(LSource) then
+    Exit;
+  if TThread.CurrentThread.ThreadID = MainThreadID then
+    LContext := LSource()
+  else
+  begin
+    LRequest := TContextRequest.Create;
+    TThread.Queue(nil,
+      procedure
+      begin
+        if (LLife = nil) or LLife.IsAlive then
+          LRequest.Answer(LSource());
+      end);
+    // Not answered in time: the main thread is busy (a modal loop that
+    // dispatches nothing, a long handler). The question goes on with the
+    // context the host gave last.
+    if not LRequest.Wait(HELPCHAT_CONTEXT_WAIT_MS, LContext) then
+      Exit;
+  end;
+  SetContext(LContext);
 end;
 
 function THelpChatLocalServer.HasPdfHost: Boolean;

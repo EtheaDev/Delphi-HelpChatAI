@@ -58,6 +58,10 @@ unit FMX.HelpChatAI;
 
 {$I HelpChatAI.inc}
 
+{$IFNDEF D12+}
+  {$MESSAGE ERROR 'The HelpChat FireMonkey components require Delphi 12 Athens or later (the engine compiles from 10.2)'}
+{$ENDIF}
+
 interface
 
 uses
@@ -214,6 +218,10 @@ type
     FHandleF1: Boolean;
     FRegisterHelpViewer: Boolean;
     FShowBubble: Boolean;
+    /// <summary>The context last given to the transport: what an idle turn
+    /// compares the context of the moment with.</summary>
+    FPushedContext: THelpChatContext;
+    FAutoCaptureContext: Boolean;
     FBubbleDraggable: Boolean;
     // A left button went down on the bubble and has not come up yet; whether
     // that press moved it (then the click it ends is not a click: reset at
@@ -478,6 +486,18 @@ type
     /// user asks about is the one they left for the chat, not the one it
     /// opened on.</summary>
     procedure CoordinatorFormActivated;
+    /// <summary>An idle turn of the application: while the panel is open,
+    /// the transport gets the context of now when it differs from the last
+    /// one given.</summary>
+    procedure CoordinatorIdle;
+    /// <summary>Gives the transport AContext, and shows it (ShowContext).</summary>
+    procedure PushContext(const AContext: THelpChatContext);
+    /// <summary>Writes AContext above the question box, or hides the line
+    /// when ShowContext is off.</summary>
+    procedure ShowContextLine(const AContext: THelpChatContext);
+    /// <summary>What the local server asks, on the main thread, when a
+    /// question arrives: the context of this moment.</summary>
+    function FreshContext: THelpChatContext;
   protected
     /// <summary>Applies an <c>Active</c> read from the form file, which
     /// <c>SetActive</c> only remembered while loading. Never at design
@@ -540,6 +560,14 @@ type
     class function CurrentAssistant: TFmxHelpChatAI; static;
     /// <summary>Opens the panel (starts the engine and the server if needed).</summary>
     procedure Open;
+    /// <summary>Builds the screen context again (<c>OnGetContext</c>
+    /// included) and hands it to the engine, without opening the panel or
+    /// moving the focus. The component does it by itself when the focus
+    /// moves to another form or control; call it when what the screen shows
+    /// changes under the same focus - another node of a tree, another record
+    /// - so that the next question is asked about it. Nothing happens while
+    /// the component is not active.</summary>
+    procedure RefreshContext;
     /// <summary>Opens the panel and sends AQuestion, or pre-fills it when ASend is False.</summary>
     procedure OpenWithQuestion(const AQuestion: string; const ASend: Boolean = True);
     /// <summary>Opens the panel with the localized question about the current screen.</summary>
@@ -745,6 +773,16 @@ type
     /// <summary>Round button with the assistant icon, in the bottom-right
     /// corner of the host form.</summary>
     property ShowBubble: Boolean read FShowBubble write SetShowBubble default True;
+    /// <summary>While the panel is open, at every idle turn of the
+    /// application the context is built - from the focus, then by
+    /// <c>OnGetContext</c> when assigned - and given to the engine when it
+    /// differs from the last one: changing form, page or record shows in the
+    /// chat at once, with no code in the application. False leaves it to
+    /// opening the panel, to <c>RefreshContext</c> and to the question,
+    /// which builds it again anyway. With it on, <c>OnGetContext</c> runs at
+    /// every idle turn: keep it quick.</summary>
+    property AutoCaptureContext: Boolean read FAutoCaptureContext
+      write FAutoCaptureContext default True;
     /// <summary>The user may drag the bubble to another place of its form:
     /// it keeps its distance from the corner it is nearest to, and with
     /// RememberPanelPosition it is found there again, per form.
@@ -976,6 +1014,12 @@ type
     FHelpViewer: THelpChatHelpViewer;
     FHelpViewerIntf: IInterface;
     FActivateId: Integer;
+    {$IFDEF MSWINDOWS}
+    FIdleHook: NativeUInt;   // HHOOK
+    {$ELSE}
+    FIdleId: Integer;
+    procedure ApplicationIdle(const Sender: TObject; const M: TMessage);
+    {$ENDIF}
     procedure FormActivated(const Sender: TObject; const M: TMessage);
     /// <summary>True when AItem is a candidate for ANeed.</summary>
     function Accepts(const AItem: TFmxHelpChatAI; const ANeed: TFmxHelpChatNeed): Boolean;
@@ -999,6 +1043,12 @@ type
     /// <summary>A form became active: if an assistant lives on it, that
     /// assistant moves to the front.</summary>
     procedure Activated(const AForm: TCommonCustomForm);
+    /// <summary>The application is about to wait for messages. On Windows a
+    /// thread hook (<c>WH_FOREGROUNDIDLE</c>) says it, whatever the
+    /// application does with <c>Application.OnIdle</c>; elsewhere
+    /// <c>TIdleMessage</c>, until the mobile platforms get a hook of their
+    /// own.</summary>
+    procedure Idle;
     /// <summary>The assistant of the active form, else the most recently
     /// active one, among those that take F1.</summary>
     function F1Target: TFmxHelpChatAI;
@@ -1017,6 +1067,50 @@ var
   // The coordinator of the process: created by the first assistant that
   // activates, freed when the last one deactivates (or at finalization).
   GCoordinator: TFmxHelpChatCoordinator;
+
+{$IFDEF MSWINDOWS}
+// The four calls of the idle hook, declared here: Winapi.Windows in this
+// unit would hide the TBitmap of FireMonkey behind the one of GDI.
+type
+  HHOOK = NativeUInt;
+  THookProc = function(ACode: Integer; AWParam: NativeUInt; ALParam: NativeInt): NativeInt; stdcall;
+
+const
+  WH_FOREGROUNDIDLE = 11;
+  HC_ACTION = 0;
+
+function SetWindowsHookEx(AIdHook: Integer; AProc: THookProc; AModule: NativeUInt;
+  AThreadId: Cardinal): HHOOK; stdcall; external 'user32.dll' name 'SetWindowsHookExW';
+function UnhookWindowsHookEx(AHook: HHOOK): LongBool; stdcall;
+  external 'user32.dll' name 'UnhookWindowsHookEx';
+function CallNextHookEx(AHook: HHOOK; ACode: Integer; AWParam: NativeUInt;
+  ALParam: NativeInt): NativeInt; stdcall; external 'user32.dll' name 'CallNextHookEx';
+function GetCurrentThreadId: Cardinal; stdcall;
+  external 'kernel32.dll' name 'GetCurrentThreadId';
+
+var
+  GInForegroundIdle: Boolean;
+
+/// <summary>WH_FOREGROUNDIDLE, for the main thread only: Windows calls it
+/// when the thread is about to wait for a message. Nothing may escape a hook.</summary>
+function HelpChatFmxForegroundIdle(ACode: Integer; AWParam: NativeUInt; ALParam: NativeInt): NativeInt; stdcall;
+begin
+  if (ACode = HC_ACTION) and Assigned(GCoordinator) and not GInForegroundIdle then
+  begin
+    GInForegroundIdle := True;
+    try
+      try
+        GCoordinator.Idle;
+      except
+        Application.HandleException(GCoordinator);
+      end;
+    finally
+      GInForegroundIdle := False;
+    end;
+  end;
+  Result := CallNextHookEx(0, ACode, AWParam, ALParam);
+end;
+{$ENDIF}
 
 type
   // The OnKeyDown of a form, chained once for all the assistants hosted on
@@ -1179,11 +1273,24 @@ begin
   FItems := TList<TFmxHelpChatAI>.Create;
   FActivateId := TMessageManager.DefaultManager.SubscribeToMessage(TFormActivateMessage,
     FormActivated);
+  {$IFDEF MSWINDOWS}
+  FIdleHook := SetWindowsHookEx(WH_FOREGROUNDIDLE, HelpChatFmxForegroundIdle, 0,
+    GetCurrentThreadId);
+  {$ELSE}
+  FIdleId := TMessageManager.DefaultManager.SubscribeToMessage(TIdleMessage,
+    ApplicationIdle);
+  {$ENDIF}
 end;
 
 destructor TFmxHelpChatCoordinator.Destroy;
 begin
   TMessageManager.DefaultManager.Unsubscribe(TFormActivateMessage, FActivateId);
+  {$IFDEF MSWINDOWS}
+  if FIdleHook <> 0 then
+    UnhookWindowsHookEx(FIdleHook);
+  {$ELSE}
+  TMessageManager.DefaultManager.Unsubscribe(TIdleMessage, FIdleId);
+  {$ENDIF}
   if Assigned(FHelpViewer) then
   begin
     FHelpViewer.Unregister;
@@ -1198,6 +1305,21 @@ procedure TFmxHelpChatCoordinator.FormActivated(const Sender: TObject; const M: 
 begin
   if M is TFormActivateMessage then
     Activated(TFormActivateMessage(M).Value);
+end;
+
+{$IFNDEF MSWINDOWS}
+procedure TFmxHelpChatCoordinator.ApplicationIdle(const Sender: TObject; const M: TMessage);
+begin
+  Idle;
+end;
+{$ENDIF}
+
+procedure TFmxHelpChatCoordinator.Idle;
+var
+  LItem: TFmxHelpChatAI;
+begin
+  for LItem in FItems.ToArray do
+    LItem.CoordinatorIdle;
 end;
 
 procedure TFmxHelpChatCoordinator.Activated(const AForm: TCommonCustomForm);
@@ -1369,6 +1491,7 @@ begin
   FEnabledCommands := HELPCHAT_DEF_COMMANDS;
   FRegisterHelpViewer := True;
   FShowBubble := True;
+  FAutoCaptureContext := True;
   FBubbleDraggable := True;
   FImageIndex := -1;
   FRememberPanelPosition := True;
@@ -1484,6 +1607,7 @@ begin
   AssistantName := LSource.AssistantName;
   EnabledCommands := LSource.EnabledCommands;
   ShowBubble := LSource.ShowBubble;
+  AutoCaptureContext := LSource.AutoCaptureContext;
   BubbleDraggable := LSource.BubbleDraggable;
   BubbleStayOnTop := LSource.BubbleStayOnTop;
   // The list before the index and the name, which are checked against it.
@@ -1657,6 +1781,7 @@ begin
       FTransport.SetActions(FActionsRef);
       FTransport.SetOnUiCommand(UiCommand);
       FTransport.SetOnPdfRequest(PdfRequest);
+      FTransport.SetContextSource(FreshContext);
       RegisterPdfAction;
       FTransport.Start;
     except
@@ -1722,6 +1847,7 @@ begin
     begin
       FTransport.SetOnUiCommand(nil);
       FTransport.SetOnPdfRequest(nil);
+      FTransport.SetContextSource(nil);
       // Ours, so ours to take away: what the application registered stays.
       if Assigned(FActions) then
         FActions.Remove(HELPCHAT_PDF_ACTION);
@@ -2874,6 +3000,9 @@ begin
   if FActive then
   begin
     ApplyTheme;
+    // A reloaded page lost the line of the context.
+    if (FSettings.ShowContext <> cpHide) and Assigned(FTransport) then
+      ShowContextLine(FTransport.GetContext);
     if Assigned(FView) and FView.ParentedVisible then
       FView.FocusInput;
   end;
@@ -3059,6 +3188,13 @@ begin
   OpenWithContext(BuildContext);
 end;
 
+procedure TFmxHelpChatAI.RefreshContext;
+begin
+  // A remote transport sends a context only when it changed.
+  if FActive and Assigned(FTransport) then
+    PushContext(BuildContext);
+end;
+
 procedure TFmxHelpChatAI.OpenWithContext(const AContext: THelpChatContext);
 var
   LPanelUrl: string;
@@ -3072,7 +3208,7 @@ begin
   // and no transport to give the context to.
   if not FActive or (FTransport = nil) then
     Exit;
-  FTransport.SetContext(AContext);
+  PushContext(AContext);
   LogUi(llDetail, lsInfo, lcUi, 'Panel opened');
   LogUi(llDebug, lsInfo, lcUi, Format('Screen context: name %s, label "%s", class %s, ' +
     'control %s, keyword "%s", context %d', [AContext.ScreenName, AContext.ScreenLabel,
@@ -3373,7 +3509,7 @@ procedure TFmxHelpChatAI.CoordinatorFormActivated;
 var
   LLife: IHelpChatLifeToken;
 begin
-  if not FActive or not IsPanelVisible then
+  if not FActive or not FAutoCaptureContext or not IsPanelVisible then
     Exit;
   // The message arrives while the form is being activated, before the
   // skills have noted it as the last one: asked now, the working form could
@@ -3383,8 +3519,73 @@ begin
     procedure
     begin
       if LLife.IsAlive and FActive and Assigned(FTransport) and IsPanelVisible then
-        FTransport.SetContext(BuildContext);
+        PushContext(BuildContext);
     end);
+end;
+
+procedure TFmxHelpChatAI.CoordinatorIdle;
+var
+  LContext: THelpChatContext;
+begin
+  // The context of now, from the focus and then from OnGetContext, given
+  // only when it is news. Only while the panel is open: closed, the next
+  // Open builds it anyway, and a question builds it again before it is
+  // answered.
+  if FActive and FAutoCaptureContext and IsPanelVisible and Assigned(FTransport) then
+  begin
+    LContext := BuildContext;
+    if not LContext.SameAs(FPushedContext) then
+      PushContext(LContext);
+  end;
+end;
+
+procedure TFmxHelpChatAI.PushContext(const AContext: THelpChatContext);
+begin
+  if not Assigned(FTransport) then
+    Exit;
+  FTransport.SetContext(AContext);
+  FPushedContext := AContext;
+  ShowContextLine(AContext);
+end;
+
+const
+  /// <summary>What <c>window.hcShowContext</c> calls each position.</summary>
+  CONTEXT_WHERE: array[THelpChatContextPosition] of string = ('', 'top', 'bottom');
+
+procedure TFmxHelpChatAI.ShowContextLine(const AContext: THelpChatContext);
+
+  function JsText(const AValue: string): string;
+  var
+    LJson: TJSONString;
+  begin
+    LJson := TJSONString.Create(AValue);
+    try
+      Result := LJson.ToJSON;
+    finally
+      LJson.Free;
+    end;
+  end;
+
+begin
+  if not Assigned(FView) then
+    Exit;
+  // Settings.ShowContext, as the component was configured: the files and
+  // the profile included.
+  if FSettings.ShowContext <> cpHide then
+    FView.RunScript('window.hcShowContext && window.hcShowContext(' +
+      JsText(AContext.Summary) + ', ' + JsText(AContext.SummaryFields) + ', ' +
+      JsText(CONTEXT_WHERE[FSettings.ShowContext]) + ');')
+  else
+    FView.RunScript('window.hcShowContext && window.hcShowContext('''');');
+end;
+
+function TFmxHelpChatAI.FreshContext: THelpChatContext;
+begin
+  // On the main thread, asked by the local server as a question arrives:
+  // whatever changed without anybody saying so is caught here.
+  Result := BuildContext;
+  FPushedContext := Result;
+  ShowContextLine(Result);
 end;
 
 function TFmxHelpChatAI.IsPanelVisible: Boolean;

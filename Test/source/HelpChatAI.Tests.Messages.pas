@@ -149,6 +149,10 @@ begin
   Assert.AreEqual(hclPortuguese, L);
   Assert.IsTrue(HelpChatLanguageFromCode('auto', L));
   Assert.AreEqual(hclAuto, L);
+  // Bokmal is Norwegian, and what is written back is still "no".
+  Assert.IsTrue(HelpChatLanguageFromCode('NB', L));
+  Assert.AreEqual(hclNorwegian, L);
+  Assert.AreEqual('no', HelpChatLanguageCode(L));
   Assert.IsFalse(HelpChatLanguageFromCode('klingon', L));
   Assert.IsFalse(HelpChatLanguageFromCode('', L));
   for L in HELPCHAT_ALL_LANGUAGES do

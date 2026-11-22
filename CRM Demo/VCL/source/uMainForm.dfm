@@ -6481,6 +6481,7 @@ object MainForm: TMainForm
     Top = 544
   end
   object HelpChat: TVclHelpChatAI
+    Settings.ShowContext = cpShowBottom
     Settings.Provider = 'claude'
     Settings.Expertise = 
       'B2B sales and customer relationship management: leads and the sa' +
@@ -6499,6 +6500,7 @@ object MainForm: TMainForm
         Provider = 'openai'
       end>
     Settings.Language = hclEnglish
+    Settings.Languages = [hclEnglish, hclItalian, hclSpanish, hclFrench, hclGerman, hclPortuguese, hclNorwegian, hclSwedish, hclDanish]
     Settings.DocLanguage = hclEnglish
     Settings.DocIndexFile = '..\..\Help\help-index.json'
     Settings.Skills = 'forms, commands, records, pages'

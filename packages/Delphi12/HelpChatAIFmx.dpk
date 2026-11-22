@@ -1,12 +1,12 @@
 ﻿{******************************************************************************}
 {                                                                              }
-{       HelpChatAI: an in-app AI Help Chat component for Delphi (VCL and FMX)    }
+{       HelpChatAI: an in-app AI Help Chat component for Delphi (VCL and FMX)  }
 {       Runtime package: FMX component (TWebBrowser).                          }
 {                                                                              }
 {       Copyright (c) 2026 (Ethea S.r.l.)                                      }
 {       Author: Carlo Barazzetta                                               }
 {                                                                              }
-{       https://github.com/EtheaDev/Delphi-HelpChatAI                            }
+{       https://github.com/EtheaDev/Delphi-HelpChatAI                          }
 {                                                                              }
 {       Licensed under the Apache License, Version 2.0                         }
 {                                                                              }
