@@ -102,7 +102,6 @@ uses
 const
   HELPCHAT_VCL_DEF_PANEL_WIDTH = 400;
   HELPCHAT_VCL_DEF_PANEL_HEIGHT = 600;
-  HELPCHAT_VCL_DEF_BUBBLE_SIZE = 44;
   HELPCHAT_VCL_MARGIN = 16;
   /// <summary>The same question within this interval (key auto-repeat, F1 routed
   /// twice) is shown but not sent again.</summary>
@@ -241,6 +240,7 @@ type
     FShowBubble: Boolean;
     FBubbleDraggable: Boolean;
     FBubbleStayOnTop: Boolean;
+    FBubbleSize: Integer;
     /// <summary>Where the bubble is, kept for a floating bubble, which has no
     /// anchors to follow its form by and is placed again when it moves.</summary>
     FBubblePlace: THelpChatBubblePlace;
@@ -253,6 +253,7 @@ type
     FOnPdfInfo: THelpChatPdfInfoEvent;
     FOnDecryptSecret: THelpChatSecretEvent;
     FOnBuildSystemPrompt: THelpChatBuildPromptEvent;
+    FOnSearchDocs: THelpChatSearchDocsEvent;
     FOnLogEvent: THelpChatLogEvent;
     FCaption: string;
     FAssistantName: string;
@@ -306,6 +307,7 @@ type
     procedure SetSettings(const Value: THelpChatSettings);
     procedure SetOnDecryptSecret(const Value: THelpChatSecretEvent);
     procedure SetOnBuildSystemPrompt(const Value: THelpChatBuildPromptEvent);
+    procedure SetOnSearchDocs(const Value: THelpChatSearchDocsEvent);
     procedure SetOnLogEvent(const Value: THelpChatLogEvent);
     /// <summary>One entry of the log through the settings in force (the
     /// engine's while active, which carry its level).</summary>
@@ -324,6 +326,7 @@ type
     procedure SetShowBubble(const Value: Boolean);
     procedure SetBubbleDraggable(const Value: Boolean);
     procedure SetBubbleStayOnTop(const Value: Boolean);
+    procedure SetBubbleSize(const Value: Integer);
     /// <summary>The form the bubble is on: its parent, or the form a floating
     /// bubble belongs to.</summary>
     function BubbleHost: TWinControl;
@@ -582,8 +585,9 @@ type
     /// <summary>Hides the panel (the chat stays loaded, the conversation
     /// stays).</summary>
     procedure Close;
-    /// <summary>Opens the panel when it is hidden, hides it when it is shown:
-    /// what the bubble does.</summary>
+    /// <summary>Opens the panel when it is hidden, hides it when it is
+    /// shown. The bubble no longer does this (2.2.1): its click always
+    /// opens the chat and brings it to the front.</summary>
     procedure Toggle;
     /// <summary>Takes the bubble back to the bottom-right corner of its form
     /// and forgets the place the user dragged it to.</summary>
@@ -725,6 +729,13 @@ type
     /// stays behind its windows. Ignored on any other form, whose bubble is
     /// always a part of its form.</summary>
     property BubbleStayOnTop: Boolean read FBubbleStayOnTop write SetBubbleStayOnTop default False;
+    /// <summary>Diameter of the bubble, 44 by default: pixels at 96 DPI,
+    /// scaled with the DPI of its form. The icon (or the question mark) grows
+    /// with it. Kept between HELPCHAT_BUBBLE_MIN_SIZE (24) and
+    /// HELPCHAT_BUBBLE_MAX_SIZE (256); a bubble already shown is made again
+    /// at the new size, in the same place.</summary>
+    property BubbleSize: Integer read FBubbleSize write SetBubbleSize
+      default HELPCHAT_BUBBLE_DEF_SIZE;
     /// <summary>Image list holding the bubble icon; nil uses the icons
     /// compiled into the component (HELPCHAT_ICON_* names). The same icon is
     /// drawn in the header of the chat panel, left of AssistantName.</summary>
@@ -815,6 +826,16 @@ type
     /// <c>OnDecryptSecret</c>. See <see cref="THelpChatBuildPromptEvent" />.</summary>
     property OnBuildSystemPrompt: THelpChatBuildPromptEvent read FOnBuildSystemPrompt
       write SetOnBuildSystemPrompt;
+    /// <summary>The last word on every search of the documentation (2.3,
+    /// issue #10): the pages the index found arrive in <c>APages</c>, best
+    /// first, and the handler may reorder, drop, add or replace them - or
+    /// fill them from a retriever of its own. <c>AIndex</c> is the index, to
+    /// search again. <b>It runs on a worker thread</b>, like
+    /// <c>OnBuildSystemPrompt</c>; assign it before <c>Active</c>. How the
+    /// index itself ranks is <c>Settings.SearchRanking</c>. See
+    /// <see cref="THelpChatSearchDocsEvent" />.</summary>
+    property OnSearchDocs: THelpChatSearchDocsEvent read FOnSearchDocs
+      write SetOnSearchDocs;
     /// <summary>Every entry of the log of this assistant, at the level of
     /// <c>Settings.LogLevel</c> (llInfo by default; a configuration file may
     /// raise it). <b>It runs on the thread that wrote the entry</b> - often a
@@ -1456,6 +1477,7 @@ begin
   FShowBubble := True;
   FAutoCaptureContext := True;
   FBubbleDraggable := True;
+  FBubbleSize := HELPCHAT_BUBBLE_DEF_SIZE;
   FVoiceEngine := hveSystemDictation;
   FFollowVclStyle := True;
   FRememberPanelPosition := True;
@@ -1545,6 +1567,7 @@ begin
   // decrypts its secrets and on which assistant it is.
   FSettings.SetSecretHandler(FOnDecryptSecret, Self);
   FSettings.SetPromptHandler(FOnBuildSystemPrompt, Self);
+  FSettings.SetSearchHandler(FOnSearchDocs, Self);
   FSettings.SetLogHandler(FOnLogEvent, Self);
   FSettings.Profile := FProfile;
 end;
@@ -1572,6 +1595,7 @@ begin
   AutoCaptureContext := LSource.AutoCaptureContext;
   BubbleDraggable := LSource.BubbleDraggable;
   BubbleStayOnTop := LSource.BubbleStayOnTop;
+  BubbleSize := LSource.BubbleSize;
   // The list before the index and the name, which are checked against it.
   Images := LSource.Images;
   ImageIndex := LSource.ImageIndex;
@@ -1616,6 +1640,12 @@ procedure TVclHelpChatAI.SetOnBuildSystemPrompt(const Value: THelpChatBuildPromp
 begin
   FOnBuildSystemPrompt := Value;
   FSettings.SetPromptHandler(Value, Self);
+end;
+
+procedure TVclHelpChatAI.SetOnSearchDocs(const Value: THelpChatSearchDocsEvent);
+begin
+  FOnSearchDocs := Value;
+  FSettings.SetSearchHandler(Value, Self);
 end;
 
 procedure TVclHelpChatAI.SetOnLogEvent(const Value: THelpChatLogEvent);
@@ -2029,7 +2059,7 @@ begin
   // the bubble waits for the next idle turn (CoordinatorIdle).
   if FBubbleStayOnTop and (Application.MainForm = nil) then
     Exit;
-  LSize := LHost.ScaleValue(HELPCHAT_VCL_DEF_BUBBLE_SIZE);
+  LSize := LHost.ScaleValue(FBubbleSize);
   // A windowed control, not a TSpeedButton: a graphic control is painted on
   // the canvas of its parent and always stays below every windowed sibling,
   // so in a real application the bubble ended up hidden behind a grid or a
@@ -2287,7 +2317,7 @@ begin
       Exit;
     // Not a child, so the VCL does not rescale it: the size follows the DPI
     // of the form, on whatever monitor it is now.
-    LSize := TCustomForm(LParent).ScaleValue(HELPCHAT_VCL_DEF_BUBBLE_SIZE);
+    LSize := TCustomForm(LParent).ScaleValue(FBubbleSize);
     LScale := TCustomForm(LParent).CurrentPPI / 96;
     LWork := TCustomForm(LParent).Monitor.WorkareaRect;
     APlace.ToPosition(LSize, LParent.ClientWidth, LParent.ClientHeight, LScale,
@@ -2389,9 +2419,32 @@ begin
   end;
 end;
 
+procedure TVclHelpChatAI.SetBubbleSize(const Value: Integer);
+var
+  LValue: Integer;
+begin
+  LValue := EnsureRange(Value, HELPCHAT_BUBBLE_MIN_SIZE, HELPCHAT_BUBBLE_MAX_SIZE);
+  if LValue = FBubbleSize then
+    Exit;
+  FBubbleSize := LValue;
+  if csDesigning in ComponentState then
+    Exit;
+  // Made again: the size is decided where the bubble is created and placed,
+  // and the place it was in is kept (FBubblePlace, or the remembered one).
+  if Assigned(FBubble) then
+  begin
+    DestroyBubble;
+    EnsureBubble;
+  end;
+end;
+
 procedure TVclHelpChatAI.BubbleClick(Sender: TObject);
 begin
-  Toggle;
+  // Always opens, and brings the chat to the front: a chat that is shown may
+  // be hidden behind a form opened over it (a modal one, with a floating
+  // bubble still clickable), and a click that closed it would look like a
+  // click that did nothing. The chat is closed by its own X, or Escape.
+  Open;
 end;
 
 procedure TVclHelpChatAI.EnsureView;
@@ -3176,8 +3229,14 @@ begin
   LTheme := BuildTheme;
   FTransport.SetTheme(LTheme);      // the next page load gets it in the :root rule
   LogUi(llDebug, lsInfo, lcUi, 'Theme pushed to the panel');
-  if Assigned(FView) and FView.PageReady then
-    FView.RunScript('window.hcApplyTheme && window.hcApplyTheme(' + LTheme.ToJson + ');');
+  if Assigned(FView) then
+  begin
+    // What shows before the page has loaded, and while the window is
+    // resized: the background of the page, not a grey or a white flash.
+    FView.Color := HelpChatThemeBackgroundColor(LTheme);
+    if FView.PageReady then
+      FView.RunScript('window.hcApplyTheme && window.hcApplyTheme(' + LTheme.ToJson + ');');
+  end;
 end;
 
 function TVclHelpChatAI.BuildContext: THelpChatContext;

@@ -66,6 +66,14 @@ const
   HELPCHAT_UI_STATE_PANEL = 'panel';
   /// <summary>Key of the places of the bubble, one per class of host form.</summary>
   HELPCHAT_UI_STATE_BUBBLES = 'bubbles';
+  /// <summary>Default diameter of the bubble (<c>BubbleSize</c>), in pixels
+  /// at 96 DPI for the VCL and in logical units for FireMonkey.</summary>
+  HELPCHAT_BUBBLE_DEF_SIZE = 44;
+  /// <summary>The smallest diameter <c>BubbleSize</c> accepts: below it the
+  /// icon is no longer readable, nor easy to hit.</summary>
+  HELPCHAT_BUBBLE_MIN_SIZE = 24;
+  /// <summary>The largest diameter <c>BubbleSize</c> accepts.</summary>
+  HELPCHAT_BUBBLE_MAX_SIZE = 256;
 
 type
   /// <summary>The corner of the host form a bubble keeps its distance from.</summary>

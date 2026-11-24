@@ -62,6 +62,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.SyncObjs,
   HelpChatAI.Types,
   HelpChatAI.Messages,
   HelpChatAI.Settings,
@@ -86,6 +87,35 @@ type
     Sent: Boolean;
   end;
 
+  /// <summary>The retriever an engine hands to the runner and the
+  /// providers: the index, and after it the <c>OnSearchDocs</c> of the
+  /// settings, so that every search of the engine passes through the
+  /// application (issue #10). The handler is the one in force at
+  /// <c>Start</c>; <c>Detach</c> (at <c>Stop</c>) lets go of it, and a
+  /// search still running then gets the pages of the index alone. The index
+  /// is kept alive as long as the retriever is.</summary>
+  THelpChatSearchRetriever = class(TInterfacedObject, IHelpChatRetriever)
+  strict private
+    FIndex: THelpChatDocIndex;
+    FKeep: IHelpChatRetriever;
+    FLock: TCriticalSection;
+    FCallLock: TCriticalSection;
+    FHandler: THelpChatSearchDocsEvent;
+    FSender: TObject;
+  public
+    constructor Create(const AIndex: THelpChatDocIndex;
+      const AHandler: THelpChatSearchDocsEvent; const ASender: TObject);
+    destructor Destroy; override;
+    /// <summary>No handler from now on.</summary>
+    procedure Detach;
+    function IsAvailable: Boolean;
+    function GetBaseUrl: string;
+    /// <summary>The pages of the index, as the handler leaves them. Calls of
+    /// the handler are serialized; one that raises fails the search.</summary>
+    function Search(const AQuery, AHint: string; const AMaxPages: Integer): TArray<THelpChatDocPage>;
+    property Index: THelpChatDocIndex read FIndex;
+  end;
+
   /// <summary>The conversation engine of one assistant - or of the assistants
   /// of one profile, when it comes from <see cref="THelpChatEngines" />. It
   /// owns the store (the conversations, by key), the documentation index, the
@@ -100,6 +130,7 @@ type
     FOwnsSettings: Boolean;
     FStore: THelpChatStore;
     FDocIndex: THelpChatDocIndex;
+    FSearchRetriever: THelpChatSearchRetriever;
     FRetriever: IHelpChatRetriever;
     FDocPages: THelpChatDocPages;
     FDocPageFilter: THelpChatDocPageFilter;
@@ -291,9 +322,10 @@ type
     /// <summary>Adjusts the Markdown of a page before it is rendered (set it
     /// before the panel opens; called on HTTP threads).</summary>
     property DocPageFilter: THelpChatDocPageFilter read FDocPageFilter write FDocPageFilter;
-    /// <summary>The index as the providers see it: the contract a different
-    /// retriever (an embedding search, say) would implement. nil when the
-    /// engine is not started.</summary>
+    /// <summary>The index as the providers see it - the index, then
+    /// <c>Settings.OnSearchDocs</c> (<see cref="THelpChatSearchRetriever" />):
+    /// the contract a different retriever (an embedding search, say) would
+    /// implement. nil when the engine is not started.</summary>
     property Retriever: IHelpChatRetriever read FRetriever;
     /// <summary>What the user attached, per conversation. Lives here and not
     /// in the store because the bytes of a PDF have no business in the JSON
@@ -367,7 +399,6 @@ implementation
 uses
   System.IOUtils,
   System.JSON,
-  System.SyncObjs,
   System.Generics.Collections,
   HelpChatAI.Html,
   HelpChatAI.Icons,
@@ -411,6 +442,78 @@ begin
       Result := '';
   finally
     LRoot.Free;
+  end;
+end;
+
+{ THelpChatSearchRetriever }
+
+constructor THelpChatSearchRetriever.Create(const AIndex: THelpChatDocIndex;
+  const AHandler: THelpChatSearchDocsEvent; const ASender: TObject);
+begin
+  inherited Create;
+  FIndex := AIndex;
+  FKeep := AIndex;
+  FHandler := AHandler;
+  FSender := ASender;
+  FLock := TCriticalSection.Create;
+  FCallLock := TCriticalSection.Create;
+end;
+
+destructor THelpChatSearchRetriever.Destroy;
+begin
+  FCallLock.Free;
+  FLock.Free;
+  inherited;
+end;
+
+procedure THelpChatSearchRetriever.Detach;
+begin
+  FLock.Enter;
+  try
+    FHandler := nil;
+    FSender := nil;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function THelpChatSearchRetriever.IsAvailable: Boolean;
+begin
+  Result := FIndex.IsAvailable;
+end;
+
+function THelpChatSearchRetriever.GetBaseUrl: string;
+begin
+  Result := FIndex.GetBaseUrl;
+end;
+
+function THelpChatSearchRetriever.Search(const AQuery, AHint: string;
+  const AMaxPages: Integer): TArray<THelpChatDocPage>;
+var
+  LHandler: THelpChatSearchDocsEvent;
+  LSender: TObject;
+begin
+  Result := FIndex.Search(AQuery, AHint, AMaxPages);
+  // Copied under the lock, called outside it: Detach must never wait for a
+  // handler that may be waiting for the main thread.
+  FLock.Enter;
+  try
+    LHandler := FHandler;
+    LSender := FSender;
+  finally
+    FLock.Leave;
+  end;
+  // Inside the IDE the handler is code of the application, which does not
+  // run there.
+  if not Assigned(LHandler) or HelpChatDesignTime then
+    Exit;
+  if LSender = nil then
+    LSender := Self;
+  FCallLock.Enter;
+  try
+    LHandler(LSender, FIndex, AQuery, AHint, AMaxPages, Result);
+  finally
+    FCallLock.Leave;
   end;
 end;
 
@@ -461,7 +564,12 @@ begin
   ApplyModelState;
 
   FDocIndex := THelpChatDocIndex.Create;
-  FRetriever := FDocIndex; // keeps it alive
+  FDocIndex.Ranking := FSettings.SearchRanking;
+  // Every search of the engine goes through the handler of the application;
+  // the retriever keeps the index alive.
+  FSearchRetriever := THelpChatSearchRetriever.Create(FDocIndex, FSettings.OnSearchDocs,
+    FSettings.SearchSender);
+  FRetriever := FSearchRetriever;
   FDocIndex.BaseUrl := FSettings.DocBaseUrl;
   FDocIndex.ExcerptMaxChars := FSettings.ActiveModel.GroundingMaxChars;
   FDocIndex.ExcerptWindow := FSettings.ActiveModel.GroundingExcerptWindow;
@@ -547,6 +655,11 @@ begin
     SaveConversation;
     FreeAndNil(FStore);
   end;
+  // A search still running (a worker left behind) keeps the index, without
+  // the handler.
+  if Assigned(FSearchRetriever) then
+    FSearchRetriever.Detach;
+  FSearchRetriever := nil;
   FDocIndex := nil;
   FRetriever := nil;
   FSettings.Log(llInfo, lsInfo, lcEngine, 'Engine stopped');
@@ -1048,6 +1161,9 @@ type
       var AResult: string; var AHandled: Boolean);
     procedure BuildPrompt(Sender: TObject; const AContext: THelpChatContext;
       const ALanguage: THelpChatLanguage; var APrompt: string);
+    procedure SearchDocs(Sender: TObject; const AIndex: THelpChatDocIndex;
+      const AQuery, AHint: string; const AMaxPages: Integer;
+      var APages: TArray<THelpChatDocPage>);
     procedure Log(Sender: TObject; const AEntry: THelpChatLogEntry);
   end;
 
@@ -1163,6 +1279,30 @@ begin
   end;
 end;
 
+procedure TSharedEngine.SearchDocs(Sender: TObject; const AIndex: THelpChatDocIndex;
+  const AQuery, AHint: string; const AMaxPages: Integer;
+  var APages: TArray<THelpChatDocPage>);
+var
+  LSettings: THelpChatSettings;
+  LSender: TObject;
+begin
+  // As for the prompt: the handler of an assistant still holding the engine.
+  GSharedLock.Enter;
+  try
+    for LSettings in FHolderSettings do
+      if Assigned(LSettings.OnSearchDocs) then
+      begin
+        LSender := LSettings.SearchSender;
+        if LSender = nil then
+          LSender := LSettings;
+        LSettings.OnSearchDocs(LSender, AIndex, AQuery, AHint, AMaxPages, APages);
+        Exit;
+      end;
+  finally
+    GSharedLock.Leave;
+  end;
+end;
+
 procedure TSharedEngine.Log(Sender: TObject; const AEntry: THelpChatLogEntry);
 var
   LSettings: THelpChatSettings;
@@ -1215,6 +1355,7 @@ begin
       LSettings.Assign(ASettings);
       LSettings.SetSecretHandler(LEntry.Decrypt, nil);
       LSettings.SetPromptHandler(LEntry.BuildPrompt, nil);
+      LSettings.SetSearchHandler(LEntry.SearchDocs, nil);
       LSettings.SetLogHandler(LEntry.Log, nil);
       LEntry.Engine := THelpChatEngine.Create(LSettings, True);
     end;

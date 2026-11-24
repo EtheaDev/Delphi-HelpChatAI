@@ -104,8 +104,6 @@ const
   HELPCHAT_FMX_DEF_PANEL_WIDTH = 400;
   /// <summary>Default height of the component's own window.</summary>
   HELPCHAT_FMX_DEF_PANEL_HEIGHT = 600;
-  /// <summary>Diameter of the bubble.</summary>
-  HELPCHAT_FMX_DEF_BUBBLE_SIZE = 44;
   /// <summary>Distance of the bubble from the corner of the host form, and of
   /// the own window from the corner it opens in.</summary>
   HELPCHAT_FMX_MARGIN = 16;
@@ -234,6 +232,7 @@ type
     // The bubble of the main form with BubbleStayOnTop: the window it floats
     // in, where it is anchored, and where a drag started, in screen pixels.
     FBubbleStayOnTop: Boolean;
+    FBubbleSize: Integer;
     FBubbleForm: TFmxHelpChatBubbleForm;
     FBubblePlace: THelpChatBubblePlace;
     FBubbleDownCursor: TPoint;
@@ -249,6 +248,7 @@ type
     FOnPdfInfo: THelpChatPdfInfoEvent;
     FOnDecryptSecret: THelpChatSecretEvent;
     FOnBuildSystemPrompt: THelpChatBuildPromptEvent;
+    FOnSearchDocs: THelpChatSearchDocsEvent;
     FOnLogEvent: THelpChatLogEvent;
     FCaption: string;
     FAssistantName: string;
@@ -305,6 +305,7 @@ type
     procedure SetSettings(const Value: THelpChatSettings);
     procedure SetOnDecryptSecret(const Value: THelpChatSecretEvent);
     procedure SetOnBuildSystemPrompt(const Value: THelpChatBuildPromptEvent);
+    procedure SetOnSearchDocs(const Value: THelpChatSearchDocsEvent);
     procedure SetOnLogEvent(const Value: THelpChatLogEvent);
     /// <summary>One entry of the log through the settings in force (the
     /// engine's while active, which carry its level).</summary>
@@ -326,6 +327,7 @@ type
     procedure SetBubbleDraggable(const Value: Boolean);
     /// <summary>Creates the bubble again, floating or not.</summary>
     procedure SetBubbleStayOnTop(const Value: Boolean);
+    procedure SetBubbleSize(const Value: Integer);
     /// <summary>The host of a floating bubble moved, changed size, was shown
     /// or minimized: hidden with it, placed again at its corner.</summary>
     procedure BubbleHostChanged(Sender: TObject);
@@ -627,7 +629,9 @@ type
     /// when it is not visible. The page stays loaded and the conversation
     /// goes on.</summary>
     procedure Close;
-    /// <summary>Close when visible, Open otherwise: the click on the bubble.</summary>
+    /// <summary>Close when visible, Open otherwise. The bubble no longer
+    /// does this (2.2.1): its click always opens the chat and brings it to
+    /// the front.</summary>
     procedure Toggle;
     /// <summary>Takes the bubble back to the bottom-right corner of its form
     /// and forgets the place the user dragged it to.</summary>
@@ -799,6 +803,13 @@ type
     /// active it stays behind its windows. Ignored on any other form and on
     /// the other platforms, where the bubble is a part of its form.</summary>
     property BubbleStayOnTop: Boolean read FBubbleStayOnTop write SetBubbleStayOnTop default False;
+    /// <summary>Diameter of the bubble, 44 by default: logical units of
+    /// FireMonkey. The icon (or the question mark) grows
+    /// with it. Kept between HELPCHAT_BUBBLE_MIN_SIZE (24) and
+    /// HELPCHAT_BUBBLE_MAX_SIZE (256); a bubble already shown is made again
+    /// at the new size, in the same place.</summary>
+    property BubbleSize: Integer read FBubbleSize write SetBubbleSize
+      default HELPCHAT_BUBBLE_DEF_SIZE;
     /// <summary>Image list holding the bubble icon; nil uses the icons
     /// compiled into the component (HELPCHAT_ICON_* names). The same icon is
     /// drawn in the header of the chat panel, left of AssistantName.</summary>
@@ -875,6 +886,16 @@ type
     /// <c>OnDecryptSecret</c>. See <see cref="THelpChatBuildPromptEvent" />.</summary>
     property OnBuildSystemPrompt: THelpChatBuildPromptEvent read FOnBuildSystemPrompt
       write SetOnBuildSystemPrompt;
+    /// <summary>The last word on every search of the documentation (2.3,
+    /// issue #10): the pages the index found arrive in <c>APages</c>, best
+    /// first, and the handler may reorder, drop, add or replace them - or
+    /// fill them from a retriever of its own. <c>AIndex</c> is the index, to
+    /// search again. <b>It runs on a worker thread</b>, like
+    /// <c>OnBuildSystemPrompt</c>; assign it before <c>Active</c>. How the
+    /// index itself ranks is <c>Settings.SearchRanking</c>. See
+    /// <see cref="THelpChatSearchDocsEvent" />.</summary>
+    property OnSearchDocs: THelpChatSearchDocsEvent read FOnSearchDocs
+      write SetOnSearchDocs;
     /// <summary>Every entry of the log of this assistant, at the level of
     /// <c>Settings.LogLevel</c> (llInfo by default; a configuration file may
     /// raise it). <b>It runs on the thread that wrote the entry</b> - often a
@@ -1493,6 +1514,7 @@ begin
   FShowBubble := True;
   FAutoCaptureContext := True;
   FBubbleDraggable := True;
+  FBubbleSize := HELPCHAT_BUBBLE_DEF_SIZE;
   FImageIndex := -1;
   FRememberPanelPosition := True;
   FPanelWidth := HELPCHAT_FMX_DEF_PANEL_WIDTH;
@@ -1583,6 +1605,7 @@ begin
   // decrypts its secrets and on which assistant it is.
   FSettings.SetSecretHandler(FOnDecryptSecret, Self);
   FSettings.SetPromptHandler(FOnBuildSystemPrompt, Self);
+  FSettings.SetSearchHandler(FOnSearchDocs, Self);
   FSettings.SetLogHandler(FOnLogEvent, Self);
   FSettings.Profile := FProfile;
 end;
@@ -1610,6 +1633,7 @@ begin
   AutoCaptureContext := LSource.AutoCaptureContext;
   BubbleDraggable := LSource.BubbleDraggable;
   BubbleStayOnTop := LSource.BubbleStayOnTop;
+  BubbleSize := LSource.BubbleSize;
   // The list before the index and the name, which are checked against it.
   Images := LSource.Images;
   ImageIndex := LSource.ImageIndex;
@@ -1653,6 +1677,12 @@ procedure TFmxHelpChatAI.SetOnBuildSystemPrompt(const Value: THelpChatBuildPromp
 begin
   FOnBuildSystemPrompt := Value;
   FSettings.SetPromptHandler(Value, Self);
+end;
+
+procedure TFmxHelpChatAI.SetOnSearchDocs(const Value: THelpChatSearchDocsEvent);
+begin
+  FOnSearchDocs := Value;
+  FSettings.SetSearchHandler(Value, Self);
 end;
 
 procedure TFmxHelpChatAI.SetOnLogEvent(const Value: THelpChatLogEvent);
@@ -1982,6 +2012,7 @@ var
   LHost: TCommonCustomForm;
   LPlace: THelpChatBubblePlace;
   LFloat: Boolean;
+  LPadding: Single;
 begin
   if Assigned(FBubble) or not FShowBubble or not FActive then
     Exit;
@@ -2029,7 +2060,7 @@ begin
   FBubbleGlyph.Text := '?';
   FBubbleGlyph.StyledSettings := FBubbleGlyph.StyledSettings -
     [TStyledSetting.Size, TStyledSetting.Style, TStyledSetting.FontColor];
-  FBubbleGlyph.TextSettings.Font.Size := 18;
+  FBubbleGlyph.TextSettings.Font.Size := 18 * FBubbleSize / HELPCHAT_BUBBLE_DEF_SIZE;
   FBubbleGlyph.TextSettings.Font.Style := [TFontStyle.fsBold];
   FBubbleGlyph.TextSettings.HorzAlign := TTextAlign.Center;
   FBubbleGlyph.TextSettings.VertAlign := TTextAlign.Center;
@@ -2040,9 +2071,9 @@ begin
   FBubbleImage.Stored := False;
   FBubbleImage.Parent := FBubble;
   FBubbleImage.Align := TAlignLayout.Contents;
-  FBubbleImage.Margins.Rect := RectF(HELPCHAT_FMX_BUBBLE_PADDING,
-    HELPCHAT_FMX_BUBBLE_PADDING, HELPCHAT_FMX_BUBBLE_PADDING,
-    HELPCHAT_FMX_BUBBLE_PADDING);
+  // The padding of the default bubble, grown or shrunk with its diameter.
+  LPadding := HELPCHAT_FMX_BUBBLE_PADDING * FBubbleSize / HELPCHAT_BUBBLE_DEF_SIZE;
+  FBubbleImage.Margins.Rect := RectF(LPadding, LPadding, LPadding, LPadding);
   FBubbleImage.HitTest := False;
   FBubbleImage.WrapMode := TImageWrapMode.Fit;
   // Parent first, then the bounds, then the anchors - in that order, and it is
@@ -2063,14 +2094,14 @@ begin
         TAfterCreateFormHandle, HostHandleMessage);
     FBubbleForm := TFmxHelpChatBubbleForm.CreateFloat(Self, LHost);
     FBubbleForm.FreeNotification(Self);
-    FBubbleForm.SetBoundsF(0, 0, HELPCHAT_FMX_DEF_BUBBLE_SIZE, HELPCHAT_FMX_DEF_BUBBLE_SIZE);
+    FBubbleForm.SetBoundsF(0, 0, FBubbleSize, FBubbleSize);
     FBubble.Parent := FBubbleForm;
     FBubble.Align := TAlignLayout.Client;
   end
   else
   begin
     FBubble.Parent := LHost;
-    FBubble.SetBounds(0, 0, HELPCHAT_FMX_DEF_BUBBLE_SIZE, HELPCHAT_FMX_DEF_BUBBLE_SIZE);
+    FBubble.SetBounds(0, 0, FBubbleSize, FBubbleSize);
   end;
   if not FRememberPanelPosition or
      not HelpChatLoadBubblePlace(UiStateFile, BubbleFormKey, LPlace) then
@@ -2327,6 +2358,25 @@ begin
   end;
 end;
 
+procedure TFmxHelpChatAI.SetBubbleSize(const Value: Integer);
+var
+  LValue: Integer;
+begin
+  LValue := EnsureRange(Value, HELPCHAT_BUBBLE_MIN_SIZE, HELPCHAT_BUBBLE_MAX_SIZE);
+  if LValue = FBubbleSize then
+    Exit;
+  FBubbleSize := LValue;
+  if (csDesigning in ComponentState) or (csLoading in ComponentState) then
+    Exit;
+  // Made again, in the place it was in: the size is decided where the
+  // bubble is created and placed.
+  if Assigned(FBubble) then
+  begin
+    DestroyBubble;
+    EnsureBubble;
+  end;
+end;
+
 procedure TFmxHelpChatAI.BubbleHostChanged(Sender: TObject);
 begin
   if not Assigned(FBubbleForm) then
@@ -2372,7 +2422,11 @@ procedure TFmxHelpChatAI.BubbleClick(Sender: TObject);
 begin
   if FBubbleDragged then
     Exit;                         // the end of a drag, not a click
-  Toggle;
+  // Always opens, and brings the chat to the front: a chat that is shown may
+  // be hidden behind a form opened over it (a modal one, with a floating
+  // bubble still clickable), and a click that closed it would look like a
+  // click that did nothing. The chat is closed by its own X, or Escape.
+  Open;
 end;
 
 function TFmxHelpChatAI.BubbleFormKey: string;
@@ -2405,7 +2459,7 @@ begin
     if LClient.IsEmpty or LWork.IsEmpty then
       Exit;
     LScale := FBubbleForm.Scale;
-    LSize := Round(HELPCHAT_FMX_DEF_BUBBLE_SIZE * LScale);
+    LSize := Round(FBubbleSize * LScale);
     APlace.ToPosition(LSize, LClient.Width, LClient.Height, LScale, LLeft, LTop,
       Max(LWork.Width, LWork.Height));
     FBubbleForm.MoveTo(

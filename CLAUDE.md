@@ -649,7 +649,12 @@ the edit on every version, not on the one that happens to be open.
   control's own `Draggable`/`OnMoved` in the VCL, mouse events on the `TCircle` with
   `AutoCapture` in FMX): a press is a click until it moves past the drag threshold, and the
   click that ends a drag is swallowed (the flag is reset at the next press, so the order of
-  `Click` and `MouseUp` does not matter). Dropped, it is anchored to the nearest corner -
+  `Click` and `MouseUp` does not matter). **A click always opens** (2.2.1: `Open`, not
+  `Toggle`): a chat shown but hidden behind a modal form opened over it was closed by the
+  click on the floating bubble, which looked like a click that did nothing. `BubbleSize`
+  (`HELPCHAT_BUBBLE_DEF/MIN/MAX_SIZE` in `HelpChatAI.UiState`: 44, 24..256) is decided where
+  the bubble is created and placed, so changing it makes the bubble again; the VCL draws the
+  icon in proportion already, FMX scales the font of the "?" and the padding of the icon. Dropped, it is anchored to the nearest corner -
   bounds first, anchors after, since both frameworks take the anchor rules from where the
   control is - and remembered with `RememberPanelPosition` per class of host form.
   `HelpChatAI.UiState` (RTL, engine) holds that geometry (`THelpChatBubblePlace`: corner and
@@ -730,6 +735,18 @@ the edit on every version, not on the one that happens to be open.
   clears it one line before calling `Application.ModalFinished` — it asks whether the owner
   is still the host. None of this applies to a `Container` of the application: there the
   chat is a control inside a form of theirs, and that form's own modality rules apply.
+- **What paints before the page is the background of the theme.** (2.2.1, issue #9)
+  `TVclHelpChatAIPanel` publishes `Color`, `ParentBackground` (False: the panel is covered by
+  the browser, the parent's background would be copied for nothing), `ParentColor` and
+  `StyleElements`, the last `[seFont, seBorder]` by default - with `seClient` a VCL style
+  paints its face and ignores `Color`. `ApplyTheme` sets `View.Color` to
+  `HelpChatThemeBackgroundColor` (Background, else Surface, else the page default light or
+  dark as Windows shows the apps, `AppsUseLightTheme`), and the panel passes `Color` on
+  (`CM_COLORCHANGED`, WebView created) to the brush of the `TEdgeBrowser` and to
+  `DefaultBackgroundColor` of the WebView2, white otherwise - through an
+  `ICoreWebView2Controller2` declared in the unit, which 10.4 and 11 do not ship. The theme
+  is pushed at every page load, so an application colours the chat through `OnGetTheme`, not
+  by writing `View.Color`.
 - **VCL style change recreates windows.** `TStyleManager.SetStyle` posts `CM_CUSTOMSTYLECHANGED`
   to each visible form; `TCustomForm` recreates its window (the WebView reloads the page).
   `TVclHelpChatAI.AppMessage` catches the posted message first and stores the theme in the
@@ -1088,6 +1105,21 @@ the edit on every version, not on the one that happens to be open.
   a form being torn down or parking a worker for the 60 s of the timeout. And activation is
   all-or-nothing: whatever fails after `Acquire` releases the engine, because a holder left
   in the registry keeps a pointer to the settings of a component that may be freed.
+- **The ranking has switches, and the application the last word.** (2.3, issue #10)
+  `THelpChatDocIndex.Ranking` (`THelpChatSearchRankings`, from `Settings.SearchRanking`, in
+  JSON an array of `HELPCHAT_SEARCH_RANKING_NAMES`) adds to the counting of the words:
+  phrase and whole title (`HELPCHAT_PHRASE_WEIGHT`, `HELPCHAT_TITLE_MATCH_WEIGHT`), the
+  unstemmed word in the title (`HELPCHAT_EXACT_WEIGHT`, 6: at 3 the case of the issue was not
+  solved), distinct leaf titles first, the hint once per word and shared beyond
+  `HELPCHAT_HINT_BUDGET` words, the page of the hint pinned first. The empty set is the
+  ranking of 2.2 byte for byte (checked against the BASE of the unit). **The pin is off by
+  default**: it took the first place from "Exporting the grid" asked on the Orders screen
+  (the engine test, and docsearch shows one page), and cost one first hit on the CRM
+  benchmark (`HelpChatAILLMBench --retrieval --ranking=`: 20/37 in 2.2, 21 with the default,
+  19 with the pin). `OnSearchDocs` is on the settings like the prompt handler and reaches
+  every search through `THelpChatSearchRetriever`, the engine's `Retriever`: the handler of
+  `Start` is copied, called outside the lock that `Detach` (at `Stop`) takes, and proxied by
+  `TSharedEngine.SearchDocs`. `/search` asks the retriever, not the index.
 - **An expert knows an area of the manual, not a manual of its own.** One manual, one index:
   `THelpChatIndexBuilder.ExtractAreas` gives a page the first sub-folder of its path, or the
   `areas:` of its front matter (`areas: []` = everybody's), and writes `"areas"` only for the

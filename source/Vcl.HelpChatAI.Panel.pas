@@ -103,8 +103,14 @@ type
     procedure FlushScripts;
   protected
     /// <summary>Watches for <c>CM_STYLECHANGED</c>, after the inherited
-    /// handling, to raise <c>OnStyleChanged</c>.</summary>
+    /// handling, to raise <c>OnStyleChanged</c>, and for
+    /// <c>CM_COLORCHANGED</c>, to give <c>Color</c> to the browser.</summary>
     procedure WndProc(var Message: TMessage); override;
+    /// <summary>Gives <c>Color</c> to what paints before the page: the
+    /// browser control and the default background of the WebView2, which is
+    /// white otherwise. Called when <c>Color</c> changes and when the WebView
+    /// is created; a runtime that cannot take it is left as it is.</summary>
+    procedure ApplyBackground; virtual;
     /// <summary>Applied when the WebView is created: context menus, dev tools,
     /// status bar and zoom off. Override to change them. An exception here
     /// is swallowed: these settings are cosmetic and must not cost the
@@ -181,6 +187,20 @@ type
   published
     property Align;
     property Anchors;
+    /// <summary>The background shown before the page has loaded, and while
+    /// the window is resized: the panel, the browser control and the WebView2
+    /// paint it. <c>TVclHelpChatAI</c> sets it to the background of the theme
+    /// of the chat whenever it pushes the theme; an application may set it
+    /// after that.</summary>
+    property Color;
+    /// <summary>False by default (set in the constructor), so that
+    /// <c>Color</c> is what is painted.</summary>
+    property ParentBackground;
+    property ParentColor;
+    /// <summary><c>[seFont, seBorder]</c> by default: without <c>seClient</c>,
+    /// so that under a VCL style <c>Color</c> is painted and not the face of
+    /// the style.</summary>
+    property StyleElements default [seFont, seBorder];
     property Visible;
   end;
 
@@ -190,6 +210,7 @@ uses
   System.IOUtils,
   Winapi.ShellAPI,
   Winapi.ActiveX,
+  Vcl.Graphics,
   HelpChatAI.Settings;
 
 // A string the WebView2 API handed out: copied, then released with the
@@ -205,6 +226,25 @@ begin
   end;
 end;
 
+type
+  /// <summary>COREWEBVIEW2_COLOR, declared here because Delphi 10.4 and 11
+  /// ship no ICoreWebView2Controller2.</summary>
+  THcWebViewColor = record
+    A: Byte;
+    R: Byte;
+    G: Byte;
+    B: Byte;
+  end;
+
+  /// <summary>ICoreWebView2Controller2, the part of it the panel needs: the
+  /// colour the WebView2 paints before a page has painted. Same GUID and
+  /// method order as the SDK.</summary>
+  IHcWebViewController2 = interface(ICoreWebView2Controller)
+    ['{C979903E-D4CA-4228-92EB-47EE3FA96EAB}']
+    function Get_DefaultBackgroundColor(out ABackgroundColor: THcWebViewColor): HResult; stdcall;
+    function Set_DefaultBackgroundColor(ABackgroundColor: THcWebViewColor): HResult; stdcall;
+  end;
+
 { TVclHelpChatAIPanel }
 
 constructor TVclHelpChatAIPanel.Create(AOwner: TComponent);
@@ -216,6 +256,7 @@ begin
   Caption := '';
   ShowCaption := False;
   ParentBackground := False;
+  StyleElements := [seFont, seBorder];
   FBrowser := TEdgeBrowser.Create(Self);
   FBrowser.Parent := Self;
   FBrowser.Align := alClient;
@@ -247,6 +288,29 @@ begin
   inherited WndProc(Message);
   if (Message.Msg = CM_STYLECHANGED) and Assigned(FOnStyleChanged) then
     FOnStyleChanged(Self);
+  if Message.Msg = CM_COLORCHANGED then
+    ApplyBackground;
+end;
+
+procedure TVclHelpChatAIPanel.ApplyBackground;
+var
+  LController: IHcWebViewController2;
+  LRgb: Longint;
+  LColor: THcWebViewColor;
+begin
+  if not Assigned(FBrowser) then
+    Exit;
+  FBrowser.Brush.Color := Color;
+  if Assigned(FBrowser.ControllerInterface) and
+    Supports(FBrowser.ControllerInterface, IHcWebViewController2, LController) then
+  begin
+    LRgb := ColorToRGB(Color);
+    LColor.A := 255; // the runtime takes opaque or fully transparent, nothing between
+    LColor.R := GetRValue(LRgb);
+    LColor.G := GetGValue(LRgb);
+    LColor.B := GetBValue(LRgb);
+    LController.Set_DefaultBackgroundColor(LColor);
+  end;
 end;
 
 class procedure TVclHelpChatAIPanel.OpenExternal(const AUrl: string);
@@ -332,6 +396,7 @@ begin
     Exit; // TEdgeBrowser already raised/showed the reason (WebView2 runtime missing...)
   try
     ConfigureWebView;
+    ApplyBackground;
   except
     // Settings are cosmetic: never block the panel for them.
   end;

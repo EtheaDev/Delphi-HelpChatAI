@@ -420,7 +420,9 @@ begin
     LQuery := LastQuestion(AEngine, ARequest.ConversationKey);
   if LQuery = '' then
     Exit(Line(HelpChatMsg(hcmCmdNoQuestion, ARequest.Language)));
-  LPages := AEngine.DocIndex.Search(LQuery, ARequest.Context.SearchHint, HELPCHAT_CMD_SEARCH_PAGES);
+  // Through the retriever, so the pages are those the model would get
+  // (OnSearchDocs included).
+  LPages := AEngine.Retriever.Search(LQuery, ARequest.Context.SearchHint, HELPCHAT_CMD_SEARCH_PAGES);
   if Length(LPages) = 0 then
     Exit(Line(Format(HelpChatMsg(hcmCmdNoResults, ARequest.Language), [LQuery])));
   Result := '<ol>';

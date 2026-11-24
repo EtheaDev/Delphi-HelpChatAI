@@ -70,6 +70,24 @@ const
   /// (screen keyword/label): they name the page the user is on and must beat
   /// the words of a generic question ("how do I use this screen?").</summary>
   HELPCHAT_HINT_WEIGHT = 2.0;
+  /// <summary>With <c>hsrNormalizeHint</c>, the distinct hint tokens that
+  /// keep the whole <see cref="HELPCHAT_HINT_WEIGHT" />: a longer hint (a
+  /// breadcrumb, "Area > Section > Group > Item") shares the weight of this
+  /// many, so it cannot outweigh the words of the question.</summary>
+  HELPCHAT_HINT_BUDGET = 2;
+  /// <summary>With <c>hsrPhrase</c>: two consecutive words of the question
+  /// found next to each other in the title add their rarity this many times
+  /// over.</summary>
+  HELPCHAT_PHRASE_WEIGHT = 3;
+  /// <summary>With <c>hsrPhrase</c>: a title of two words or more (its last
+  /// "&gt;" segment) written whole in the question adds the rarity of its
+  /// words this many times over: the page called like the question.</summary>
+  HELPCHAT_TITLE_MATCH_WEIGHT = 6;
+  /// <summary>With <c>hsrExactMatch</c>: a word of the question that the
+  /// stemming shortened, found unchanged in the title, adds its rarity this
+  /// many times over - as much as a second hit in the title -, so
+  /// "loading" prefers the page about loading to the one about "loaded".</summary>
+  HELPCHAT_EXACT_WEIGHT = 6;
   /// <summary>Shorter words are not tokens: articles and prepositions of
   /// every language, without a list of them.</summary>
   HELPCHAT_MIN_TOKEN_LENGTH = 3;
@@ -81,6 +99,37 @@ const
   /// <summary>Default characters of context kept around each matching term
   /// (<c>ExcerptWindow</c>).</summary>
   HELPCHAT_EXCERPT_WINDOW = 600;
+
+type
+  /// <summary>What the ranking of <c>Search</c> adds to the counting of the
+  /// words (issue #10). <c>hsrPhrase</c>: consecutive words of the question
+  /// next to each other in the title, and a title of two words or more
+  /// written whole in the question, weigh more. <c>hsrExactMatch</c>: a word
+  /// the stemming shortened weighs more where the title has it unchanged.
+  /// <c>hsrDistinctTitles</c>: the results take pages of different titles
+  /// first (the last "&gt;" segment of the title, so "A &gt; Item" and
+  /// "B &gt; Item" are one title), repeated ones only when nothing else
+  /// scores. <c>hsrNormalizeHint</c>: the hint is counted once per word, and
+  /// a long one shares the weight of <see cref="HELPCHAT_HINT_BUDGET" />
+  /// words. <c>hsrPinHintPage</c>: the page whose title is the hint (or its
+  /// last "&gt;" segment) is always the first result.</summary>
+  THelpChatSearchRanking = (hsrPhrase, hsrExactMatch, hsrDistinctTitles,
+    hsrNormalizeHint, hsrPinHintPage);
+  /// <summary>A set of <see cref="THelpChatSearchRanking" />.</summary>
+  THelpChatSearchRankings = set of THelpChatSearchRanking;
+
+const
+  /// <summary>The ranking of an index nobody configured, and the default of
+  /// <c>THelpChatSettings.SearchRanking</c>: every member but the pinning,
+  /// which gives the first place to the page of the screen also when the
+  /// question is about something else (a docsearch reply shows that page
+  /// alone).</summary>
+  HELPCHAT_DEF_SEARCH_RANKING = [hsrPhrase, hsrExactMatch, hsrDistinctTitles,
+    hsrNormalizeHint];
+  /// <summary>How a configuration file names each member of
+  /// <see cref="THelpChatSearchRanking" />.</summary>
+  HELPCHAT_SEARCH_RANKING_NAMES: array[THelpChatSearchRanking] of string = (
+    'phrase', 'exactMatch', 'distinctTitles', 'normalizeHint', 'pinHintPage');
 
 type
   /// <summary>One indexed page, as the index file describes it. The index
@@ -122,6 +171,9 @@ type
       LKeywords: string; // lowercased, joined
       LText: string;
       LAreas: string;    // lowercased, '|area|area|'; empty = every assistant's
+      LLeaf: string;     // lowercased last '>' segment of the title, trimmed
+      TitleWords: TArray<string>; // Tokenize of the title
+      LeafWords: TArray<string>;  // Tokenize of the leaf
     end;
   strict private
     FLock: TCriticalSection;
@@ -133,7 +185,13 @@ type
     FExcerptWindow: Integer;
     FAreas: TArray<string>;
     FAreaFilter: string;
+    FRanking: THelpChatSearchRankings;
     procedure SetBaseUrl(const Value: string);
+    function GetRanking: THelpChatSearchRankings;
+    procedure SetRanking(const Value: THelpChatSearchRankings);
+    /// <summary>Fills what the scoring derives from the title, the text and
+    /// the keywords already set: the lowercased copies, the leaf, the words.</summary>
+    class procedure PrepareEntry(var AEntry: TScoredEntry); static;
     procedure SetAreas(const Value: TArray<string>);
     function GetAreas: TArray<string>;
     /// <summary>The entries this assistant knows: those of its areas, and
@@ -199,7 +257,9 @@ type
     /// among those this assistant sees, best first, each with an excerpt
     /// around the matching terms and its raw score. <c>AHint</c> - the
     /// keyword and the label of the screen the user is on - is searched
-    /// like the question and weighs double. Empty when nothing scores, when
+    /// like the question and weighs double. <c>Ranking</c> says what else
+    /// counts (phrases, exact words, distinct titles, the page of the
+    /// screen first). Empty when nothing scores, when
     /// the question and the hint leave no token, or when there is no page.
     /// Safe from any thread; the scoring runs outside the lock.</summary>
     function Search(const AQuery, AHint: string; const AMaxPages: Integer): TArray<THelpChatDocPage>;
@@ -254,6 +314,12 @@ type
     /// May be set at any time, from any thread; a search already running
     /// keeps the view it started with.</summary>
     property Areas: TArray<string> read GetAreas write SetAreas;
+    /// <summary>What the ranking adds to the counting of the words: see
+    /// <see cref="THelpChatSearchRanking" />. <c>HELPCHAT_DEF_SEARCH_RANKING</c>
+    /// by default; the empty set is the ranking of 2.2. May be set at any
+    /// time, from any thread; a search already running keeps the one it
+    /// started with.</summary>
+    property Ranking: THelpChatSearchRankings read GetRanking write SetRanking;
     /// <summary>File the index was loaded from, if any.</summary>
     property LoadedFrom: string read FLoadedFrom;
     /// <summary>Why the last <c>LoadFromFile</c> left the index empty: the
@@ -261,6 +327,13 @@ type
     /// that worked.</summary>
     property LastError: string read FLastError;
   end;
+
+/// <summary>The names of the members of ARanking, in the order of the
+/// enumeration (<see cref="HELPCHAT_SEARCH_RANKING_NAMES" />).</summary>
+function HelpChatSearchRankingToNames(const ARanking: THelpChatSearchRankings): TArray<string>;
+/// <summary>The set the names make, case ignored, the identifiers
+/// ("hsrPhrase") accepted too; a name of no member is skipped.</summary>
+function HelpChatNamesToSearchRanking(const ANames: TArray<string>): THelpChatSearchRankings;
 
 implementation
 
@@ -286,6 +359,29 @@ const
     'posso', 'puoi', 'devo', 'deve', 'vorrei', 'voglio', 'viene', 'essere', 'sono',
     'fare', 'anche', 'oppure', 'tutti', 'tutte', 'mio', 'mia'];
 
+function HelpChatSearchRankingToNames(const ARanking: THelpChatSearchRankings): TArray<string>;
+var
+  LMember: THelpChatSearchRanking;
+begin
+  Result := nil;
+  for LMember := Low(THelpChatSearchRanking) to High(THelpChatSearchRanking) do
+    if LMember in ARanking then
+      Result := Result + [HELPCHAT_SEARCH_RANKING_NAMES[LMember]];
+end;
+
+function HelpChatNamesToSearchRanking(const ANames: TArray<string>): THelpChatSearchRankings;
+var
+  LName: string;
+  LMember: THelpChatSearchRanking;
+begin
+  Result := [];
+  for LName in ANames do
+    for LMember := Low(THelpChatSearchRanking) to High(THelpChatSearchRanking) do
+      if SameText(Trim(LName), HELPCHAT_SEARCH_RANKING_NAMES[LMember]) or
+         SameText(Trim(LName), 'hsr' + HELPCHAT_SEARCH_RANKING_NAMES[LMember]) then
+        Include(Result, LMember);
+end;
+
 { THelpChatDocIndex }
 
 constructor THelpChatDocIndex.Create;
@@ -294,6 +390,42 @@ begin
   FLock := TCriticalSection.Create;
   FExcerptMaxChars := HELPCHAT_DEF_EXCERPT_MAX_CHARS;
   FExcerptWindow := HELPCHAT_EXCERPT_WINDOW;
+  FRanking := HELPCHAT_DEF_SEARCH_RANKING;
+end;
+
+function THelpChatDocIndex.GetRanking: THelpChatSearchRankings;
+begin
+  FLock.Enter;
+  try
+    Result := FRanking;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure THelpChatDocIndex.SetRanking(const Value: THelpChatSearchRankings);
+begin
+  FLock.Enter;
+  try
+    FRanking := Value;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+class procedure THelpChatDocIndex.PrepareEntry(var AEntry: TScoredEntry);
+var
+  P: Integer;
+begin
+  AEntry.LTitle := AEntry.Title.ToLower;
+  AEntry.LText := AEntry.Text.ToLower;
+  AEntry.LLeaf := AEntry.LTitle;
+  P := AEntry.LLeaf.LastIndexOf('>');
+  if P >= 0 then
+    AEntry.LLeaf := AEntry.LLeaf.Substring(P + 1);
+  AEntry.LLeaf := Trim(AEntry.LLeaf);
+  AEntry.TitleWords := Tokenize(AEntry.LTitle);
+  AEntry.LeafWords := Tokenize(AEntry.LLeaf);
 end;
 
 destructor THelpChatDocIndex.Destroy;
@@ -563,9 +695,9 @@ begin
   LEntry.Url := AUrl;
   LEntry.Summary := ASummary;
   LEntry.Text := AText;
-  LEntry.LTitle := ATitle.ToLower;
   LEntry.LKeywords := AKeywords.ToLower;
-  LEntry.LText := AText.ToLower;
+  LEntry.LAreas := '';
+  PrepareEntry(LEntry);
   // LAreas stays empty: a page added by code belongs to every assistant.
   FLock.Enter;
   try
@@ -714,7 +846,6 @@ begin
         Continue;
       LEntry.Url := LObj.GetValue<string>('url', '');
       LEntry.Summary := LObj.GetValue<string>('summary', '');
-      LEntry.LTitle := LEntry.Title.ToLower;
       // "keywords": an array of strings or a single string.
       LKeywordsValue := LObj.GetValue('keywords');
       LEntry.LKeywords := '';
@@ -726,7 +857,7 @@ begin
       else if LKeywordsValue is TJSONString then
         LEntry.LKeywords := LKeywordsValue.Value.ToLower;
       LEntry.Text := LObj.GetValue<string>('text', '');
-      LEntry.LText := LEntry.Text.ToLower;
+      PrepareEntry(LEntry);
       // "areas": an array of names, kept as '|a|b|' so that membership is
       // one Contains. Missing or empty: no area. A string is read as a list
       // with commas - what an index written by hand, or by another tool,
@@ -805,19 +936,49 @@ end;
 
 function THelpChatDocIndex.Search(const AQuery, AHint: string;
   const AMaxPages: Integer): TArray<THelpChatDocPage>;
+
+  // Word W of a title matches the stem S the way the scoring does: W starts with S.
+  function WordMatches(const AWord, AStem: string): Boolean;
+  begin
+    Result := AWord.StartsWith(AStem);
+  end;
+
+  function HasAdjacent(const AWords: TArray<string>; const AFirst, ASecond: string): Boolean;
+  var
+    K: Integer;
+  begin
+    for K := 0 to High(AWords) - 1 do
+      if WordMatches(AWords[K], AFirst) and WordMatches(AWords[K + 1], ASecond) then
+        Exit(True);
+    Result := False;
+  end;
+
+  function HasWord(const AWords: TArray<string>; const AWord: string): Boolean;
+  var
+    W: string;
+  begin
+    for W in AWords do
+      if W = AWord then
+        Exit(True);
+    Result := False;
+  end;
+
 var
   LEntries: TArray<TScoredEntry>;
   LBase: string;
-  LTokens, LHintTokens: TArray<string>;
+  LRanking: THelpChatSearchRankings;
+  LWords, LTokens, LHintTokens, LDistinct: TArray<string>;
   LScores: TArray<Integer>;
-  LRanking: TArray<Double>;
+  LRank, LIdf: TArray<Double>;
   LUsed: TArray<Boolean>;
-  LMax, LBestIdx, I, J, T, LDf, LTitleHits, LKeywordHits, LBodyHits, LExcerptChars,
-    LExcerptWindow: Integer;
-  LBestRank, LIdf, LWeight: Double;
+  LLeaves: TList<string>;
+  LQueryCount, LMax, LBestIdx, LPinIdx, I, J, K, S, T, LDf, LTitleHits, LKeywordHits,
+    LBodyHits, LExcerptChars, LExcerptWindow: Integer;
+  LBestRank, LWeight, LHintWeight, LRunIdf: Double;
   LPages: TList<THelpChatDocPage>;
   LPage: THelpChatDocPage;
-  LToken: string;
+  LToken, LHint, LHintLeaf: string;
+  LRun, LDistinctOnly: Boolean;
 begin
   Result := nil;
   // Snapshot under the lock, score outside it (dynamic arrays are copy-on-write).
@@ -827,6 +988,7 @@ begin
     LBase := FBaseUrl;
     LExcerptChars := FExcerptMaxChars;
     LExcerptWindow := FExcerptWindow;
+    LRanking := FRanking;
   finally
     FLock.Leave;
   end;
@@ -835,18 +997,37 @@ begin
 
   // Stems, not words: substring counting then matches the inflected forms.
   // Query tokens first, hint tokens after (they rank with HELPCHAT_HINT_WEIGHT).
-  LTokens := TokenizeStems(AQuery);
+  // LWords keeps the words of the question as they were, index by index.
+  LWords := Tokenize(AQuery);
+  LTokens := Copy(LWords);
+  for I := 0 to High(LTokens) do
+    LTokens[I] := StemToken(LTokens[I]);
+  LQueryCount := Length(LTokens);
   if AHint <> '' then
     LHintTokens := TokenizeStems(AHint)
   else
     LHintTokens := nil;
+  LHintWeight := HELPCHAT_HINT_WEIGHT;
+  if (hsrNormalizeHint in LRanking) and (Length(LHintTokens) > 0) then
+  begin
+    // Once per word ("Leads" as keyword and label is one word), and a long
+    // hint shares the weight of HELPCHAT_HINT_BUDGET words.
+    LDistinct := nil;
+    for LToken in LHintTokens do
+      if not HasWord(LDistinct, LToken) then
+        LDistinct := LDistinct + [LToken];
+    LHintTokens := LDistinct;
+    if Length(LHintTokens) > HELPCHAT_HINT_BUDGET then
+      LHintWeight := HELPCHAT_HINT_WEIGHT * HELPCHAT_HINT_BUDGET / Length(LHintTokens);
+  end;
   LTokens := LTokens + LHintTokens;
   if Length(LTokens) = 0 then
     Exit;
 
   SetLength(LScores, Length(LEntries));
-  SetLength(LRanking, Length(LEntries));
+  SetLength(LRank, Length(LEntries));
   SetLength(LUsed, Length(LEntries));
+  SetLength(LIdf, Length(LTokens));
   for I := 0 to High(LEntries) do
     LScores[I] := ScoreEntry(LEntries[I], LTokens);
 
@@ -855,8 +1036,8 @@ begin
   for T := 0 to High(LTokens) do
   begin
     LToken := LTokens[T];
-    if T >= Length(LTokens) - Length(LHintTokens) then
-      LWeight := HELPCHAT_HINT_WEIGHT
+    if T >= LQueryCount then
+      LWeight := LHintWeight
     else
       LWeight := 1;
     LDf := 0;
@@ -869,7 +1050,7 @@ begin
     // Both numbers are the assistant's: LEntries is already filtered by
     // area, so a word that is common in the manual and rare in this area
     // weighs as a rare one.
-    LIdf := Ln(1 + Length(LEntries) / LDf);
+    LIdf[T] := Ln(1 + Length(LEntries) / LDf);
     for I := 0 to High(LEntries) do
     begin
       LTitleHits := CountPrefixOccurrences(LEntries[I].LTitle, LToken);
@@ -877,31 +1058,111 @@ begin
       LBodyHits := CountPrefixOccurrences(LEntries[I].LText, LToken);
       if LBodyHits > HELPCHAT_BODY_HITS_CAP then
         LBodyHits := HELPCHAT_BODY_HITS_CAP;
-      LRanking[I] := LRanking[I] + LIdf * LWeight *
+      LRank[I] := LRank[I] + LIdf[T] * LWeight *
         (LTitleHits * HELPCHAT_TITLE_WEIGHT + LKeywordHits * HELPCHAT_KEYWORD_WEIGHT + LBodyHits);
     end;
   end;
+
+  // What the title says beyond the single words: the words of the question
+  // only, never the hint.
+  if (LRanking * [hsrPhrase, hsrExactMatch] <> []) and (LQueryCount > 0) then
+    for I := 0 to High(LEntries) do
+    begin
+      if LScores[I] <= 0 then
+        Continue;
+      if hsrPhrase in LRanking then
+      begin
+        // Two consecutive words of the question next to each other in the title.
+        for T := 0 to LQueryCount - 2 do
+          if (LIdf[T] > 0) and (LIdf[T + 1] > 0) and
+             HasAdjacent(LEntries[I].TitleWords, LTokens[T], LTokens[T + 1]) then
+            LRank[I] := LRank[I] + HELPCHAT_PHRASE_WEIGHT * (LIdf[T] + LIdf[T + 1]);
+        // A title of two words or more written whole in the question: the
+        // page called like the question. Its last segment, for a title that
+        // is a breadcrumb.
+        K := Length(LEntries[I].LeafWords);
+        if K >= 2 then
+          for S := 0 to LQueryCount - K do
+          begin
+            LRun := True;
+            LRunIdf := 0;
+            for J := 0 to K - 1 do
+              if WordMatches(LEntries[I].LeafWords[J], LTokens[S + J]) then
+                LRunIdf := LRunIdf + LIdf[S + J]
+              else
+              begin
+                LRun := False;
+                Break;
+              end;
+            if LRun then
+            begin
+              LRank[I] := LRank[I] + HELPCHAT_TITLE_MATCH_WEIGHT * LRunIdf;
+              Break;
+            end;
+          end;
+      end;
+      if hsrExactMatch in LRanking then
+        // A word the stemming shortened ("loading" -> "loadi"), unchanged in
+        // the title: the page about it, not the one about a sibling word.
+        for T := 0 to LQueryCount - 1 do
+          if (LWords[T] <> LTokens[T]) and (LIdf[T] > 0) and
+             HasWord(LEntries[I].TitleWords, LWords[T]) then
+            LRank[I] := LRank[I] + HELPCHAT_EXACT_WEIGHT * LIdf[T];
+    end;
 
   LMax := AMaxPages;
   if LMax <= 0 then
     LMax := HELPCHAT_DEFAULT_MAX_PAGES;
 
+  // The page of the screen, when asked for: the one whose title is the hint
+  // or its last segment, the best ranked if several are.
+  LPinIdx := -1;
+  if (hsrPinHintPage in LRanking) and (Trim(AHint) <> '') then
+  begin
+    LHint := Trim(AHint).ToLower;
+    LHintLeaf := LHint;
+    I := LHintLeaf.LastIndexOf('>');
+    if I >= 0 then
+      LHintLeaf := Trim(LHintLeaf.Substring(I + 1));
+    for I := 0 to High(LEntries) do
+      if ((Trim(LEntries[I].LTitle) = LHint) or (LEntries[I].LLeaf = LHintLeaf)) and
+         ((LPinIdx < 0) or (LRank[I] > LRank[LPinIdx])) then
+        LPinIdx := I;
+  end;
+
   LPages := TList<THelpChatDocPage>.Create;
+  LLeaves := TList<string>.Create;
   try
     // Greedy top-N by ranking; a page must score > 0 to be relevant at all.
     for J := 1 to LMax do
     begin
       LBestIdx := -1;
-      LBestRank := 0;
-      for I := 0 to High(LEntries) do
-        if (not LUsed[I]) and (LScores[I] > 0) and (LRanking[I] > LBestRank) then
-        begin
-          LBestRank := LRanking[I];
-          LBestIdx := I;
-        end;
+      if (J = 1) and (LPinIdx >= 0) then
+        LBestIdx := LPinIdx
+      else
+      begin
+        // With distinct titles a title already taken waits until no other
+        // page scores; a title of nothing (a page with no leaf) never waits.
+        LDistinctOnly := hsrDistinctTitles in LRanking;
+        repeat
+          LBestRank := 0;
+          for I := 0 to High(LEntries) do
+            if (not LUsed[I]) and (LScores[I] > 0) and (LRank[I] > LBestRank) and
+               not (LDistinctOnly and (LEntries[I].LLeaf <> '') and
+                    LLeaves.Contains(LEntries[I].LLeaf)) then
+            begin
+              LBestRank := LRank[I];
+              LBestIdx := I;
+            end;
+          if (LBestIdx >= 0) or not LDistinctOnly then
+            Break;
+          LDistinctOnly := False;
+        until False;
+      end;
       if LBestIdx < 0 then
         Break;
       LUsed[LBestIdx] := True;
+      LLeaves.Add(LEntries[LBestIdx].LLeaf);
       LPage.Title := LEntries[LBestIdx].Title;
       LPage.Url := HelpChatJoinUrl(LBase, LEntries[LBestIdx].Url);
       LPage.Summary := LEntries[LBestIdx].Summary;
@@ -912,6 +1173,7 @@ begin
     end;
     Result := LPages.ToArray;
   finally
+    LLeaves.Free;
     LPages.Free;
   end;
 end;

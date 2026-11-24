@@ -80,6 +80,7 @@
         <DCCReference Include="..\source\HelpChatAI.Tests.Diagnostics.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Store.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.DocIndex.pas"/>
+        <DCCReference Include="..\source\HelpChatAI.Tests.SearchRanking.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.DocPages.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Html.pas"/>
         <DCCReference Include="..\source\HelpChatAI.Tests.Runner.pas"/>

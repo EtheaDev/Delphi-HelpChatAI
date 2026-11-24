@@ -45,7 +45,7 @@ uses
 
 const
   /// <summary>Library version (major.minor.release).</summary>
-  HELPCHAT_VERSION = '2.2.0';
+  HELPCHAT_VERSION = '2.3.0';
 
 type
   /// <summary>Author of a chat message.</summary>

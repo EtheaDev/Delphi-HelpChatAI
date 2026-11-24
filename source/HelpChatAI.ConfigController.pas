@@ -450,12 +450,20 @@ uses
   HelpChatAI.Theme,
   HelpChatAI.Messages,
   HelpChatAI.Provider,
-  HelpChatAI.Skills;
+  HelpChatAI.Skills,
+  HelpChatAI.DocIndex;
 
 const
   SKILL_NOT_REGISTERED_CAPTION = '%s (not registered here)';
   SKILL_NOT_REGISTERED_HINT = 'No skill of this name is registered in the IDE: it may be one ' +
     'the application registers, or a typo. It stays in the file as it is; untick it to remove it.';
+
+  SEARCH_RANKING_HINTS: array[THelpChatSearchRanking] of string = (
+    'Words of the question side by side in a title, or the whole title in the question, weigh more',
+    'A word unchanged in a title beats its stem: loading before loaded',
+    'Pages of different titles first, repeated titles only after',
+    'The words of the screen count once, and a long breadcrumb shares the weight of two',
+    'The page whose title is the screen is always the first one the model gets');
 
 /// <summary>Completes an entry of kind cvkSet: the names the file being
 /// edited or the settings in force name and nobody registered here are added
@@ -474,7 +482,17 @@ procedure CompleteSetEntry(var AEntry: THelpChatConfigEntry);
 var
   I: Integer;
   LActions: TArray<string>;
+  LMember: THelpChatSearchRanking;
 begin
+  if SameText(AEntry.Path, 'SearchRanking') then
+  begin
+    SetLength(AEntry.ChoiceHints, Length(AEntry.Choices));
+    for I := 0 to High(AEntry.Choices) do
+      for LMember := Low(THelpChatSearchRanking) to High(THelpChatSearchRanking) do
+        if SameText(AEntry.Choices[I], HELPCHAT_SEARCH_RANKING_NAMES[LMember]) then
+          AEntry.ChoiceHints[I] := SEARCH_RANKING_HINTS[LMember];
+    Exit;
+  end;
   if not SameText(AEntry.Path, 'Skills') then
     Exit;
   AddNamesOf(AEntry.Value);
@@ -526,7 +544,7 @@ type
   end;
 
 const
-  CATALOGUE_ITEMS: array[0..86] of TCatalogueItem = (
+  CATALOGUE_ITEMS: array[0..87] of TCatalogueItem = (
     (Path: 'AssistantName'; Caption: 'Name of the assistant'; Kind: cvkText;
       Pages: [ccpAppearance, ccpPrompt]; Hint: 'What the panel calls it and how the prompt opens; prevails over the property of the component'),
     (Path: 'Greeting'; Caption: 'Greeting'; Kind: cvkText;
@@ -613,6 +631,8 @@ const
       Pages: [ccpSettings]; Hint: 'The page reaches the application through a local channel'),
     (Path: 'Remote.TimeoutMs'; Caption: 'Remote: timeout'; Kind: cvkNumber;
       Pages: [ccpSettings]; Hint: 'In milliseconds'),
+    (Path: 'SearchRanking'; Caption: 'Search ranking'; Kind: cvkSet;
+      Pages: [ccpSettings]; Hint: 'What the search of the manual adds to the counting of the words'),
     (Path: 'Pdf.Enabled'; Caption: 'PDF from the panel'; Kind: cvkBoolean;
       Pages: [ccpDocuments]; Hint: 'The buttons that save an answer, the conversation or a page as PDF'),
     (Path: 'Pdf.Action'; Caption: 'PDF on request'; Kind: cvkBoolean;
@@ -1534,7 +1554,9 @@ begin
         Result := ['hide', 'top', 'bottom'];
     cvkSet:
       if SameText(APath, 'Skills') then
-        Result := HelpChatSkillNames;
+        Result := HelpChatSkillNames
+      else if SameText(APath, 'SearchRanking') then
+        Result := HelpChatSearchRankingToNames([Low(THelpChatSearchRanking)..High(THelpChatSearchRanking)]);
   end;
 end;
 

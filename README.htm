@@ -478,6 +478,17 @@ document - the last two of which write a real PDF with the WebView2 runtime of t
 and skip themselves where there is none.</p>
 <pre style="background-color:#FFFFFF;color:#000000;"><code>Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue</code></pre>
 <h2 id="release-notes">Release Notes</h2>
+<p>24 Nov 2026: ver. 2.3.0</p>
+<ul>
+<li><code>Settings.SearchRanking</code>: what the search of the manual adds to the counting of the words - phrases and titles written whole, exact words over their stems, distinct titles first, a long screen hint that cannot drown the question (on by default), the page of the screen always first (<code>pinHintPage</code>, off) (#10)</li>
+<li><code>OnSearchDocs</code> on both components: the last word on every search of the manual - reorder, drop or add pages, or answer from a retriever of the application (#10)</li>
+</ul>
+<p>24 Nov 2026: ver. 2.2.1</p>
+<ul>
+<li>The bubble opens the chat and brings it to the front at every click; it no longer closes it (the X and Escape do): a chat hidden behind a form opened over it made the click look like nothing happened</li>
+<li><code>BubbleSize</code> on both components: the diameter of the bubble, 44 by default, from 24 to 256; the icon grows with it</li>
+<li>VCL panel: <code>Color</code>, <code>ParentBackground</code>, <code>ParentColor</code> and <code>StyleElements</code> published on <code>TVclHelpChatAIPanel</code>; its background, and the one of the WebView2 before the page paints, is the background of the theme of the chat, so no grey or white flash shows before the page or while resizing (#9)</li>
+</ul>
 <p>22 Nov 2026: ver. 2.2.0</p>
 <ul>
 <li>The screen context follows the user by itself while the panel is open: built at every idle turn (the focus, then <code>OnGetContext</code>) and given to the chat as soon as it changes, and built again before every question; on Windows through a thread hook, so an application that assigns <code>Application.OnIdle</code> does not switch it off (<code>AutoCaptureContext</code>)</li>

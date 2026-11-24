@@ -107,6 +107,16 @@ function HelpChatFindVclStyleColors(const AStyleName: string; out AColors: THelp
 function HelpChatThemeFromVclStyle(const AStyleName: string = ''): THelpChatTheme;
 /// <summary>"#rrggbb" of a TColor (system colours resolved).</summary>
 function HelpChatColorToHex(const AColor: TColor): string;
+/// <summary>True when Windows is set to show the applications dark
+/// (<c>AppsUseLightTheme</c> = 0), which is what the WebView2 reports to a
+/// page as <c>prefers-color-scheme: dark</c>. False when the value is not
+/// there (Windows before 10 1809).</summary>
+function HelpChatWindowsAppsUseDarkTheme: Boolean;
+/// <summary>The background the page paints under <c>ATheme</c>, as a
+/// TColor: <c>Background</c>, else <c>Surface</c>, else - an empty theme -
+/// the default of the page, light or dark as Windows shows the applications.
+/// What the panel paints before the page has loaded.</summary>
+function HelpChatThemeBackgroundColor(const ATheme: THelpChatTheme): TColor;
 
 const
   /// <summary>The curated table, one row per VCL style Delphi ships (and
@@ -236,9 +246,53 @@ implementation
 
 uses
   Winapi.Windows,
+  System.Win.Registry,
   Vcl.Controls,   // StyleServices is inline: without this unit Delphi 10.4 reports H2443
   Vcl.Themes,
   Vcl.Forms;
+
+function HelpChatWindowsAppsUseDarkTheme: Boolean;
+var
+  LReg: TRegistry;
+begin
+  Result := False;
+  LReg := TRegistry.Create(KEY_READ);
+  try
+    try
+      LReg.RootKey := HKEY_CURRENT_USER;
+      if LReg.OpenKeyReadOnly('Software\Microsoft\Windows\CurrentVersion\Themes\Personalize') and
+        LReg.ValueExists('AppsUseLightTheme') then
+        Result := LReg.ReadInteger('AppsUseLightTheme') = 0;
+    except
+      Result := False;
+    end;
+  finally
+    LReg.Free;
+  end;
+end;
+
+function HelpChatThemeBackgroundColor(const ATheme: THelpChatTheme): TColor;
+var
+  LHex: string;
+  R, G, B: Integer;
+begin
+  LHex := HelpChatNormalizeColor(ATheme.Background);
+  if LHex = '' then
+    LHex := HelpChatNormalizeColor(ATheme.Surface);
+  if LHex = '' then
+  begin
+    // The page with no theme: the colours of panel.css, which follow
+    // prefers-color-scheme - the same as the built-in themes.
+    if HelpChatWindowsAppsUseDarkTheme then
+      LHex := THelpChatTheme.Dark.Background
+    else
+      LHex := THelpChatTheme.Light.Background;
+  end;
+  if HelpChatHexToRgb(LHex, R, G, B) then
+    Result := TColor(RGB(R, G, B))
+  else
+    Result := clWindow;
+end;
 
 function HelpChatColorToHex(const AColor: TColor): string;
 var

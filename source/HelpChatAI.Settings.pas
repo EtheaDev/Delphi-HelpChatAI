@@ -46,7 +46,8 @@ uses
   HelpChatAI.Messages,
   HelpChatAI.Log,
   HelpChatAI.Attachments,
-  HelpChatAI.Pdf;
+  HelpChatAI.Pdf,
+  HelpChatAI.DocIndex;
 
 const
   HELPCHAT_DEF_PROVIDER = 'stub';
@@ -294,6 +295,23 @@ type
   /// </summary>
   THelpChatBuildPromptEvent = procedure(Sender: TObject; const AContext: THelpChatContext;
     const ALanguage: THelpChatLanguage; var APrompt: string) of object;
+
+  /// <summary>
+  ///  The last word on a search of the documentation (issue #10).
+  ///  <c>APages</c> holds what the index found - the best <c>AMaxPages</c>
+  ///  pages for <c>AQuery</c> and <c>AHint</c>, best first - and the handler
+  ///  may reorder, drop, add or replace them: a page it adds should carry an
+  ///  <c>Excerpt</c>, which is what the model reads. <c>AIndex</c> is the
+  ///  index itself, to search again (more pages to re-rank, another query) or
+  ///  to list its <c>Pages</c>; a retriever of the application can ignore it
+  ///  and fill <c>APages</c> by itself. Every search goes through it: the one
+  ///  of the prompt, the one that decides a source line (empty hint), the
+  ///  documentation search provider and /search. Like the prompt handler it
+  ///  runs on a worker thread, and calls are serialized.
+  /// </summary>
+  THelpChatSearchDocsEvent = procedure(Sender: TObject; const AIndex: THelpChatDocIndex;
+    const AQuery, AHint: string; const AMaxPages: Integer;
+    var APages: TArray<THelpChatDocPage>) of object;
 
   /// <summary>
   ///  What every model provider needs, and in practice the only thing that
@@ -798,6 +816,9 @@ type
     FSecretSender: TObject;
     FOnBuildSystemPrompt: THelpChatBuildPromptEvent;
     FPromptSender: TObject;
+    FOnSearchDocs: THelpChatSearchDocsEvent;
+    FSearchSender: TObject;
+    FSearchRanking: THelpChatSearchRankings;
     FLogLevel: THelpChatLogLevel;
     FShowContext: THelpChatContextPosition;
     FOnLog: THelpChatLogEvent;
@@ -888,6 +909,20 @@ type
       write FOnBuildSystemPrompt;
     /// <summary>What the prompt handler sees as <c>Sender</c>.</summary>
     property PromptSender: TObject read FPromptSender;
+    /// <summary>Installs the handler that has the last word on a search of
+    /// the documentation, and the object it sees as <c>Sender</c>. Copied
+    /// by <c>Assign</c> like the prompt handler.</summary>
+    procedure SetSearchHandler(const AHandler: THelpChatSearchDocsEvent;
+      const ASender: TObject = nil);
+    /// <summary>APages as <see cref="OnSearchDocs" /> leaves it; unchanged
+    /// with no handler, and inside the IDE. Thread-safe: calls are
+    /// serialized.</summary>
+    procedure CustomizeSearch(const AIndex: THelpChatDocIndex; const AQuery, AHint: string;
+      const AMaxPages: Integer; var APages: TArray<THelpChatDocPage>);
+    /// <summary>See <see cref="THelpChatSearchDocsEvent" />.</summary>
+    property OnSearchDocs: THelpChatSearchDocsEvent read FOnSearchDocs write FOnSearchDocs;
+    /// <summary>What the search handler sees as <c>Sender</c>.</summary>
+    property SearchSender: TObject read FSearchSender;
 
     /// <summary>The first sentence of the prompt: <c>IdentityRule</c> with
     /// the name of the assistant (and now, for a rule written when it still
@@ -1188,6 +1223,16 @@ type
     /// searches with the question alone.</summary>
     property TranslateSearch: Boolean read FTranslateSearch write FTranslateSearch
       default HELPCHAT_DEF_TRANSLATE_SEARCH;
+    /// <summary>What the search of the documentation adds to the counting
+    /// of the words (issue #10): phrases and titles written whole, exact
+    /// words over their stems, distinct titles first, a long screen hint
+    /// that cannot drown the question, the page of the screen first. See
+    /// <see cref="THelpChatSearchRanking" />. Every member but
+    /// <c>hsrPinHintPage</c> by default; the empty set is the ranking of 2.2. In JSON an array of names
+    /// (<c>"SearchRanking": ["phrase", "exactMatch"]</c>), which replaces
+    /// the whole set.</summary>
+    property SearchRanking: THelpChatSearchRankings read FSearchRanking write FSearchRanking
+      default HELPCHAT_DEF_SEARCH_RANKING;
     /// <summary>How much the assistant tells <c>OnLogEvent</c>: llNone,
     /// llInfo (what happened, never what the user wrote), llDetail (how it
     /// was decided, the question included), llDebug (everything needed to
@@ -2232,6 +2277,7 @@ begin
   FNowRule := HELPCHAT_MODEL_DEF_NOW_RULE;
   FSearchTermsPrompt := HELPCHAT_MODEL_DEF_SEARCH_TERMS_PROMPT;
   FTranslateSearch := HELPCHAT_DEF_TRANSLATE_SEARCH;
+  FSearchRanking := HELPCHAT_DEF_SEARCH_RANKING;
   FLogLevel := HELPCHAT_DEF_LOG_LEVEL;
   FLanguageRule := HELPCHAT_MODEL_DEF_LANGUAGE_RULE;
   FDocLanguageRule := HELPCHAT_MODEL_DEF_DOC_LANGUAGE_RULE;
@@ -2506,6 +2552,33 @@ begin
   end;
 end;
 
+procedure THelpChatSettings.SetSearchHandler(const AHandler: THelpChatSearchDocsEvent;
+  const ASender: TObject);
+begin
+  FOnSearchDocs := AHandler;
+  FSearchSender := ASender;
+end;
+
+procedure THelpChatSettings.CustomizeSearch(const AIndex: THelpChatDocIndex;
+  const AQuery, AHint: string; const AMaxPages: Integer; var APages: TArray<THelpChatDocPage>);
+var
+  LSender: TObject;
+begin
+  // Inside the IDE the handler is code of the application, which does not
+  // run there.
+  if not Assigned(FOnSearchDocs) or HelpChatDesignTime then
+    Exit;
+  LSender := FSearchSender;
+  if LSender = nil then
+    LSender := Self;
+  FSecretLock.Enter;
+  try
+    FOnSearchDocs(LSender, AIndex, AQuery, AHint, AMaxPages, APages);
+  finally
+    FSecretLock.Leave;
+  end;
+end;
+
 function THelpChatSettings.ResolveIdentityRule(const AName, ANow: string): string;
 begin
   // Now is passed too: a rule written before 1.12 may still say it (%1:s),
@@ -2691,6 +2764,7 @@ begin
       FNowRule := LSource.FNowRule;
       FSearchTermsPrompt := LSource.FSearchTermsPrompt;
       FTranslateSearch := LSource.FTranslateSearch;
+      FSearchRanking := LSource.FSearchRanking;
       FLogLevel := LSource.FLogLevel;
       FShowContext := LSource.FShowContext;
       FOnLog := LSource.FOnLog;
@@ -2703,6 +2777,8 @@ begin
       FExpertiseRule := LSource.FExpertiseRule;
       FOnBuildSystemPrompt := LSource.FOnBuildSystemPrompt;
       FPromptSender := LSource.FPromptSender;
+      FOnSearchDocs := LSource.FOnSearchDocs;
+      FSearchSender := LSource.FSearchSender;
       FProvider := LSource.FProvider;
       FConfiguredProvider := LSource.FConfiguredProvider;
       FProviderFromModel := LSource.FProviderFromModel;
@@ -3012,6 +3088,10 @@ begin
   FNowRule := JsonStr(AObject, 'NowRule', FNowRule);
   FSearchTermsPrompt := JsonStr(AObject, 'SearchTermsPrompt', FSearchTermsPrompt);
   FTranslateSearch := JsonBool(AObject, 'TranslateSearch', FTranslateSearch);
+  // An array of names, or one string with commas; the whole set.
+  if JsonFind(AObject, 'SearchRanking') <> nil then
+    FSearchRanking := HelpChatNamesToSearchRanking(
+      SplitList(JsonStrings(JsonFind(AObject, 'SearchRanking'), '')));
   FLogLevel := HelpChatConfigToLogLevel(JsonStr(AObject, 'LogLevel', ''), FLogLevel);
   FShowContext := HelpChatConfigToContextPosition(JsonStr(AObject, 'ShowContext', ''),
     FShowContext);
@@ -3059,6 +3139,8 @@ end;
 function THelpChatSettings.SaveToJSON: string;
 var
   LRoot, LClaude, LSection, LRemote, LAttachments, LPdf: TJSONObject;
+  LRanking: TJSONArray;
+  LName: string;
 begin
   LRoot := TJSONObject.Create;
   try
@@ -3093,6 +3175,10 @@ begin
     LRoot.AddPair('Languages', LanguagesToJson(FLanguages));
     LRoot.AddPair('DocLanguage', LanguageToConfig(FDocLanguage));
     LRoot.AddPair('TranslateSearch', TJSONBool.Create(FTranslateSearch));
+    LRanking := TJSONArray.Create;
+    for LName in HelpChatSearchRankingToNames(FSearchRanking) do
+      LRanking.Add(LName);
+    LRoot.AddPair('SearchRanking', LRanking);
     LRoot.AddPair('LogLevel', HelpChatLogLevelToConfig(FLogLevel));
     LRoot.AddPair('ShowContext', HelpChatContextPositionToConfig(FShowContext));
     LRoot.AddPair('Greeting', FGreeting);

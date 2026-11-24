@@ -50,10 +50,12 @@ uses
 //   no model at all: the ranking of the real lexical search for every question,
 //   as JSON (default: Test\LLMBench\results\retrieval-lexical.json). The input of
 //   Test\LLMBench\embeddings\embed_bench.py
+//   --ranking=none|phrase,exactMatch,distinctTitles,normalizeHint,pinHintPage
+//   the Ranking of the index (default: the library's; none = the ranking of 2.2)
 
 var
   LRunner: TBenchRunner;
-  LRoot, LOut, LArg, LRetrieval, LSuite, LJudge, LRejudge, LOllama, LTermsFile: string;
+  LRoot, LOut, LArg, LRetrieval, LRanking, LSuite, LJudge, LRejudge, LOllama, LTermsFile: string;
   LNoCache: Boolean;
   LOnly: TArray<string>;
   I: Integer;
@@ -73,6 +75,8 @@ begin
         LOut := LArg.Substring(6)
       else if LArg.StartsWith('--retrieval=', True) then
         LRetrieval := LArg.Substring(12)
+      else if LArg.StartsWith('--ranking=', True) then
+        LRanking := LArg.Substring(10)
       else if LArg.StartsWith('--terms=', True) then
         LTermsFile := LArg.Substring(8)
       else if LArg.StartsWith('--suite=', True) then
@@ -100,7 +104,7 @@ begin
         LOut := TPath.Combine(LRoot, 'Test\LLMBench\results\retrieval-lexical.json');
       TDirectory.CreateDirectory(TPath.GetDirectoryName(LOut));
       RunRetrieval(TPath.Combine(LRoot, 'CRM Demo\Help\help-index.json'),
-        TPath.GetFullPath(LRetrieval), LOut);
+        TPath.GetFullPath(LRetrieval), LOut, LRanking);
       Exit;
     end;
     if LTermsFile <> '' then

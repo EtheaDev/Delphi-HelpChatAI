@@ -193,8 +193,13 @@ function FindRepoRoot: string;
 ///  English search terms}, written by embeddings\translate_queries.py) is
 ///  searched again for each: the question plus the terms, with and without
 ///  the hint ("translated": {translator: {ranking, rankingNoHint}}).
+///  ARanking is the <c>Ranking</c> of the index: empty = its default,
+///  "none" = the ranking of 2.2, else the names of a configuration file
+///  (phrase, exactMatch, distinctTitles, normalizeHint, pinHintPage) joined
+///  by commas.
 /// </summary>
-procedure RunRetrieval(const AIndexFile, AQuestionsFile, AOutFile: string);
+procedure RunRetrieval(const AIndexFile, AQuestionsFile, AOutFile: string;
+  const ARanking: string = '');
 
 implementation
 
@@ -237,7 +242,8 @@ begin
   raise Exception.Create('Cannot locate the repository root (CRM Demo\Help\help-index.json)');
 end;
 
-procedure RunRetrieval(const AIndexFile, AQuestionsFile, AOutFile: string);
+procedure RunRetrieval(const AIndexFile, AQuestionsFile, AOutFile: string;
+  const ARanking: string);
 const
   // Every page that scores at all: the ranking, not only the prompt's top 3.
   ALL_PAGES = 1000;
@@ -275,6 +281,8 @@ begin
   LKeep := LIndex; // reference counted: the interface frees it
   if not LIndex.LoadFromFile(AIndexFile) then
     raise Exception.Create(LIndex.LastError);
+  if ARanking <> '' then
+    LIndex.Ranking := HelpChatNamesToSearchRanking(ARanking.Split([',']));
   LInput := TJSONObject.ParseJSONValue(TFile.ReadAllText(AQuestionsFile, TEncoding.UTF8)) as TJSONObject;
   if LInput = nil then
     raise Exception.CreateFmt('Not a JSON object: %s', [AQuestionsFile]);

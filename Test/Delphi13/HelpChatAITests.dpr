@@ -36,6 +36,7 @@ uses
   HelpChatAI.Tests.Diagnostics in '..\source\HelpChatAI.Tests.Diagnostics.pas',
   HelpChatAI.Tests.Store in '..\source\HelpChatAI.Tests.Store.pas',
   HelpChatAI.Tests.DocIndex in '..\source\HelpChatAI.Tests.DocIndex.pas',
+  HelpChatAI.Tests.SearchRanking in '..\source\HelpChatAI.Tests.SearchRanking.pas',
   HelpChatAI.Tests.DocPages in '..\source\HelpChatAI.Tests.DocPages.pas',
   HelpChatAI.Tests.Html in '..\source\HelpChatAI.Tests.Html.pas',
   HelpChatAI.Tests.Runner in '..\source\HelpChatAI.Tests.Runner.pas',

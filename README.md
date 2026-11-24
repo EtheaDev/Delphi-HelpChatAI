@@ -291,6 +291,15 @@ Test\Bin\Win32\HelpChatAITests.exe --exitbehavior:Continue
 
 ## Release Notes ##
 
+24 Nov 2026: ver. 2.3.0
+- `Settings.SearchRanking`: what the search of the manual adds to the counting of the words - phrases and titles written whole, exact words over their stems, distinct titles first, a long screen hint that cannot drown the question (on by default), the page of the screen always first (`pinHintPage`, off) (#10)
+- `OnSearchDocs` on both components: the last word on every search of the manual - reorder, drop or add pages, or answer from a retriever of the application (#10)
+
+24 Nov 2026: ver. 2.2.1
+- The bubble opens the chat and brings it to the front at every click; it no longer closes it (the X and Escape do): a chat hidden behind a form opened over it made the click look like nothing happened
+- `BubbleSize` on both components: the diameter of the bubble, 44 by default, from 24 to 256; the icon grows with it
+- VCL panel: `Color`, `ParentBackground`, `ParentColor` and `StyleElements` published on `TVclHelpChatAIPanel`; its background, and the one of the WebView2 before the page paints, is the background of the theme of the chat, so no grey or white flash shows before the page or while resizing (#9)
+
 22 Nov 2026: ver. 2.2.0
 - The screen context follows the user by itself while the panel is open: built at every idle turn (the focus, then `OnGetContext`) and given to the chat as soon as it changes, and built again before every question; on Windows through a thread hook, so an application that assigns `Application.OnIdle` does not switch it off (`AutoCaptureContext`)
 - `RefreshContext` on both components: tells the engine what the screen shows now, without opening the panel or moving the focus (#4)
